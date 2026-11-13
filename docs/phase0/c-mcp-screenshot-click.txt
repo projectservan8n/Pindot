@@ -1,0 +1,30 @@
+# spike (c), 2026-11-14 07:45 PST: interactive claude uses our MCP server to screenshot and click
+# run: test-target window at (300,250) pt, button at x 350-690, y 330-420 pt; then
+#   env -i ... ./target/debug/spike_brain --desktop --model haiku --accept-trust --prompt '<below>'
+claude: /Users/opusautomationsmacmini/.local/bin/claude (2.1.325 (Claude Code))
+parent env: ANTHROPIC_API_KEY unset
+2026-11-13T23:44:55.423289Z  INFO Deskhand server on http://127.0.0.1:55961 (MCP at /mcp)
+server: http://127.0.0.1:55961/mcp
+cwd: /Users/opusautomationsmacmini/deskhand/.spike-cwd
+args: --session-id b5dcf27b-03d7-4a8c-b26e-3b16a98243b1 --mcp-config /Users/opusautomationsmacmini/Library/Application Support/Deskhand/claude-mcp.json --strict-mcp-config --settings /Users/opusautomationsmacmini/Library/Application Support/Deskhand/claude-settings.json --model haiku --allowedTools mcp__desktop
+spawned interactive claude, pid Some(8770), session b5dcf27b-03d7-4a8c-b26e-3b16a98243b1
+child env: ANTHROPIC_API_KEY blank; parent-session vars present: []; TERM TERM=xterm-256color
+TUI ready after 2.2s; typing prompt: Take a screenshot with the desktop tool, then click the button labelled Deskhand Test Button, then reply with just: done
+tool call: screenshot Display 0 of 1 (Display #5409), image 1280x720 px. Click coordinates are pixels in this image.
+overlay: AI cursor to (519, 374) pt
+2026-11-13T23:45:03.121029Z  INFO The application has the permission to simulate input
+tool call: click Clicked Left x1 at (346, 249) in the screenshot = screen point (519, 374).
+2026-11-13T23:45:04.091536Z  INFO Stop hook received session=b5dcf27b-03d7-4a8c-b26e-3b16a98243b1
+Stop hook after 6.3s: last_assistant_message = Some("done")
+transcript: /Users/opusautomationsmacmini/.claude/projects/-Users-opusautomationsmacmini-deskhand--spike-cwd/b5dcf27b-03d7-4a8c-b26e-3b16a98243b1.jsonl
+transcript prompt: Some("Take a screenshot with the desktop tool, then click the button labelled Deskhand Test Button, then reply with just: done")
+transcript final text: Some("done")
+transcript tool calls: ["ToolSearch", "mcp__desktop__screenshot", "mcp__desktop__click"]
+hook and transcript agree: true
+kill: 8770: No such process
+child claude still running after /exit: Some(false)
+RESULT PASS
+
+## test-target log
+1794613488.1749392 READY pid=8335 button_global_topleft=350,330,340,90
+1794613503.238307 CLICK 1

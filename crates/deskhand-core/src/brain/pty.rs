@@ -149,9 +149,15 @@ pub fn strip_ansi(input: &[u8]) -> String {
                         break;
                     }
                 }
-                if final_byte == Some('C') {
+                // Cursor-forward (C) and cursor-to-column (G) stand in for spaces.
+                if matches!(final_byte, Some('C') | Some('G')) {
                     out.push(' ');
                 }
+            }
+            // Charset designation, e.g. ESC ( B: three bytes.
+            Some('(') | Some(')') | Some('*') | Some('+') => {
+                it.next();
+                it.next();
             }
             Some(']') => {
                 it.next();
@@ -208,6 +214,9 @@ impl ClaudeSession {
 
         let out = Arc::new(Mutex::new(OutBuf::default()));
         let out_r = out.clone();
+        // Debug aid: DESKHAND_PTY_LOG=/path appends the raw TUI output there.
+        let mut raw_log = std::env::var_os("DESKHAND_PTY_LOG")
+            .and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok());
         let reader_thread = thread::Builder::new().name("claude-pty-reader".into()).spawn(move || {
             let mut buf = [0u8; 8192];
             loop {
@@ -217,6 +226,9 @@ impl ClaudeSession {
                         break;
                     }
                     Ok(n) => {
+                        if let Some(f) = raw_log.as_mut() {
+                            let _ = f.write_all(&buf[..n]);
+                        }
                         let mut o = out_r.lock().unwrap();
                         let now = Instant::now();
                         o.first.get_or_insert(now);
@@ -284,11 +296,11 @@ impl ClaudeSession {
                 if !accept_trust {
                     bail!("claude is asking whether to trust the working folder; refusing to answer without accept_trust");
                 }
-                // Let the dialog finish drawing, then pick the default ("Yes").
+                // Let the dialog finish drawing, then select "Yes" explicitly:
+                // in 2.1.3xx the default (first) option is "No, exit".
                 thread::sleep(Duration::from_millis(600));
-                self.write_raw(b"\r")?;
-                self.scan_from = self.out.lock().unwrap().total;
-                tracing::info!("answered the folder-trust dialog");
+                self.choose_trust_yes()?;
+                tracing::info!("answered the folder-trust dialog: Yes, I trust this folder");
                 continue;
             }
             let (first, last) = {
@@ -302,6 +314,29 @@ impl ClaudeSession {
                 bail!("claude did not become ready in {timeout:?}. Last output:\n{}", self.tail(1500));
             }
         }
+    }
+
+    /// Move the dialog's `❯` marker to the "Yes" option and press Enter.
+    /// Never presses Enter unless the marked option starts with "yes", so a
+    /// reordered dialog can't make us pick "No, exit" (or anything else).
+    fn choose_trust_yes(&mut self) -> Result<()> {
+        for _ in 0..4 {
+            let text = squash(&self.screen_text());
+            let selected = text.rfind('❯').map(|i| text[i + '❯'.len_utf8()..].to_string());
+            match selected {
+                Some(s) if s.starts_with("yes") => {
+                    self.scan_from = self.out.lock().unwrap().total;
+                    return self.write_raw(b"\r");
+                }
+                Some(_) => {
+                    self.scan_from = self.out.lock().unwrap().total;
+                    self.write_raw(b"\x1b[B")?;
+                    thread::sleep(Duration::from_millis(400));
+                }
+                None => break,
+            }
+        }
+        bail!("could not select \"Yes, I trust this folder\" in the trust dialog. Screen:\n{}", self.tail(800))
     }
 
     fn write_raw(&mut self, bytes: &[u8]) -> Result<()> {
@@ -366,9 +401,12 @@ mod tests {
 
     #[test]
     fn strips_csi_osc_and_turns_cursor_forward_into_space() {
-        let s = strip_ansi(b"\x1b[1mNot\x1b[1Clogged\x1b[0m in\x1b]0;title\x07!");
+        let s = strip_ansi(b"\x1b[1mNot\x1b[1Clogged\x1b[0m in\x1b]0;title\x07!\x1b(B");
         assert_eq!(s, "Not logged in!");
         assert!(squash(&s).contains("notloggedin"));
+        // 2.1.3xx positions words with CSI n G (cursor to column).
+        let s = strip_ansi("\x1b[4GNo,\x1b[8Gexit\r\n\x1b[2G\x1b[38;2;1;2;3m❯\x1b[4GYes,\x1b[9GI".as_bytes());
+        assert_eq!(squash(&s), "no,exit❯yes,i");
     }
 
     #[test]

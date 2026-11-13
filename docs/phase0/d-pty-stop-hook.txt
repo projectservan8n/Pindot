@@ -1,0 +1,23 @@
+# spike (d), 2026-11-14 07:44 PST: interactive claude in a PTY, Stop hook + transcript
+# run: env -i ... ANTHROPIC_API_KEY=deskhand-blank-test ./target/debug/spike_brain --prompt 'Reply with exactly the word: pong' --model haiku --accept-trust
+# TUI header seen in the PTY: 'Claude Code v2.1.325 / Haiku 5.5 with xhigh effort · Claude Ultra' (subscription login, no API key)
+claude: /Users/opusautomationsmacmini/.local/bin/claude (2.1.325 (Claude Code))
+parent env: ANTHROPIC_API_KEY set (must be blanked in child)
+2026-11-13T23:44:20.025374Z  INFO Deskhand server on http://127.0.0.1:55913 (MCP at /mcp)
+server: http://127.0.0.1:55913/mcp
+cwd: /Users/opusautomationsmacmini/deskhand/.spike-cwd
+args: --session-id ad342c4f-641c-4153-b528-92ed03b31b85 --settings /Users/opusautomationsmacmini/Library/Application Support/Deskhand/claude-settings.json --model haiku
+spawned interactive claude, pid Some(6789), session ad342c4f-641c-4153-b528-92ed03b31b85
+child env: ANTHROPIC_API_KEY blank; parent-session vars present: []; TERM TERM=xterm-256color
+2026-11-13T23:44:21.447838Z  INFO answered the folder-trust dialog: Yes, I trust this folder
+TUI ready after 5.4s; typing prompt: Reply with exactly the word: pong
+2026-11-13T23:44:27.321487Z  INFO Stop hook received session=ad342c4f-641c-4153-b528-92ed03b31b85
+Stop hook after 1.9s: last_assistant_message = Some("pong")
+transcript: /Users/opusautomationsmacmini/.claude/projects/-Users-opusautomationsmacmini-deskhand--spike-cwd/ad342c4f-641c-4153-b528-92ed03b31b85.jsonl
+transcript prompt: Some("Reply with exactly the word: pong")
+transcript final text: Some("pong")
+transcript tool calls: []
+hook and transcript agree: true
+kill: 6789: No such process
+child claude still running after /exit: Some(false)
+RESULT PASS
