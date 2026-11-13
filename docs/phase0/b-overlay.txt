@@ -1,0 +1,116 @@
+Spike (b): AI-cursor overlay (NSPanel via tauri-nspanel 2.1.1, Tauri 2.12.5)
+Run 14 Nov 2026 on the Mac mini (macOS 26.5, one display "Display #5409", 1920x1080 pt, scale 1).
+Harness: launch spikes/test-target (our own window) with --activate, then
+  target/debug/deskhand --demo --exit-after 40 [--capturable]
+under a clean env, take /usr/sbin/screencapture frames every ~0.3 s, find the
+cursor's pink (#ff2d95) pixels, then call the MCP click tool on the test button
+through the overlay (spikes/mcp-call.py screenshot + click).
+
+== Run 1: --capturable (sharingType left alone so screenshots can see the cursor)
+  0.00s front before: "LSDisplayName"="Google Chrome"
+  1.52s front with test target: "LSDisplayName"="test-target"
+  1.69s baseline pink px: 152
+  1.95s monitor 0: [0.0, 0.0, 1920.0, 1080.0] deskhand pid 53456
+  1.96s deskhand lsappinfo: "ApplicationType"="UIElement"
+  1.96s front after app start: "LSDisplayName"="test-target"
+ 19.51s front after demo: "LSDisplayName"="test-target"
+ 22.58s mcp-call: initialize: {'name': 'deskhand', 'version': '0.0.1'}
+screenshot: image image/jpeg 127103 bytes
+screenshot: saved to /tmp/dh-b/cap-mcpshot.jpg
+screenshot: Display 0 of 1 (Display #5409), image 1280x720 px. Click coordinates are pixels in this image.
+click: Clicked Left x1 at (347, 250) in the screenshot = screen point (520, 375). 
+ 22.73s after click: tip~ (521, 380) pink px 793 | front: "LSDisplayName"="test-target"
+ 22.75s pink px in our MCP screenshot (cursor was at demo centre): 1276
+ 23.33s target log: 1794614152.82753 READY pid=53356 button_global_topleft=350,330,340,90 | 1794614175.184348 CLICK 1
+ 23.39s exit codes app/target: -15 -15
+
+Demo commands (app log, unix time):
+1794614156.206 demo: monitor 0 centre -> (960, 540) over 360 ms
+1794614157.834 demo: monitor 0 top-left -> (60, 60) over 769 ms
+1794614159.872 demo: monitor 0 top-right -> (1860, 60) over 1120 ms
+1794614162.194 demo: monitor 0 bottom-right -> (1860, 1020) over 742 ms
+1794614164.207 demo: monitor 0 bottom-left -> (60, 1020) over 1120 ms
+1794614166.596 demo: monitor 0 centre -> (960, 540) over 769 ms
+
+Cursor tip found in each frame (pt, +-8; t = seconds since app launch). Holds sit on
+the targets (960,540) (60,60) (1860,60) (1860,1020) (60,1020); the frames between
+holds are mid-flight positions, so the cursor glides rather than jumps:
+frame t+ 0.29s pink_px= 50 tip~(275, 1011)
+frame t+ 0.62s pink_px= 0 tip~None
+frame t+ 0.96s pink_px= 0 tip~None
+frame t+ 1.22s pink_px= 0 tip~None
+frame t+ 1.52s pink_px= 0 tip~None
+frame t+ 1.85s pink_px= 2685 tip~(961, 548)
+frame t+ 2.16s pink_px= 2690 tip~(961, 548)
+frame t+ 2.50s pink_px= 2690 tip~(961, 548)
+frame t+ 2.84s pink_px= 2690 tip~(961, 548)
+frame t+ 3.14s pink_px= 2690 tip~(961, 548)
+frame t+ 3.48s pink_px= 2530 tip~(945, 540)
+frame t+ 3.76s pink_px= 2762 tip~(359, 227)
+frame t+ 4.05s pink_px= 2768 tip~(61, 68)
+frame t+ 4.35s pink_px= 2768 tip~(61, 68)
+frame t+ 4.63s pink_px= 2768 tip~(61, 68)
+frame t+ 4.94s pink_px= 2768 tip~(61, 68)
+frame t+ 5.29s pink_px= 2768 tip~(61, 68)
+frame t+ 5.64s pink_px= 2872 tip~(150, 68)
+frame t+ 5.97s pink_px= 2822 tip~(1254, 69)
+frame t+ 6.33s pink_px= 912 tip~(1847, 66)
+frame t+ 6.64s pink_px= 721 tip~(1860, 65)
+frame t+ 6.97s pink_px= 721 tip~(1860, 65)
+frame t+ 7.30s pink_px= 721 tip~(1860, 65)
+frame t+ 7.64s pink_px= 721 tip~(1860, 65)
+frame t+ 7.96s pink_px= 682 tip~(1860, 232)
+frame t+ 8.28s pink_px= 668 tip~(1860, 1001)
+frame t+ 8.59s pink_px= 723 tip~(1860, 1025)
+frame t+ 8.93s pink_px= 723 tip~(1860, 1025)
+frame t+ 9.26s pink_px= 723 tip~(1860, 1025)
+frame t+ 9.54s pink_px= 723 tip~(1860, 1025)
+frame t+ 9.87s pink_px= 1028 tip~(1842, 1026)
+frame t+10.20s pink_px= 3102 tip~(1205, 1029)
+frame t+10.53s pink_px= 3014 tip~(156, 1029)
+frame t+10.84s pink_px= 3116 tip~(61, 1029)
+frame t+11.20s pink_px= 3116 tip~(61, 1029)
+frame t+11.54s pink_px= 3116 tip~(61, 1029)
+frame t+11.89s pink_px= 3116 tip~(61, 1029)
+frame t+12.20s pink_px= 2465 tip~(68, 1024)
+frame t+12.55s pink_px= 2650 tip~(760, 655)
+frame t+12.89s pink_px= 2690 tip~(961, 548)
+frame t+13.24s pink_px= 2690 tip~(961, 548)
+frame t+13.58s pink_px= 2690 tip~(961, 548)
+frame t+13.92s pink_px= 2690 tip~(961, 548)
+frame t+14.19s pink_px= 2690 tip~(961, 548)
+frame t+14.54s pink_px= 2690 tip~(961, 548)
+frame t+14.83s pink_px= 2690 tip~(961, 548)
+frame t+15.16s pink_px= 2690 tip~(961, 548)
+frame t+15.51s pink_px= 2690 tip~(961, 548)
+frame t+15.84s pink_px= 2690 tip~(961, 548)
+frame t+16.14s pink_px= 2690 tip~(961, 548)
+frame t+16.48s pink_px= 2690 tip~(961, 548)
+frame t+16.78s pink_px= 2690 tip~(961, 548)
+frame t+17.12s pink_px= 2690 tip~(961, 548)
+frame t+17.47s pink_px= 2690 tip~(961, 548)
+
+== Run 2: default (NSWindowSharingType::None, the shipping setting)
+  0.00s front before: "LSDisplayName"="Google Chrome"
+  1.59s front with test target: "LSDisplayName"="test-target"
+  1.77s baseline pink px: 152
+  3.08s monitor 0: [0.0, 0.0, 1920.0, 1080.0] deskhand pid 49932
+  3.09s deskhand lsappinfo: "ApplicationType"="UIElement"
+  3.09s front after app start: "LSDisplayName"="test-target"
+ 19.30s front after demo: "LSDisplayName"="test-target"
+ 22.25s mcp-call: initialize: {'name': 'deskhand', 'version': '0.0.1'}
+screenshot: image image/jpeg 126643 bytes
+screenshot: saved to /tmp/dh-b/prot-mcpshot.jpg
+screenshot: Display 0 of 1 (Display #5409), image 1280x720 px. Click coordinates are pixels in this image.
+click: Clicked Left x1 at (347, 250) in the screenshot = screen point (520, 375). 
+ 22.41s after click: tip~ None pink px 0 | front: "LSDisplayName"="test-target"
+ 22.43s pink px in our MCP screenshot (cursor was at demo centre): 178
+ 22.99s target log: 1794614090.0504751 READY pid=49831 button_global_topleft=350,330,340,90 | 1794614112.0667381 CLICK 1
+ 23.02s exit codes app/target: -15 -15
+Frames with zero cursor pixels during the demo: 49 of 50 (the one non-zero frame is
+before the demo starts and is a red logo already on screen; it also shows in run 1 at t+0.29s).
+Our own MCP screenshot (xcap) with the cursor parked at the centre: 19 pink px near the
+centre in run 2 (a red logo in the page behind) vs 723 in run 1. Checked by eye: cursor and
+label visible in the run 1 crop, absent in the run 2 crop. So the model never sees the AI cursor.
+
+Result: PASS on one display. Not tested: a second monitor (only one is attached).

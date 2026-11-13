@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Deskhand overlay</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  body { pointer-events: none; user-select: none; -webkit-user-select: none; }
+  #cursor { position: absolute; left: 0; top: 0; opacity: 0; transition: opacity 160ms ease; will-change: transform; }
+  #cursor svg { display: block; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45)); }
+  #ring { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; border-radius: 50%;
+          border: 3px solid #ff2d95; opacity: 0; }
+  body.acting #ring { animation: pulse 700ms ease-out infinite; }
+  @keyframes pulse { from { transform: scale(0.4); opacity: 0.95; } to { transform: scale(1.6); opacity: 0; } }
+  #label { position: absolute; left: 24px; top: 26px; display: none; white-space: nowrap;
+           font: 600 12px -apple-system, "Segoe UI", sans-serif; color: #fff; background: #ff2d95;
+           padding: 3px 8px; border-radius: 9px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
+</style>
+</head>
+<body>
+  <div id="cursor">
+    <div id="ring"></div>
+    <!-- Arrow tip is at (0,0) of #cursor, so translate() puts the tip on the target. -->
+    <svg width="30" height="34" viewBox="0 0 30 34">
+      <path d="M2 2 L2 27 L8.5 21 L13 31 L18 29 L13.5 19.5 L22 19.5 Z"
+            fill="#ff2d95" stroke="#ffffff" stroke-width="2.2" stroke-linejoin="round"/>
+    </svg>
+    <div id="label"></div>
+  </div>
+  <script src="overlay.js"></script>
+</body>
+</html>

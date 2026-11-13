@@ -31,9 +31,8 @@ objc2 = "0.6.5"
 objc2-core-graphics = "0.3.2"
 objc2-core-foundation = "0.3.2"
 
-[target.'cfg(windows)'.dependencies]
-xcap = "0.9.10"
-enigo = "0.6.1"
+# Windows: stubs only in Phase 0. Phase 1 adds xcap and enigo here
+# (see docs/windows-test-checklist.md).
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
