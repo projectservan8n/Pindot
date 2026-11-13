@@ -1,0 +1,17 @@
+# spike (a) selftest, 2026-11-14 07:40 PST, run under env -i from the agent's shell
+## spike_hotkey selftest --control
+pid 93125
+permission Accessibility: granted
+permission InputMonitoring: granted
+permission ScreenRecording: granted
+AppleFnUsageType ("Press Globe key to"): unset (OS default)
+watcher tap (listen-only, annotated session level) running
+SWALLOW run: our tap reported [Down, Up]; watcher saw 0 synthetic Fn events
+CONTROL run (pass-through): our tap reported [Down, Up]; watcher saw ["down", "up"]
+taps stopped
+RESULT PASS (swallow ok, control ok)
+
+## test-target log (frontmost app; logs every flagsChanged it receives)
+1794613213.822733 READY pid=91442 button_global_topleft=350,330,340,90
+1794613220.810995 FLAGS keycode=63 fn=true
+1794613221.1140919 FLAGS keycode=63 fn=false
