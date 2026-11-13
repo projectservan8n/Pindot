@@ -1,0 +1,30 @@
+# Build output
+/target/
+**/target/
+node_modules/
+dist/
+app/src-tauri/gen/schemas/
+
+# Scratch working dir for nested claude test sessions
+/.spike-cwd/
+
+# Never commit secrets or runtime state. The MCP bearer token and the
+# claude config files that embed it live in the per-user data dir
+# (~/Library/Application Support/Deskhand), never here.
+mcp-token
+*.token
+claude-mcp.json
+claude-settings.json
+.env
+.env.*
+
+# Model weights (Whisper etc.) are downloaded at runtime, never committed
+*.bin
+*.gguf
+*.ggml
+*.onnx
+
+# Local test artefacts
+spikes/test-target/test-target
+spikes/test-target/*.log
+.DS_Store
