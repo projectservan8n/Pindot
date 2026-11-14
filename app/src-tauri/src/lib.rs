@@ -12,7 +12,7 @@
 //! focus) when something is missing. `--voice` starts hold-to-talk even
 //! before Setup is finished. `--activity` / `--setup` open that view.
 //! `--capturable` lets screenshots see Deskhand's own windows (evidence
-//! only). `--demo` moves the AI cursor around each monitor. Ctrl+C or SIGTERM
+//! only). `--demo` shows every AI cursor action on each monitor. Ctrl+C or SIGTERM
 //! quit cleanly.
 //!
 //! TEST BUILDS ONLY (`--features test-switches`, never in a release build):
@@ -40,7 +40,7 @@ use std::time::Duration;
 
 use deskhand_core::brain::config::{write_hook_settings, write_mcp_config};
 use deskhand_core::paths::{activity_log_path, load_or_create_token};
-use deskhand_core::platform::{Overlay, Point};
+use deskhand_core::platform::{CursorAction, KeyCombo, MouseButton, Overlay, Point, drag_travel_ms};
 use deskhand_core::server::activity::ActivityLog;
 use deskhand_core::server::control::ControlEvent;
 use deskhand_core::server::{RunningServer, ServerDeps, ServerState, start};
@@ -262,7 +262,7 @@ pub fn run() {
                     .spawn(move || startup_checks(&handle, explicit_view))?;
             }
             if args.demo {
-                println!("NOTE: --demo: moving the AI cursor around each monitor");
+                println!("NOTE: --demo: showing every AI cursor action on each monitor");
                 let ov = ov.clone();
                 let monitors = monitors.clone();
                 std::thread::spawn(move || run_demo(&*ov, &monitors));
@@ -542,22 +542,42 @@ fn spawn_esc_self_test(state: Arc<ServerState>, ms: u64) {
 /// Centre, then each corner (inset 60 pt), then centre, on every monitor.
 fn run_demo(ov: &dyn Overlay, monitors: &[MonitorRect]) {
     std::thread::sleep(Duration::from_millis(1500)); // let the webviews load
+    let stamp = || std::time::UNIX_EPOCH.elapsed().map(|d| d.as_secs_f64()).unwrap_or(0.0);
+    // One showcase of every kind of action per monitor; the glide between
+    // monitors crosses the edge. Nothing is clicked or typed for real.
     for (i, m) in monitors.iter().enumerate() {
-        let inset = 60.0;
-        let points = [
-            ("centre", m.x + m.width / 2.0, m.y + m.height / 2.0),
-            ("top-left", m.x + inset, m.y + inset),
-            ("top-right", m.x + m.width - inset, m.y + inset),
-            ("bottom-right", m.x + m.width - inset, m.y + m.height - inset),
-            ("bottom-left", m.x + inset, m.y + m.height - inset),
-            ("centre", m.x + m.width / 2.0, m.y + m.height / 2.0),
-        ];
-        for (name, x, y) in points {
-            let d = ov.move_cursor(Point::new(x, y), Some(format!("demo: monitor {i} {name}")));
-            let t = std::time::UNIX_EPOCH.elapsed().map(|d| d.as_secs_f64()).unwrap_or(0.0);
-            println!("{t:.3} demo: monitor {i} {name} -> ({x:.0}, {y:.0}) over {} ms", d.as_millis());
-            std::thread::sleep(d + Duration::from_millis(1200));
-        }
+        let at = |fx: f64, fy: f64| Point::new(m.x + m.width * fx, m.y + m.height * fy);
+        let go = |p: Point, label: &str| {
+            let d = ov.move_cursor(p, Some(label.to_string()));
+            std::thread::sleep(d);
+        };
+        let act = |name: &str, a: CursorAction, hold: u64| {
+            println!("{:.3} demo: monitor {i} {name}", stamp());
+            ov.set_acting(true);
+            ov.action(&a);
+            std::thread::sleep(Duration::from_millis(hold));
+            ov.set_acting(false);
+            std::thread::sleep(Duration::from_millis(500));
+        };
+        go(at(0.3, 0.35), "New Document");
+        act("click", CursorAction::Click { button: MouseButton::Left, count: 1 }, 900);
+        go(at(0.62, 0.3), "Save");
+        act("press", CursorAction::Press, 900);
+        go(at(0.7, 0.55), "(812, 344)");
+        act("right-click", CursorAction::Click { button: MouseButton::Right, count: 1 }, 900);
+        go(at(0.45, 0.62), "Inbox");
+        act("double-click", CursorAction::Click { button: MouseButton::Left, count: 2 }, 900);
+        go(at(0.25, 0.6), "scroll");
+        act("scroll", CursorAction::Scroll { dx: 0, dy: 5 }, 900);
+        let (from, to) = (at(0.25, 0.6), at(0.55, 0.75));
+        go(from, "drag");
+        let ms = drag_travel_ms(from, to);
+        act("drag", CursorAction::Drag { to, ms }, 140 + ms + 600);
+        let keys = KeyCombo::parse("cmd+shift+s").map(|k| k.caps()).unwrap_or_default();
+        act("key", CursorAction::Key { keys, repeat: 1 }, 1700);
+        act("type", CursorAction::Type { chars: 42 }, 1800);
+        go(at(0.5, 0.45), "Look here");
+        act("point", CursorAction::Point, 1400);
     }
     println!("demo done");
 }

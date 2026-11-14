@@ -640,6 +640,21 @@ impl Accessibility for MacAccessibility {
         }
     }
 
+    fn can_press(&self, el: &ElementHandle) -> Result<bool> {
+        let el = el_of(el)?;
+        set_global_timeout();
+        let mut out: *const CFArray = std::ptr::null();
+        let err = unsafe { el.copy_action_names(NonNull::from(&mut out)) };
+        if err == AXError::InvalidUIElement {
+            return Err(PlatformError::Stale);
+        }
+        let Some(arr) = NonNull::new(out as *mut CFArray).map(|p| unsafe { CFRetained::from_raw(p) }) else {
+            return Ok(false);
+        };
+        let names: &CFArray<CFType> = unsafe { arr.cast_unchecked() };
+        Ok((0..names.len()).filter_map(|i| names.get(i)).any(|n| as_string(&n).as_deref() == Some("AXPress")))
+    }
+
     fn element_at(&self, at: Point) -> Result<Option<HitElement>> {
         set_global_timeout();
         let sys = unsafe { AXUIElement::new_system_wide() };

@@ -11,7 +11,7 @@ use axum::http::{Request, StatusCode};
 use deskhand_core::platform::mock::{
     InputAction, MockAccessibility, MockCapture, MockInput, MockNode, MockOverlay, MockStopKey,
 };
-use deskhand_core::platform::{AppInfo, MouseButton, Point, Rect, WindowInfo};
+use deskhand_core::platform::{AppInfo, CursorAction, KeyCombo, MouseButton, Point, Rect, WindowInfo};
 use deskhand_core::server::activity::ActivityLog;
 use deskhand_core::server::approval::{ApprovalRequest, Approver};
 use deskhand_core::server::control::ControlEvent;
@@ -450,6 +450,7 @@ async fn refs_from_read_window_drive_clicks_and_menu_presses() {
     assert!(!listing.contains("File > New"), "menus hidden by default: {listing}");
     let r = ref_of(&listing, "New Document");
 
+    // This fixture's button does not offer AXPress, so it gets a real click.
     ok(&h.app, &sid, "click", json!({"ref": r})).await;
     assert_eq!(h.input.clicks(), vec![(Point::new(245.0, 210.0), MouseButton::Left, 1)]);
     assert_eq!(h.overlay.moves.lock().unwrap().last(), Some(&Point::new(245.0, 210.0)), "cursor moved before click");
@@ -477,6 +478,91 @@ async fn refs_from_read_window_drive_clicks_and_menu_presses() {
     let (sid2, _) = open(&h.app).await;
     let t = fails(&h.app, &sid2, "click", json!({"ref": m})).await;
     assert!(t.contains("Unknown ref"), "{t}");
+}
+
+#[tokio::test]
+async fn a_pressable_ref_is_pressed_without_moving_the_users_pointer() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    h.ax.pressable.lock().unwrap().insert(2);
+    let (sid, _) = open(&h.app).await;
+    ok(&h.app, &sid, "request_access", json!({"apps": ["TextEdit"], "reason": "test"})).await;
+    let listing = ok(&h.app, &sid, "read_window", json!({})).await;
+    let r = ref_of(&listing, "New Document");
+
+    let t = ok(&h.app, &sid, "click", json!({"ref": r})).await;
+    assert!(t.contains("via accessibility"), "{t}");
+    assert_eq!(h.ax.pressed.lock().unwrap().clone(), vec![2]);
+    assert!(h.input.clicks().is_empty(), "the user's pointer must not move: {:?}", h.input.clicks());
+    assert_eq!(h.overlay.moves.lock().unwrap().last(), Some(&Point::new(245.0, 210.0)), "AI cursor still glides there");
+}
+
+#[tokio::test]
+async fn right_and_double_clicks_on_a_pressable_ref_stay_real_clicks() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    h.ax.pressable.lock().unwrap().insert(2);
+    let (sid, _) = open(&h.app).await;
+    ok(&h.app, &sid, "request_access", json!({"apps": ["TextEdit"], "reason": "test"})).await;
+    let listing = ok(&h.app, &sid, "read_window", json!({})).await;
+    let r = ref_of(&listing, "New Document");
+
+    ok(&h.app, &sid, "click", json!({"ref": r, "button": "right"})).await;
+    ok(&h.app, &sid, "click", json!({"ref": r, "count": 2})).await;
+    assert!(h.ax.pressed.lock().unwrap().is_empty());
+    assert_eq!(
+        h.input.clicks(),
+        vec![(Point::new(245.0, 210.0), MouseButton::Right, 1), (Point::new(245.0, 210.0), MouseButton::Left, 2)]
+    );
+}
+
+#[tokio::test]
+async fn a_failed_press_is_reported_and_never_retried_as_a_real_click() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    h.ax.pressable.lock().unwrap().insert(2);
+    h.ax.press_fails.lock().unwrap().insert(2);
+    let (sid, _) = open(&h.app).await;
+    ok(&h.app, &sid, "request_access", json!({"apps": ["TextEdit"], "reason": "test"})).await;
+    let listing = ok(&h.app, &sid, "read_window", json!({})).await;
+    let r = ref_of(&listing, "New Document");
+
+    let t = fails(&h.app, &sid, "click", json!({"ref": r})).await;
+    assert!(t.contains("read_window"), "says how to check what happened: {t}");
+    assert!(h.input.clicks().is_empty(), "no real click after a failed press: {:?}", h.input.clicks());
+}
+
+#[tokio::test]
+async fn the_overlay_is_told_what_each_action_did() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    h.ax.pressable.lock().unwrap().insert(2);
+    let (sid, _) = open(&h.app).await;
+    ok(&h.app, &sid, "request_access", json!({"apps": ["TextEdit"], "reason": "test"})).await;
+    let listing = ok(&h.app, &sid, "read_window", json!({})).await;
+    let button = ref_of(&listing, "New Document");
+    let area = ref_of(&listing, "textarea");
+
+    ok(&h.app, &sid, "click", json!({"ref": button})).await;
+    ok(&h.app, &sid, "click", json!({"ref": button, "button": "right"})).await;
+    ok(&h.app, &sid, "scroll", json!({"ref": area, "direction": "down", "amount": 3})).await;
+    ok(&h.app, &sid, "drag", json!({"from_ref": button, "to_ref": area})).await;
+    ok(&h.app, &sid, "key", json!({"combo": "cmd+shift+s"})).await;
+    ok(&h.app, &sid, "type_text", json!({"text": "hello"})).await;
+    ok(&h.app, &sid, "point", json!({"ref": area, "label": "here"})).await;
+
+    let actions = h.overlay.actions.lock().unwrap().clone();
+    assert_eq!(actions.len(), 7, "{actions:?}");
+    assert_eq!(actions[6], CursorAction::Point, "pointing gets a spotlight, not a click mark");
+    assert_eq!(actions[0], CursorAction::Press);
+    assert_eq!(actions[1], CursorAction::Click { button: MouseButton::Right, count: 1 });
+    assert_eq!(actions[2], CursorAction::Scroll { dx: 0, dy: 3 });
+    // The drag goes from the button's centre to the text area's centre.
+    match &actions[3] {
+        CursorAction::Drag { to, ms } => {
+            assert_eq!(*to, Point::new(420.0, 450.0));
+            assert!(*ms >= 200, "the overlay follows the real drag's length: {ms}");
+        }
+        other => panic!("expected a drag, got {other:?}"),
+    }
+    assert_eq!(actions[4], CursorAction::Key { keys: KeyCombo::parse("cmd+shift+s").unwrap().caps(), repeat: 1 });
+    assert_eq!(actions[5], CursorAction::Type { chars: 5 }, "the overlay gets a count, never the text");
 }
 
 #[tokio::test]

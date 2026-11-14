@@ -4,59 +4,196 @@
 <meta charset="utf-8">
 <title>Deskhand overlay</title>
 <style>
+  /* The AI cursor: Deskhand's pink "second hand". One accent (the agent's
+     colour), dark glass for everything that carries text, white outlines so
+     every mark reads on light and dark apps alike. */
+  :root {
+    --accent: #ff2d95;
+    --accent-lit: #ff7cb9;
+    --accent-deep: #cf1673;
+    --accent-glow: rgba(255, 45, 149, 0.5);
+    --glass: rgba(17, 17, 21, 0.88);
+    --glass-edge: rgba(255, 255, 255, 0.12);
+    --paper: #f5f5f7;
+    --muted: rgba(245, 245, 247, 0.64);
+    --warn: #ffb300;
+    --ok: #2ec27e;
+    --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+    --lift: 0 8px 22px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.35);
+    --snap: cubic-bezier(0.2, 0, 0, 1);
+  }
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
-  body { pointer-events: none; user-select: none; -webkit-user-select: none; }
+  body { pointer-events: none; user-select: none; -webkit-user-select: none; font-family: var(--ui);
+         -webkit-font-smoothing: antialiased; color: var(--paper); }
+
+  /* ---- paths: comet trail and drag line, under the cursor */
+  #paths { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  #drag-under, #drag-path { fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: 0;
+                            transition: opacity 220ms ease; }
+  #drag-under { stroke: rgba(255, 255, 255, 0.5); stroke-width: 3.5; }
+  #drag-path { stroke: var(--accent); stroke-width: 2.25; stroke-dasharray: 0.1 7; }
+  body.dragging #drag-under, body.dragging #drag-path { opacity: 0.95; }
+
+  /* ---- one-shot marks (ripples, chevrons), placed in screen coordinates */
+  #fx { position: absolute; inset: 0; }
+  .mark { position: absolute; left: 0; top: 0; box-sizing: border-box; }
+  .ring { width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; }
+  .ring-click { border: 3px solid var(--accent);
+                box-shadow: 0 0 16px var(--accent-glow), inset 0 0 0 1px rgba(255, 255, 255, 0.55); }
+  .ring-right { border: 3px dashed var(--accent);
+                filter: drop-shadow(0 0 1.2px #fff) drop-shadow(0 0 6px var(--accent-glow)); }
+  .ring-press { border: 2px solid #fff; box-shadow: 0 0 0 2px var(--accent), 0 0 20px var(--accent-glow); }
+  .ring-spot { width: 96px; height: 96px; margin: -48px 0 0 -48px; border: 1.5px solid rgba(255, 255, 255, 0.92);
+               background: radial-gradient(circle, rgba(255, 45, 149, 0.24), rgba(255, 45, 149, 0) 68%);
+               box-shadow: 0 0 0 1px rgba(255, 45, 149, 0.55); }
+  .ring-drop { width: 22px; height: 22px; margin: -11px 0 0 -11px; border: 2px solid #fff;
+               box-shadow: 0 0 0 1.5px var(--accent); }
+  .tip-dot { width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #fff;
+             box-shadow: 0 0 0 2px var(--accent), 0 0 12px var(--accent-glow); }
+  .chev { width: 16px; height: 10px; margin: -5px 0 0 -8px; }
+  .chev svg { display: block; overflow: visible; }
+
+  /* ---- the cursor. #cursor sits on the tip; #pose takes taps and grabs;
+     #lean banks into the motion. All three pivot on the tip. */
   #cursor { position: absolute; left: 0; top: 0; opacity: 0; transition: opacity 160ms ease; will-change: transform; }
-  #cursor svg { display: block; filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45)); }
-  #ring { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; border-radius: 50%;
-          border: 3px solid #ff2d95; opacity: 0; }
-  body.acting #ring { animation: pulse 700ms ease-out infinite; }
-  @keyframes pulse { from { transform: scale(0.4); opacity: 0.95; } to { transform: scale(1.6); opacity: 0; } }
-  #label { position: absolute; left: 24px; top: 26px; display: none; white-space: nowrap;
-           font: 600 12px -apple-system, "Segoe UI", sans-serif; color: #fff; background: #ff2d95;
-           padding: 3px 8px; border-radius: 9px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
-  #banner { position: absolute; top: 34px; left: 50%; transform: translateX(-50%); display: none;
-            white-space: nowrap; font: 600 13px -apple-system, "Segoe UI", sans-serif; color: #fff;
-            background: rgba(20, 20, 24, 0.86); border: 2px solid #ff2d95; padding: 6px 14px; border-radius: 16px;
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
-  #banner .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ff2d95;
-                 margin-right: 8px; vertical-align: 1px; animation: blink 1s ease-in-out infinite; }
-  @keyframes blink { 50% { opacity: 0.25; } }
-  body.acting #banner, body.stopped #banner { display: block; }
-  body.stopped #banner { border-color: #ffb300; }
-  body.stopped #banner .dot { background: #ffb300; animation: none; }
-  /* Voice pill: listening / thinking / acting / speaking, and short notices. */
+  body.cursor-on #cursor { opacity: 1; }
+  body.cursor-on #cursor.away { opacity: 0; }
+  #pose, #lean { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  body.resting #pose { opacity: 0.86; transition: opacity 400ms ease; }
+  #arrow { position: absolute; left: -2px; top: -1px; display: block; overflow: visible;
+           filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.32)) drop-shadow(0 0 1px rgba(0, 0, 0, 0.45)); }
+  #halo { position: absolute; left: -14px; top: -12px; width: 46px; height: 46px; border-radius: 50%;
+          background: radial-gradient(circle, rgba(255, 45, 149, 0.5), rgba(255, 45, 149, 0) 68%);
+          opacity: 0.3; transform-origin: 23px 23px; }
+  body.acting #halo { animation: breathe 1600ms ease-in-out infinite; }
+  @keyframes breathe { 50% { opacity: 0.6; transform: scale(1.18); } }
+  #grip { position: absolute; left: -5px; top: -5px; width: 10px; height: 10px; border-radius: 50%; background: #fff;
+          box-shadow: 0 0 0 2px var(--accent), 0 0 12px var(--accent-glow); opacity: 0; transform: scale(0.4);
+          transition: opacity 120ms ease, transform 160ms var(--snap); }
+  body.dragging #grip { opacity: 1; transform: scale(1); }
+
+  /* The name tag hangs off the arrow like a collaborator's cursor tag. */
+  #tag { position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 6px; max-width: 300px;
+         padding: 4px 10px 4px 5px; border-radius: 3px 11px 11px 11px; background: var(--accent);
+         box-shadow: var(--lift), inset 0 1px 0 rgba(255, 255, 255, 0.25); color: #fff; white-space: nowrap;
+         font: 500 12px/16px var(--ui); letter-spacing: 0.01em; transform-origin: 0 0;
+         transition: opacity 200ms ease; }
+  #tag.flip-x { border-radius: 11px 3px 11px 11px; }
+  #tag.flip-y { border-radius: 11px 11px 11px 3px; }
+  #tag.flip-x.flip-y { border-radius: 11px 11px 3px 11px; }
+  #tag.empty, body.resting #tag { opacity: 0; }
+  #tag.no-verb { padding-left: 10px; }
+  #verb { padding: 1px 6px; border-radius: 7px; background: rgba(255, 255, 255, 0.24); font-weight: 600;
+          font-size: 11px; letter-spacing: 0.02em; }
+  #verb:empty { display: none; }
+  #name { overflow: hidden; text-overflow: ellipsis; max-width: 230px; }
+  #name:empty { display: none; }
+  #name.coords { font-family: var(--mono); font-size: 11px; opacity: 0.88; letter-spacing: 0; }
+
+  /* ---- keys and typing, shown beside the cursor */
+  #hud { position: absolute; left: 0; top: 0; display: none; }
+  #hud.show { display: block; }
+  .keys { display: flex; align-items: flex-end; gap: 5px; }
+  .cap { min-width: 26px; height: 27px; box-sizing: border-box; padding: 0 8px; border-radius: 7px;
+         display: flex; align-items: center; justify-content: center;
+         background: linear-gradient(#2c2c33, #1b1b20); border: 1px solid rgba(255, 255, 255, 0.16);
+         border-bottom: 3px solid rgba(0, 0, 0, 0.6); box-shadow: var(--lift);
+         color: var(--paper); font: 600 14px/1 var(--ui); }
+  .cap.word { font-size: 12px; letter-spacing: 0.02em; }
+  .times { margin-left: 2px; padding: 3px 7px; border-radius: 8px; background: var(--accent); color: #fff;
+           font: 600 11px/14px var(--ui); letter-spacing: 0.02em; }
+  .chip { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 9px; border-radius: 11px;
+          background: var(--glass); border: 1px solid var(--glass-edge); box-shadow: var(--lift);
+          font: 600 12px/16px var(--ui); letter-spacing: 0.01em; }
+  .chip svg { display: block; }
+  .chip .count { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .chip .caret { width: 2px; height: 14px; border-radius: 1px; background: var(--accent);
+                 animation: caret 900ms steps(1) 4; }
+  @keyframes caret { 50% { opacity: 0; } }
+
+  /* ---- "controlling input" banner */
+  #banner { position: absolute; top: 44px; left: 50%; display: flex; align-items: center; gap: 10px;
+            padding: 7px 9px 7px 13px; border-radius: 14px; background: var(--glass);
+            border: 1px solid var(--glass-edge); box-shadow: var(--lift); white-space: nowrap;
+            font: 600 13px/18px var(--ui); letter-spacing: 0.01em;
+            opacity: 0; transform: translate(-50%, -10px);
+            transition: opacity 200ms ease, transform 260ms var(--snap); }
+  body.acting #banner, body.stopped #banner { opacity: 1; transform: translate(-50%, 0); }
+  #banner .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+  body.acting #banner .dot { animation: beacon 1400ms ease-out infinite; }
+  @keyframes beacon { from { box-shadow: 0 0 0 0 rgba(255, 45, 149, 0.7); }
+                      to { box-shadow: 0 0 0 9px rgba(255, 45, 149, 0); } }
+  #banner .hint { display: flex; align-items: center; gap: 6px; padding-left: 10px; color: var(--muted);
+                  font-weight: 500; border-left: 1px solid var(--glass-edge); }
+  #banner .cap { min-width: 0; height: 20px; padding: 0 6px; border-radius: 5px; border-bottom-width: 2px;
+                 font: 600 11px/1 var(--ui); letter-spacing: 0.02em; box-shadow: none; }
+  body.stopped #banner { border-color: rgba(255, 179, 0, 0.45); }
+  body.stopped #banner .dot { background: var(--warn); animation: none; }
+  body.stopped #banner .hint { display: none; }
+
+  /* ---- voice pill: listening / thinking / acting / speaking, and notices */
   #voice { position: absolute; bottom: 56px; left: 50%; transform: translateX(-50%); display: none;
-           max-width: 70%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-           font: 600 13px -apple-system, "Segoe UI", sans-serif; color: #fff;
-           background: rgba(20, 20, 24, 0.88); border: 2px solid #8a8a99; padding: 7px 16px; border-radius: 18px;
-           box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
-  #voice.show { display: block; }
-  #voice .vdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px;
-                 vertical-align: 0; background: #8a8a99; }
-  #voice[data-state="listening"] { border-color: #ff2d95; }
-  #voice[data-state="listening"] .vdot { background: #ff2d95; animation: blink 0.8s ease-in-out infinite; }
-  #voice[data-state="thinking"] .vdot { background: #ffb300; animation: blink 1.2s ease-in-out infinite; }
-  #voice[data-state="acting"] { border-color: #ff2d95; }
-  #voice[data-state="acting"] .vdot { background: #ff2d95; }
-  #voice[data-state="speaking"] { border-color: #2ec27e; }
-  #voice[data-state="speaking"] .vdot { background: #2ec27e; animation: blink 0.6s ease-in-out infinite; }
-  #voice.notice { border-color: #ffb300; }
+           align-items: center; gap: 9px; max-width: 70%; padding: 8px 16px 8px 13px; border-radius: 18px;
+           background: var(--glass); border: 1px solid var(--glass-edge); box-shadow: var(--lift);
+           font: 600 13px/18px var(--ui); letter-spacing: 0.01em; }
+  #voice.show { display: flex; }
+  #voice-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #voice .vdot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: #8a8a99; }
+  #voice[data-state="listening"] .vdot { background: var(--accent); animation: beacon 1100ms ease-out infinite; }
+  #voice[data-state="thinking"] .vdot { background: var(--warn); animation: blink 1200ms ease-in-out infinite; }
+  #voice[data-state="acting"] .vdot { background: var(--accent); }
+  #voice[data-state="speaking"] .vdot { background: var(--ok); animation: blink 600ms ease-in-out infinite; }
+  #voice.notice { border-color: rgba(255, 179, 0, 0.5); }
+  @keyframes blink { 50% { opacity: 0.3; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    #banner { transform: translate(-50%, 0); transition: opacity 200ms ease; }
+    body.acting #halo, body.acting #banner .dot, #voice .vdot, .chip .caret { animation: none !important; }
+    #grip { transition: opacity 120ms ease; transform: none; }
+  }
 </style>
 </head>
 <body>
+  <svg id="paths" aria-hidden="true">
+    <defs>
+      <!-- Runs from the trail's oldest point (clear) to the tip (pink). -->
+      <linearGradient id="trail-grad" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#ff2d95" stop-opacity="0"/>
+        <stop offset="1" stop-color="#ff2d95" stop-opacity="0.62"/>
+      </linearGradient>
+    </defs>
+    <path id="drag-under"/>
+    <path id="drag-path"/>
+    <path id="trail" fill="url(#trail-grad)"/>
+  </svg>
+  <div id="fx"></div>
   <!-- Shown whenever Claude controls input (not visible to screenshots). -->
-  <div id="banner"><span class="dot"></span><span id="banner-text">Claude is controlling input · press Esc to stop</span></div>
+  <div id="banner"><span class="dot"></span><span id="banner-text">Claude is controlling input</span><span class="hint"><span class="cap">esc</span>to stop</span></div>
   <div id="voice" data-state="idle"><span class="vdot"></span><span id="voice-text"></span></div>
   <div id="cursor">
-    <div id="ring"></div>
-    <!-- Arrow tip is at (0,0) of #cursor, so translate() puts the tip on the target. -->
-    <svg width="30" height="34" viewBox="0 0 30 34">
-      <path d="M2 2 L2 27 L8.5 21 L13 31 L18 29 L13.5 19.5 L22 19.5 Z"
-            fill="#ff2d95" stroke="#ffffff" stroke-width="2.2" stroke-linejoin="round"/>
-    </svg>
-    <div id="label"></div>
+    <div id="pose">
+      <div id="halo"></div>
+      <div id="lean">
+        <!-- The tip is at (2,1) of the drawing; #arrow is offset so it sits on (0,0). -->
+        <svg id="arrow" width="28" height="30" viewBox="0 0 28 30" aria-hidden="true">
+          <defs>
+            <linearGradient id="body" x1="0" y1="0" x2="0.55" y2="1">
+              <stop offset="0" stop-color="#ff7cb9"/>
+              <stop offset="0.55" stop-color="#ff2d95"/>
+              <stop offset="1" stop-color="#cf1673"/>
+            </linearGradient>
+          </defs>
+          <path d="M2 1 L24.5 13.6 L13.7 16.1 L9.2 27.3 Z" fill="url(#body)" stroke="#fff" stroke-width="2.2"
+                stroke-linejoin="round"/>
+          <path d="M5.2 5.6 L17.6 12.6" stroke="rgba(255,255,255,0.55)" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div id="grip"></div>
+    </div>
+    <div id="tag" class="empty"><span id="verb"></span><span id="name"></span></div>
   </div>
+  <div id="hud"></div>
   <script src="overlay.js"></script>
 </body>
 </html>

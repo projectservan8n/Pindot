@@ -4,7 +4,7 @@ use std::time::Duration;
 use enigo::{Axis, Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings};
 
 use super::accessibility::ax_is_trusted;
-use crate::platform::{Input, KeyCombo, KeyName, MouseButton, Permission, PlatformError, Point, Result};
+use crate::platform::{Input, KeyCombo, KeyName, MouseButton, Permission, PlatformError, Point, Result, drag_steps};
 
 /// Value stamped into `kCGEventSourceUserData` on every event we post, so our
 /// own Esc tap (and tests) can recognise Deskhand's synthetic input.
@@ -168,7 +168,7 @@ impl Input for MacInput {
         e.button(Button::Left, Direction::Press).map_err(err)?;
         thread::sleep(Duration::from_millis(80));
         // While the button is held, enigo posts LeftMouseDragged events.
-        let steps = ((from.distance(to) / 12.0).ceil() as usize).clamp(8, 60);
+        let steps = drag_steps(from, to);
         let mut result = Ok(());
         for i in 1..=steps {
             if should_stop() {

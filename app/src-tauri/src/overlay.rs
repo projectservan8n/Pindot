@@ -6,7 +6,7 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
-use deskhand_core::platform::{Overlay, Point};
+use deskhand_core::platform::{CursorAction, Overlay, Point};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -59,6 +59,16 @@ impl Overlay for TauriOverlay {
 
     fn set_acting(&self, acting: bool) {
         let _ = self.app.emit("deskhand:acting", acting);
+    }
+
+    fn action(&self, action: &CursorAction) {
+        // A drag carries the cursor along, so the next glide starts at its end.
+        if let CursorAction::Drag { to, .. } = action {
+            *self.last.lock().unwrap() = Some(*to);
+        }
+        if let Err(e) = self.app.emit("deskhand:action", action) {
+            tracing::warn!("overlay emit failed: {e}");
+        }
     }
 }
 

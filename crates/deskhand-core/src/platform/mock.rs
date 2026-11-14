@@ -183,6 +183,10 @@ pub struct MockAccessibility {
     pub trees: Mutex<HashMap<u64, Vec<MockNode>>>,
     pub stale: Mutex<HashSet<u64>>,
     pub pressed: Mutex<Vec<u64>>,
+    /// Elements that offer AXPress (by default none do).
+    pub pressable: Mutex<HashSet<u64>>,
+    /// Elements whose press reports an error.
+    pub press_fails: Mutex<HashSet<u64>>,
     pub launched: Mutex<Vec<String>>,
     pub raised: Mutex<Vec<u64>>,
     pub secure_focus: AtomicBool,
@@ -200,6 +204,8 @@ impl Default for MockAccessibility {
             trees: Mutex::new(HashMap::new()),
             stale: Mutex::new(HashSet::new()),
             pressed: Mutex::new(vec![]),
+            pressable: Mutex::new(HashSet::new()),
+            press_fails: Mutex::new(HashSet::new()),
             launched: Mutex::new(vec![]),
             raised: Mutex::new(vec![]),
             secure_focus: AtomicBool::new(false),
@@ -289,8 +295,18 @@ impl Accessibility for MockAccessibility {
         if self.stale.lock().unwrap().contains(&id) {
             return Err(PlatformError::Stale);
         }
+        if self.press_fails.lock().unwrap().contains(&id) {
+            return Err(PlatformError::Other("AXPress failed (AXError -25204)".into()));
+        }
         self.pressed.lock().unwrap().push(id);
         Ok(())
+    }
+    fn can_press(&self, el: &ElementHandle) -> Result<bool> {
+        let id = Self::mock_id(el)?;
+        if self.stale.lock().unwrap().contains(&id) {
+            return Err(PlatformError::Stale);
+        }
+        Ok(self.pressable.lock().unwrap().contains(&id))
     }
     fn element_at(&self, _at: Point) -> Result<Option<HitElement>> {
         Ok(self.hit.lock().unwrap().clone())
@@ -310,6 +326,7 @@ impl Accessibility for MockAccessibility {
 pub struct MockOverlay {
     pub moves: Mutex<Vec<Point>>,
     pub acting: Mutex<Vec<bool>>,
+    pub actions: Mutex<Vec<CursorAction>>,
 }
 
 impl Overlay for MockOverlay {
@@ -319,5 +336,8 @@ impl Overlay for MockOverlay {
     }
     fn set_acting(&self, acting: bool) {
         self.acting.lock().unwrap().push(acting);
+    }
+    fn action(&self, action: &CursorAction) {
+        self.actions.lock().unwrap().push(action.clone());
     }
 }

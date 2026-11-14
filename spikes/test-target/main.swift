@@ -3,7 +3,7 @@
 // by itself after --seconds. Spikes only ever click inside this window.
 //
 // Build: swiftc -O -o spikes/test-target/test-target spikes/test-target/main.swift
-// Run:   spikes/test-target/test-target --log /tmp/dh-target.log --x 200 --y 200 --seconds 60 [--activate]
+// Run:   spikes/test-target/test-target --log /tmp/dh-target.log --x 200 --y 200 --seconds 60 [--activate] [--regular]
 
 import Cocoa
 
@@ -17,6 +17,7 @@ let seconds = Double(arg("--seconds", "60")) ?? 60
 let originX = CGFloat(Double(arg("--x", "200")) ?? 200)
 let originY = CGFloat(Double(arg("--y", "200")) ?? 200)
 let activate = args.contains("--activate")
+let regular = args.contains("--regular")
 
 func log(_ s: String) {
     let line = "\(Date().timeIntervalSince1970) \(s)\n"
@@ -41,7 +42,9 @@ final class Target: NSObject, NSApplicationDelegate {
         let frame = NSRect(x: originX, y: primaryHeight - originY - h, width: w, height: h)
         window = NSWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.title = "Deskhand Test Target"
-        window.level = .floating
+        // --regular: a normal app and window, so Deskhand's request_access
+        // can approve it by name (MCP-level tests). Otherwise it floats.
+        window.level = regular ? .normal : .floating
         window.isReleasedWhenClosed = false
 
         button = NSButton(title: "Deskhand Test Button", target: self, action: #selector(clicked))
@@ -77,7 +80,7 @@ final class Target: NSObject, NSApplicationDelegate {
 }
 
 let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
+app.setActivationPolicy(regular ? .regular : .accessory)
 let delegate = Target()
 app.delegate = delegate
 app.run()

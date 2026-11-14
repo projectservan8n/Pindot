@@ -388,6 +388,9 @@ pub trait Accessibility: Send + Sync {
     fn element_frame(&self, el: &ElementHandle) -> Result<Option<Rect>>;
     /// Perform the element's default action (AXPress).
     fn press(&self, el: &ElementHandle) -> Result<()>;
+    /// True if the element offers AXPress, so it can be clicked without
+    /// moving the user's pointer. `Err(Stale)` if it no longer exists.
+    fn can_press(&self, el: &ElementHandle) -> Result<bool>;
     /// What is under a screen point.
     fn element_at(&self, at: Point) -> Result<Option<HitElement>>;
     /// Bring a window and its app to the front.
@@ -404,6 +407,39 @@ pub trait Overlay: Send + Sync {
     fn move_cursor(&self, to: Point, label: Option<String>) -> Duration;
     /// Show or hide the "Claude is controlling input" indicator.
     fn set_acting(&self, acting: bool);
+    /// Tell the overlay what the AI cursor just did (or, for a drag or
+    /// typing, is doing), so it can show it.
+    fn action(&self, _action: &CursorAction) {}
+}
+
+/// Steps of a synthetic drag from `from` to `to`, one every 16 ms.
+pub fn drag_steps(from: Point, to: Point) -> usize {
+    ((from.distance(to) / 12.0).ceil() as usize).clamp(8, 60)
+}
+
+/// How long a drag's travel takes, so the overlay can follow it.
+pub fn drag_travel_ms(from: Point, to: Point) -> u64 {
+    16 * drag_steps(from, to) as u64
+}
+
+/// What the AI cursor did, for the overlay's feedback.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CursorAction {
+    /// A real mouse click: the user's pointer went there.
+    Click { button: MouseButton, count: u32 },
+    /// An accessibility press: the user's pointer did not move.
+    Press,
+    Scroll { dx: i32, dy: i32 },
+    /// A drag that is starting: after a short grab (about 140 ms) the
+    /// pointer travels to `to` in about `ms` (`drag_travel_ms`).
+    Drag { to: Point, ms: u64 },
+    /// A shortcut, as key-cap labels (`KeyCombo::caps`).
+    Key { keys: Vec<String>, repeat: u32 },
+    /// Typing that is starting: only the number of characters, never the text.
+    Type { chars: usize },
+    /// The `point` tool: show the user a spot (nothing is clicked).
+    Point,
 }
 
 /// An overlay that draws nothing (headless runs).

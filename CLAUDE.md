@@ -121,6 +121,15 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   including ours. Verified on macOS 26.5 with `screencapture` and xcap; Apple
   has changed this behaviour before, so re-check it on every macOS major
   release. `--capturable` turns it off for tests.
+- **Overlay feedback** (Tony's request): tools tell the overlay what they
+  did through `Overlay::action(CursorAction)` → `deskhand:action`: a ripple
+  for a real click, an inward ring for an accessibility press, chevrons for
+  scroll, key caps for `key`, a typing chip (the character count only, never
+  the text), a spotlight for `point`, and a drag that the cursor follows
+  live (`drag_travel_ms` matches `MacInput::drag`). The cursor glides on an
+  arc, banks into the motion and leaves a short trail; with Reduce Motion
+  all of that becomes crossfades. `--demo` plays every action on each
+  monitor without touching any app.
 - **Fn hotkey**: a CGEventTap at the session level on `flagsChanged`, keycode
   0x3F, `MaskSecondaryFn`. It returns NULL to swallow Fn so the Globe action
   never fires. If the tap is disabled by timeout or user input, it re-enables
@@ -135,6 +144,15 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   that carries on-screen text says it is untrusted data. Descriptions tell
   Claude to ask the user before destructive actions, purchases, sending
   messages or typing credentials; `type_text` refuses a focused secure field.
+- **Clicks leave the user's pointer alone when they can** (Tony's choice): a
+  plain left click on a ref whose element offers AXPress
+  (`Accessibility::can_press`) is an accessibility press; the AI cursor
+  still glides there. Right, double and triple clicks, x,y clicks and
+  elements without AXPress are real clicks: the pointer moves and is not put
+  back (putting it back was offered and not chosen). A failed press is
+  reported, never retried as a real click: a press that opens a modal can
+  report an error after it worked, and a click at the same spot could land
+  on the new dialog.
 - **Approval is answered by a human in our UI** (Tony's decision). Each app
   needs approval once per MCP session. The window shows the apps, extra red
   warnings for shells/IDEs, file managers, system settings and password

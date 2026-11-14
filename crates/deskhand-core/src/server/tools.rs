@@ -44,7 +44,9 @@ use super::session::{ApprovedApp, RefEntry, SYSTEM_OWNERS, Session, Snapshot, hi
 use super::shot::{self, Target};
 use super::tree::{self, Filter, MAX_FIND, PAGE_LINES};
 use crate::coords::{ShotGeometry, display_for_point};
-use crate::platform::{KeyCombo, MouseButton, PlatformError, Point, TreeLimits, WindowInfo};
+use crate::platform::{
+    CursorAction, KeyCombo, MouseButton, PlatformError, Point, TreeLimits, WindowInfo, drag_travel_ms,
+};
 
 /// How long the user has to answer an approval prompt.
 pub const APPROVAL_TIMEOUT: Duration = Duration::from_secs(120);
@@ -992,10 +994,40 @@ impl DesktopServer {
         let guard = self.begin()?;
         match aim {
             Aim::At { point, label } => {
+                // A plain left click on a ref that offers AXPress is a press:
+                // the AI cursor glides there, but the user's pointer stays put.
+                // No real click follows a failed press: the press may have
+                // worked anyway (a button that opens a modal reports an error),
+                // and a click at the same spot could hit the new dialog.
+                if let Some(r) = args.element.as_deref().filter(|_| button == MouseButton::Left && count == 1) {
+                    let entry = self.lookup_ref(r)?;
+                    let ax = self.state.accessibility.clone();
+                    let h = entry.handle.clone();
+                    if blocking(move || ax.can_press(&h)).await?.unwrap_or(false) {
+                        self.glide(point, &label, &guard).await?;
+                        if guard.is_cancelled() {
+                            return Err(STOPPED.into());
+                        }
+                        let ax = self.state.accessibility.clone();
+                        let h = entry.handle.clone();
+                        blocking(move || ax.press(&h)).await?.map_err(|e| match e {
+                            PlatformError::Stale => perr(e),
+                            e => format!(
+                                "{} It may still have worked: use read_window to check before trying again.",
+                                perr(e)
+                            ),
+                        })?;
+                        self.state.overlay.action(&CursorAction::Press);
+                        return text(format!(
+                            "Pressed {r} \"{label}\" via accessibility (the user's pointer did not move). Use read_window or find to see the result."
+                        ));
+                    }
+                }
                 self.check_point(point).await?;
                 self.glide(point, &label, &guard).await?;
                 let input = self.state.input.clone();
                 blocking(move || input.click(point, button, count)).await?.map_err(perr)?;
+                self.state.overlay.action(&CursorAction::Click { button, count });
                 let what = args.element.as_deref().map(|r| format!("{r} \"{label}\"")).unwrap_or(label);
                 text(format!("Clicked {what} ({button:?}, x{count}). Use read_window or find to see the result."))
             }
@@ -1010,6 +1042,7 @@ impl DesktopServer {
                     return Err(STOPPED.into());
                 }
                 self.press(&entry).await?;
+                self.state.overlay.action(&CursorAction::Press);
                 let what = entry.menu_path.clone().unwrap_or(label);
                 text(format!(
                     "Pressed {} \"{what}\" via accessibility. Use read_window or find to see the result.",
@@ -1033,6 +1066,7 @@ impl DesktopServer {
             );
         }
         let chars: Vec<char> = args.text.chars().collect();
+        self.state.overlay.action(&CursorAction::Type { chars: chars.len() });
         let mut typed = 0usize;
         for chunk in chars.chunks(24) {
             if guard.is_cancelled() {
@@ -1067,6 +1101,7 @@ impl DesktopServer {
                 tokio::time::sleep(Duration::from_millis(30)).await;
             }
         }
+        self.state.overlay.action(&CursorAction::Key { keys: combo.caps(), repeat });
         text(format!("Pressed {combo}{}.", if repeat > 1 { format!(" x{repeat}") } else { String::new() }))
     }
 
@@ -1087,6 +1122,7 @@ impl DesktopServer {
         };
         let input = self.state.input.clone();
         blocking(move || input.scroll(point, dx, dy)).await?.map_err(perr)?;
+        self.state.overlay.action(&CursorAction::Scroll { dx, dy });
         text(format!("Scrolled {:?} {amount} lines.", args.direction).to_lowercase())
     }
 
@@ -1105,11 +1141,12 @@ impl DesktopServer {
         self.glide(from, "drag", &guard).await?;
         let input = self.state.input.clone();
         let stop = guard.stop_flag();
+        // The overlay follows the real drag as it happens.
+        self.state.overlay.action(&CursorAction::Drag { to, ms: drag_travel_ms(from, to) });
         blocking(move || input.drag(from, to, &stop)).await?.map_err(perr)?;
         if guard.is_cancelled() {
             return Err(format!("{STOPPED} (The drag was cut short; the mouse button was released.)"));
         }
-        self.state.overlay.move_cursor(to, None);
         text("Dragged.")
     }
 
@@ -1129,6 +1166,7 @@ impl DesktopServer {
             Aim::Press { .. } => return Err("That element has no on-screen position to point at.".into()),
         };
         self.state.overlay.move_cursor(p, args.label.clone());
+        self.state.overlay.action(&CursorAction::Point);
         text("Pointed (the AI cursor moved; nothing was clicked).")
     }
 }
@@ -1219,7 +1257,7 @@ impl DesktopServer {
     }
 
     #[tool(
-        description = "Click an element by ref (preferred) or at x,y pixels of the latest screenshot. The user sees the AI cursor glide there first. Only lands on approved apps. Ask the user first before anything destructive (deleting, overwriting, discarding work), purchases, or sending messages or emails."
+        description = "Click an element by ref (preferred) or at x,y pixels of the latest screenshot. The user sees the AI cursor glide there first. A plain left click on a ref that supports it is done through accessibility, so the user's own pointer does not move; other clicks move the real pointer. Only lands on approved apps. Ask the user first before anything destructive (deleting, overwriting, discarding work), purchases, or sending messages or emails."
     )]
     async fn click(&self, Parameters(args): Parameters<ClickArgs>) -> Result<CallToolResult, ErrorData> {
         let a = match &args.element {

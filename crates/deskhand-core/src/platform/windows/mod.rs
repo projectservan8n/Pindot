@@ -95,6 +95,9 @@ impl Accessibility for WinAccessibility {
     fn press(&self, _el: &ElementHandle) -> Result<()> {
         Err(PlatformError::Unsupported(LATER))
     }
+    fn can_press(&self, _el: &ElementHandle) -> Result<bool> {
+        Err(PlatformError::Unsupported(LATER))
+    }
     fn element_at(&self, _at: Point) -> Result<Option<HitElement>> {
         Err(PlatformError::Unsupported(LATER))
     }

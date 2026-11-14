@@ -115,6 +115,42 @@ fn parse_key(k: &str) -> Option<KeyName> {
     Some(named)
 }
 
+impl KeyCombo {
+    /// Key-cap labels for the overlay, modifiers first in the platform's
+    /// order (Apple: Control, Option, Shift, Command).
+    pub fn caps(&self) -> Vec<String> {
+        let mac = cfg!(target_os = "macos");
+        let m = self.mods;
+        let mods = [(m.ctrl, "⌃", "Ctrl"), (m.alt, "⌥", "Alt"), (m.shift, "⇧", "Shift"), (m.cmd, "⌘", "Win")];
+        let mut caps: Vec<String> =
+            mods.into_iter().filter(|(on, ..)| *on).map(|(_, a, w)| (if mac { a } else { w }).to_string()).collect();
+        caps.push(key_cap(self.key, mac));
+        caps
+    }
+}
+
+fn key_cap(k: KeyName, mac: bool) -> String {
+    let pick = |a: &str, w: &str| (if mac { a } else { w }).to_string();
+    match k {
+        KeyName::Char(c) => c.to_uppercase().collect(),
+        KeyName::F(n) => format!("F{n}"),
+        KeyName::Space => "Space".into(),
+        KeyName::Escape => "esc".into(),
+        KeyName::Return => pick("↩", "Enter"),
+        KeyName::Tab => pick("⇥", "Tab"),
+        KeyName::Backspace => pick("⌫", "Backspace"),
+        KeyName::ForwardDelete => pick("⌦", "Delete"),
+        KeyName::Up => "↑".into(),
+        KeyName::Down => "↓".into(),
+        KeyName::Left => "←".into(),
+        KeyName::Right => "→".into(),
+        KeyName::Home => pick("↖", "Home"),
+        KeyName::End => pick("↘", "End"),
+        KeyName::PageUp => pick("⇞", "PgUp"),
+        KeyName::PageDown => pick("⇟", "PgDn"),
+    }
+}
+
 impl fmt::Display for KeyCombo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let m = self.mods;
@@ -134,6 +170,21 @@ impl fmt::Display for KeyCombo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn key_caps_use_mac_symbols_in_apple_order() {
+        let caps = |s: &str| KeyCombo::parse(s).unwrap().caps();
+        assert_eq!(caps("cmd+shift+s"), ["⇧", "⌘", "S"]);
+        assert_eq!(caps("cmd+ctrl+alt+shift+q"), ["⌃", "⌥", "⇧", "⌘", "Q"]);
+        assert_eq!(caps("return"), ["↩"]);
+        assert_eq!(caps("cmd+backspace"), ["⌘", "⌫"]);
+        assert_eq!(caps("esc"), ["esc"]);
+        assert_eq!(caps("option+left"), ["⌥", "←"]);
+        assert_eq!(caps("f12"), ["F12"]);
+        assert_eq!(caps("space"), ["Space"]);
+        assert_eq!(caps("cmd++"), ["⌘", "+"]);
+    }
 
     #[test]
     fn parses_common_combos() {
