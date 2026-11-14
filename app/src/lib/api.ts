@@ -4,6 +4,9 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export type SpeakMode = 'each_message' | 'at_stop';
 
+/** 'ask': only Deskhand's tools. 'auto': Claude Code's auto mode. */
+export type PermissionMode = 'ask' | 'auto';
+
 export interface VoiceSettings {
   stt_model: string;
   tts_model: string;
@@ -11,7 +14,11 @@ export interface VoiceSettings {
   idle_reset_secs: number;
   speak_mode: SpeakMode;
   volume: number;
+  /** `claude --model`; null = Claude Code's default. */
   model: string | null;
+  /** `claude --effort`; null = Claude Code's default. */
+  effort: string | null;
+  permission_mode: PermissionMode;
 }
 
 export interface Settings {

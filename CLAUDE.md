@@ -199,7 +199,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   to the target before every click, scroll and drag.
 - **Activity log**: `activity.jsonl` in the data dir (0600, rotated at
   5 MB), one line per tool call; `deskhand --activity` opens a live view.
-- **Permission mode for nested sessions**: `--permission-mode default` plus
+- **Permission mode for nested sessions** (voice: Ask unless the user picks Auto in Settings): `--permission-mode default` plus
   `--allowedTools mcp__desktop` (Tony's decision). claude 2.1.325's help
   lists acceptEdits, auto, bypassPermissions, manual, dontAsk and plan, but
   accepts `default` silently and shows "manual mode on". Undocumented: if it
@@ -221,6 +221,25 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   `claude login` (OAuth) still works: proven by real turns. Rejected:
   `--bare` (breaks OAuth), `--safe-mode` (drops hooks and MCP).
   `--restricted` is stricter and untested: Tony's call.
+- **Token budget** (measured, `--model haiku`): the full Claude Code
+  session cost ~40k tokens before the first word, resent on every tool
+  call: ~31k of built-in tool schemas (Artifact alone ~15k), the user's
+  skills, global CLAUDE.md, Claude in Chrome and agent lists. Every
+  `claude` we start now gets `--tools ""` (or Auto's small set),
+  `--no-chrome`, `--disable-slash-commands` and
+  `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` (undocumented; found in the 2.1.308
+  binary, checked with a real turn): ~5k per call in Ask, ~10k in Auto.
+  With no built-in tools the MCP tools load up front, so no `ToolSearch`
+  round trip. `--no-chrome` also closes a hole: a voice turn used Claude in
+  Chrome to open a site without Deskhand's approval window.
+- **Claude settings** (Tony's choice): the Settings window picks the voice
+  brain's model (`--model`: CLI default, haiku, sonnet, opus, fable),
+  thinking effort (`--effort`) and permissions. **Ask** (default): only
+  our tools. **Auto**: `--permission-mode auto` with Bash, Read, Edit,
+  Write, Glob, Grep, WebFetch and WebSearch; it can only be chosen through
+  a warning (runs as the user, the classifier can be wrong or tricked,
+  Claude Code recommends isolated environments). App approvals and Esc
+  still apply. The brain writes its own `claude-settings-brain.json`.
 - **Trusting our own session folder**: it is empty and Deskhand's, so the
   voice brain answers the folder-trust dialog with Yes for it (and only it).
   Claude Code itself records that answer in `~/.claude.json` once.
@@ -330,9 +349,11 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
 
 ## Known risks (open)
 
-- **Settings isolation is partial.** User and plugin skills still show in
-  the nested session's slash palette, and an isolated `/status` showed "MCP
-  servers: 1 connected" with an empty strict MCP config (unexplained).
+- **Settings isolation leans on flags.** Skills, Claude in Chrome and
+  CLAUDE.md are now off by flag and env var (see "Token budget"); the old
+  "MCP servers: 1 connected" with an empty strict config was most likely
+  Claude in Chrome. `CLAUDE_CODE_DISABLE_CLAUDE_MDS` is undocumented and
+  may change: re-check the baseline on each claude update.
 - **Moonshine source**: the pinned `quantized_26_07_30` folder is the last
   one with a single `frontend.ort`, which transcribe-rs 0.3.12 needs. If
   Moonshine AI prunes it, the pinned commit URL should keep working unless

@@ -48,6 +48,19 @@ const AUTH_FAILURE_MARKERS: &[&str] = &[
     "noapikeyavailable",
 ];
 
+/// Environment set on every `claude` Deskhand starts.
+/// - `ANTHROPIC_API_KEY=""`: subscription login only; a stray key would
+///   switch to API billing.
+/// - `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`: leave out the user's own CLAUDE.md
+///   files (undocumented; found in the claude 2.1.308 binary and checked
+///   with a real turn).
+pub const CHILD_ENV: &[(&str, &str)] = &[
+    ("ANTHROPIC_API_KEY", ""),
+    ("TERM", "xterm-256color"),
+    ("COLORTERM", "truecolor"),
+    ("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1"),
+];
+
 const TRUST_MARKERS: &[&str] = &["doyoutrustthefiles", "trustthisfolder", "yes,itrustthisfolder", "yes,proceed"];
 
 /// Settings sources for every `claude` Deskhand starts: project and local
@@ -69,6 +82,12 @@ pub struct SpawnOptions {
     pub mcp_config: Option<PathBuf>,
     pub settings: Option<PathBuf>,
     pub allowed_tools: Vec<String>,
+    /// `--tools`: the built-in tools (Bash, Read...). Empty by default:
+    /// Deskhand's sessions only need its MCP tools, and the full built-in
+    /// set costs about 31k tokens on every call.
+    pub tools: Vec<String>,
+    /// `--effort` (unset = Claude Code's default).
+    pub effort: Option<String>,
     /// `--permission-mode` (unset = Claude Code's own default).
     pub permission_mode: Option<String>,
     pub model: Option<String>,
@@ -88,6 +107,8 @@ impl SpawnOptions {
             mcp_config: None,
             settings: None,
             allowed_tools: vec![],
+            tools: vec![],
+            effort: None,
             permission_mode: None,
             model: None,
             append_system_prompt: None,
@@ -120,6 +141,17 @@ impl SpawnOptions {
             a.push("--model".into());
             a.push(m.clone());
         }
+        if let Some(e) = &self.effort {
+            a.push("--effort".into());
+            a.push(e.clone());
+        }
+        // Keep each session to what Deskhand needs: the built-in tools it
+        // asked for, no Claude in Chrome (a second, unapproved way to act on
+        // the user's browser) and no skills or slash commands.
+        a.push("--tools".into());
+        a.push(self.tools.join(","));
+        a.push("--no-chrome".into());
+        a.push("--disable-slash-commands".into());
         if let Some(s) = &self.append_system_prompt {
             a.push("--append-system-prompt".into());
             a.push(s.clone());
@@ -230,10 +262,9 @@ impl ClaudeSession {
         for k in PARENT_SESSION_VARS {
             cmd.env_remove(k);
         }
-        // Subscription login only: a stray key would switch to API billing.
-        cmd.env("ANTHROPIC_API_KEY", "");
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("COLORTERM", "truecolor");
+        for (k, v) in CHILD_ENV {
+            cmd.env(k, v);
+        }
 
         let child = pair.slave.spawn_command(cmd).context("spawning claude in the pty")?;
         drop(pair.slave);
@@ -468,6 +499,30 @@ mod tests {
         // 2.1.3xx positions words with CSI n G (cursor to column).
         let s = strip_ansi("\x1b[4GNo,\x1b[8Gexit\r\n\x1b[2G\x1b[38;2;1;2;3m❯\x1b[4GYes,\x1b[9GI".as_bytes());
         assert_eq!(squash(&s), "no,exit❯yes,i");
+    }
+
+    #[test]
+    fn args_trim_the_session_to_what_deskhand_needs() {
+        let mut o = SpawnOptions::new("/bin/claude".into(), "/tmp".into());
+        o.allowed_tools = vec!["mcp__desktop".into()];
+        let a = o.args();
+        // No built-in tools by default: `--tools ""`.
+        let i = a.iter().position(|x| x == "--tools").unwrap();
+        assert_eq!(a[i + 1], "");
+        assert!(a.contains(&"--no-chrome".to_string()));
+        assert!(a.contains(&"--disable-slash-commands".to_string()));
+        assert!(!a.contains(&"--effort".to_string()));
+        o.tools = vec!["Bash".into(), "Read".into()];
+        o.effort = Some("high".into());
+        let a = o.args();
+        let i = a.iter().position(|x| x == "--tools").unwrap();
+        assert_eq!(a[i + 1], "Bash,Read");
+        let i = a.iter().position(|x| x == "--effort").unwrap();
+        assert_eq!(a[i + 1], "high");
+        assert_eq!(a.last().unwrap(), "mcp__desktop");
+        // The user's own CLAUDE.md files stay out too.
+        assert!(CHILD_ENV.contains(&("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1")));
+        assert!(CHILD_ENV.contains(&("ANTHROPIC_API_KEY", "")));
     }
 
     #[test]

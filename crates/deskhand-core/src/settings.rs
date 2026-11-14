@@ -195,6 +195,12 @@ impl Settings {
                 problems.push(format!("{what}: unknown model \"{id}\""));
             }
         }
+        if let Some(m) = self.voice.model.as_deref().filter(|m| !crate::brain::config::model_ok(m)) {
+            problems.push(format!("Claude model: unknown model \"{m}\""));
+        }
+        if let Some(e) = self.voice.effort.as_deref().filter(|e| !crate::brain::config::effort_ok(e)) {
+            problems.push(format!("Thinking effort: unknown level \"{e}\""));
+        }
         if problems.is_empty() { Ok(()) } else { Err(problems) }
     }
 }
@@ -319,6 +325,26 @@ mod tests {
         assert_eq!(e.hotkey.to_string(), "Right Cmd");
         assert_eq!(e.voice.speak_mode, SpeakMode::AtStop);
         assert_eq!(s.port, 47823, "the stored settings are untouched");
+    }
+
+    #[test]
+    fn claude_model_effort_and_permission_mode_load_and_validate() {
+        let s: Settings = serde_json::from_str(
+            r#"{"version":1,"voice":{"model":"sonnet","effort":"high","permission_mode":"auto"}}"#,
+        )
+        .unwrap();
+        assert_eq!(s.voice.model.as_deref(), Some("sonnet"));
+        assert_eq!(s.voice.effort.as_deref(), Some("high"));
+        assert_eq!(s.voice.permission_mode, crate::brain::config::PermissionMode::Auto);
+        assert_eq!(s.validate(), Ok(()));
+        // Missing fields: the CLI's own model and effort, and Ask.
+        let d = Settings::default();
+        assert_eq!((d.voice.model.as_deref(), d.voice.effort.as_deref()), (None, None));
+        assert_eq!(d.voice.permission_mode, crate::brain::config::PermissionMode::Ask);
+        let mut bad = s.clone();
+        bad.voice.model = Some("gpt-5".into());
+        bad.voice.effort = Some("turbo".into());
+        assert_eq!(bad.validate().unwrap_err().len(), 2);
     }
 
     #[test]

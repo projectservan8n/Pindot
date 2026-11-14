@@ -15,6 +15,26 @@
   let problems = $state<string[]>([]);
   let tokenConfirm = $state(false);
   let tokenNote = $state('');
+  // The Auto warning is open; Auto is only set from its button.
+  let autoConfirm = $state(false);
+
+  // Values match brain/config.rs (CLAUDE_MODELS, EFFORT_LEVELS); Save
+  // validates them again.
+  const claudeModels: { value: string | null; label: string }[] = [
+    { value: null, label: "Claude Code's default" },
+    { value: 'haiku', label: 'Haiku: fastest, uses the least of your plan' },
+    { value: 'sonnet', label: 'Sonnet' },
+    { value: 'opus', label: 'Opus' },
+    { value: 'fable', label: 'Fable' },
+  ];
+  const effortLevels: { value: string | null; label: string }[] = [
+    { value: null, label: "Claude Code's default" },
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+    { value: 'xhigh', label: 'Extra high' },
+    { value: 'max', label: 'Max' },
+  ];
 
   const presets = $derived(hotkeyPresets(view?.os ?? 'macos'));
 
@@ -187,6 +207,79 @@
   </section>
 
   <section>
+    <h2>Claude</h2>
+    <p class="small muted">For what you ask by voice. A smaller model and lower effort reply sooner and use less of your Claude plan.</p>
+    <div class="row">
+      <label for="cmodel">Model</label>
+      <select id="cmodel" bind:value={view.settings.voice.model}>
+        {#each claudeModels as m (m.label)}<option value={m.value}>{m.label}</option>{/each}
+      </select>
+    </div>
+    <div class="row">
+      <label for="effort">Thinking effort</label>
+      <select id="effort" bind:value={view.settings.voice.effort}>
+        {#each effortLevels as e (e.label)}<option value={e.value}>{e.label}</option>{/each}
+      </select>
+    </div>
+    <fieldset>
+      <legend>Permissions</legend>
+      <label class="row">
+        <input
+          type="radio"
+          name="perm"
+          checked={view.settings.voice.permission_mode === 'ask' && !autoConfirm}
+          onchange={() => {
+            if (view) view.settings.voice.permission_mode = 'ask';
+            autoConfirm = false;
+          }}
+        />
+        Ask (recommended): Claude uses only Deskhand's desktop tools
+      </label>
+      <label class="row">
+        <input
+          type="radio"
+          name="perm"
+          checked={view.settings.voice.permission_mode === 'auto' || autoConfirm}
+          onchange={() => (autoConfirm = view?.settings.voice.permission_mode !== 'auto')}
+        />
+        Auto: Claude can also run commands, change files and browse the web
+      </label>
+      {#if autoConfirm}
+        <div class="disclaimer" role="alertdialog" aria-labelledby="auto-title" aria-describedby="auto-body">
+          <strong id="auto-title">Before you turn on Auto</strong>
+          <ul id="auto-body">
+            <li>
+              Claude can run terminal commands, change or delete files and fetch web pages
+              <strong>without asking you</strong>. It runs as your user account, so it can reach anything you can.
+            </li>
+            <li>
+              Claude Code checks each action and blocks the ones it judges risky. That check can be wrong, and text on
+              a web page or on screen can try to trick Claude.
+            </li>
+            <li>Claude Code itself recommends auto mode only in isolated environments.</li>
+            <li>Deskhand still asks you before Claude controls each app, and Esc still stops everything.</li>
+            <li>Each step costs about twice the tokens of Ask (about 10k instead of 5k).</li>
+          </ul>
+          <div class="row">
+            <button
+              class="danger"
+              onclick={() => {
+                if (view) view.settings.voice.permission_mode = 'auto';
+                autoConfirm = false;
+              }}>I understand, turn on Auto</button
+            >
+            <button onclick={() => (autoConfirm = false)}>Keep Ask</button>
+          </div>
+        </div>
+      {:else if view.settings.voice.permission_mode === 'auto'}
+        <p class="small warn-text">
+          Auto is on: Claude Code's safety check, not you, approves commands and file changes.
+        </p>
+      {/if}
+    </fieldset>
+  </section>
+
+  <section>
     <h2>MCP server</h2>
     <div class="row">
       <label for="port">Port</label>
@@ -228,3 +321,23 @@
 {:else}
   <p>Loading…</p>
 {/if}
+
+<style>
+  .disclaimer {
+    margin: 8px 0 4px;
+    padding: 12px 14px;
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--warn) 8%, var(--card));
+  }
+  .disclaimer strong:first-child {
+    color: var(--warn);
+  }
+  .disclaimer ul {
+    margin: 6px 0 10px;
+    padding-left: 18px;
+  }
+  .disclaimer li {
+    margin: 3px 0;
+  }
+</style>

@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use uuid::Uuid;
 
-use super::config::{ALLOWED_TOOLS_RULE, write_brain_mcp_config, write_hook_settings};
+use super::config::{ALLOWED_TOOLS_RULE, PermissionMode, write_brain_hook_settings, write_brain_mcp_config};
 use super::pty::{ClaudeSession, SpawnOptions};
 use super::tailer::{TranscriptEvent, TranscriptTailer};
 use super::turn::{PERMISSION_PROMPT_MARKERS, SUBMIT_CHECK};
@@ -56,6 +56,10 @@ pub struct BrainConfig {
     pub stop_hook_url: String,
     pub token: String,
     pub model: Option<String>,
+    /// `--effort` (`None` = Claude Code's default).
+    pub effort: Option<String>,
+    /// Ask (only our tools) or auto mode with a few built-in tools.
+    pub permission_mode: PermissionMode,
     pub system_prompt: String,
 }
 
@@ -381,12 +385,17 @@ impl Worker {
         opts.session_id = self.session_id;
         opts.resume = resume;
         let key = self.session_id.to_string();
-        opts.settings = Some(write_hook_settings(&self.config.stop_hook_url, &self.config.token).context("hook settings")?);
+        let mode = self.config.permission_mode;
+        opts.settings = Some(
+            write_brain_hook_settings(&self.config.stop_hook_url, &self.config.token, mode).context("hook settings")?,
+        );
         opts.mcp_config =
             Some(write_brain_mcp_config(&self.config.mcp_url, &self.config.token, &key).context("MCP config")?);
         opts.allowed_tools = vec![ALLOWED_TOOLS_RULE.into()];
-        opts.permission_mode = Some("default".into());
+        opts.permission_mode = Some(mode.cli().into());
+        opts.tools = mode.builtin_tools().iter().map(|t| t.to_string()).collect();
         opts.model = self.config.model.clone();
+        opts.effort = self.config.effort.clone();
         opts.append_system_prompt = Some(self.config.system_prompt.clone());
         Ok(opts)
     }

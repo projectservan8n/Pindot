@@ -1309,7 +1309,7 @@ impl DesktopServer {
         self.finish("drag", a, out)
     }
 
-    #[tool(description = "Wait for the UI to settle (ms, at most 10000). The user can cancel with Esc.")]
+    #[tool(description = "Wait for the UI to settle (ms, at most 10000). The user can cancel with Esc. Only when something is still loading and you will look at it next: actions do not need a wait after each one.")]
     async fn wait(&self, Parameters(args): Parameters<WaitArgs>) -> Result<CallToolResult, ErrorData> {
         let a = format!("{} ms", args.ms);
         let out = self.do_wait(args).await;

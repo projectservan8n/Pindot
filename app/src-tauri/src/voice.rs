@@ -196,6 +196,8 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
         stop_hook_url: link.stop_hook_url,
         token: link.token,
         model: opts.model.clone().or(settings.model.clone()),
+        effort: settings.effort.clone(),
+        permission_mode: settings.permission_mode,
         system_prompt: VOICE_SYSTEM_PROMPT.into(),
     };
     let (h, p) = (handle.clone(), probe.clone());
