@@ -31,7 +31,7 @@ objc2 = "0.6.5"
 objc2-core-graphics = "0.3.2"
 objc2-core-foundation = "0.3.2"
 
-# Windows: stubs only in Phase 0. Phase 1 adds xcap and enigo here
+# Windows: stubs only in Phase 0. The Windows implementation adds xcap and enigo here
 # (see docs/windows-test-checklist.md).
 
 [dev-dependencies]
