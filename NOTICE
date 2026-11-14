@@ -54,7 +54,7 @@ Main components:
   transcribe-rs                                 MIT
   ptts                                          MIT OR Apache-2.0
   ort (ONNX Runtime bindings)                   MIT OR Apache-2.0
-  ONNX Runtime (Microsoft, linked through ort)  MIT
+  ONNX Runtime (Microsoft, static via ort)      MIT
   portable-pty                                  MIT
   cpal                                          Apache-2.0
   hound                                         Apache-2.0

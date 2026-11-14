@@ -1,0 +1,15 @@
+Settings pane URL check (read-only, 14 Nov 2026, macOS 26.5). Nothing was opened.
+
+1. Which app Launch Services would open each URL with (NSWorkspace.urlForApplication(toOpen:), opens nothing):
+   Privacy_Accessibility -> /System/Applications/System Settings.app
+   Privacy_ListenEvent -> /System/Applications/System Settings.app
+   Privacy_ScreenCapture -> /System/Applications/System Settings.app
+   Privacy_Microphone -> /System/Applications/System Settings.app
+
+2. The anchor names exist in /System/Library/ExtensionKit/Extensions/SecurityPrivacyExtension.appex (grep -rl, read-only):
+   Privacy_Accessibility: found in 42 files
+   Privacy_ListenEvent: found in 42 files
+   Privacy_ScreenCapture: found in 42 files
+   Privacy_Microphone: found in 42 files
+
+Not tested: pressing the buttons (the rules for this run forbid opening System Settings).

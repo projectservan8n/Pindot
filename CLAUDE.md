@@ -336,9 +336,11 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   for the echo and quiet; `drive_turn` presses Enter once more if the
   `UserPromptSubmit` hook has not come in 6 s. `exit` sends Ctrl+C before
   `/exit` so it can never be appended to an unsent prompt.
-- Screenshots in a debug build take about 1.5 s (mask + resize); one run
-  saw 10-36 s spikes that did not come back. Release numbers are in
-  `docs/phase3/README.md`.
+- Screenshots in a debug build take about 1.5 s (unoptimised mask and
+  resize); one Phase 1 run saw 10-36 s spikes that did not come back. The
+  release build takes 54 ms median, 91 ms p95, 94 ms max over 70 shots
+  (capture 31-54 ms, mask 1-5 ms, resize 9-18 ms), no spikes; details in
+  `docs/phase3/README.md`. Measure screenshot speed in release builds only.
 - **Unsigned builds lose permission grants on every rebuild**: macOS ties
   them to the code signature. Signing is documented in `docs/release.md`,
   not set up.
