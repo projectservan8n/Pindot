@@ -37,6 +37,9 @@ pub enum Display {
 pub enum Input {
     HotkeyDown,
     HotkeyUp,
+    /// The hold turned out to be a shortcut (another key joined): drop the
+    /// recording. Speech or a turn it already stopped stays stopped.
+    HotkeyCancel,
     /// The global Esc (Control broadcast `EmergencyStop`).
     Esc,
     /// Speech to text finished for recording `utterance`.
@@ -181,6 +184,12 @@ impl Machine {
                     self.listening = false;
                     self.transcribing = true;
                     fx.push(Effect::FinishRecording { utterance: self.utterance });
+                }
+            }
+            Input::HotkeyCancel => {
+                if self.listening {
+                    self.listening = false;
+                    fx.push(Effect::DiscardRecording);
                 }
             }
             Input::Esc => {
@@ -466,6 +475,20 @@ mod tests {
         m.handle(Input::HotkeyUp, t);
         let u = m.utterance;
         m.handle(Input::Transcribed { utterance: u, text: text.into() }, t)
+    }
+
+    #[test]
+    fn hotkey_cancel_drops_the_recording() {
+        let (mut m, t) = ready(SpeakMode::EachMessage);
+        m.handle(Input::HotkeyDown, t);
+        let fx = m.handle(Input::HotkeyCancel, t);
+        assert!(has(&fx, &Effect::DiscardRecording));
+        assert!(has(&fx, &Effect::Show(Display::Idle)));
+        // No transcription follows, so nothing is sent.
+        let fx = m.handle(Input::HotkeyUp, t);
+        assert!(fx.iter().all(|e| !matches!(e, Effect::FinishRecording { .. })));
+        // A cancel with nothing recording does nothing.
+        assert!(!has(&m.handle(Input::HotkeyCancel, t), &Effect::DiscardRecording));
     }
 
     #[test]

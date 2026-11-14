@@ -15,7 +15,6 @@ pub mod models;
 pub mod runner;
 pub mod speaker;
 
-use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -30,9 +29,9 @@ pub enum SpeakMode {
     AtStop,
 }
 
-/// User-facing voice settings. Stored in `voice-settings.json` in the data
-/// dir; every field is optional there. Environment variables win.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// User-facing voice settings: the `voice` object in `settings.json`; every
+/// field is optional there. Environment variables win.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct VoiceSettings {
     /// Catalog id or an absolute folder with the model files.
@@ -64,25 +63,18 @@ impl Default for VoiceSettings {
 }
 
 impl VoiceSettings {
-    pub fn path() -> anyhow::Result<PathBuf> {
-        Ok(crate::paths::data_dir()?.join("voice-settings.json"))
-    }
-
-    /// Defaults, then `voice-settings.json`, then environment overrides
+    /// The `voice` part of `settings.json` (migrating Phase 2's
+    /// `voice-settings.json` on first use), then environment overrides
     /// (`DESKHAND_STT_MODEL`, `DESKHAND_TTS_MODEL`, `DESKHAND_TTS_VOICE`,
     /// `DESKHAND_VOICE_MODEL`, `DESKHAND_VOLUME`, `DESKHAND_SPEAK_MODE`).
     pub fn load() -> Self {
-        let mut s = Self::path()
-            .ok()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|t| match serde_json::from_str::<Self>(&t) {
-                Ok(s) => Some(s),
-                Err(e) => {
-                    tracing::warn!("voice-settings.json ignored: {e}");
-                    None
-                }
-            })
-            .unwrap_or_default();
+        let mut s = match crate::settings::Settings::load() {
+            Ok((settings, _)) => settings.voice,
+            Err(e) => {
+                tracing::warn!("settings could not be read ({e:#}); using the default voice settings");
+                Self::default()
+            }
+        };
         s.apply_env(|k| std::env::var(k).ok());
         s
     }

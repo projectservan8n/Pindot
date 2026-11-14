@@ -2,6 +2,7 @@
 //!
 //!   voice_check devices                 list audio devices (opens no stream)
 //!   voice_check models                  download (if needed) and verify both models
+//!                                       (`--no-fallback`: the pinned source only)
 //!   voice_check stt <in.wav>            transcribe a WAV with the STT model
 //!   voice_check tts <text> <out.wav>    synthesize, then check duration, level
 //!                                       and a transcribe-back
@@ -23,21 +24,30 @@ use deskhand_core::voice::{
 fn progress(p: Progress) {
     match p {
         Progress::Checking { .. } => {}
-        Progress::Downloading { file, done, total } => {
+        Progress::Downloading { file, done, total, .. } => {
             if done == total {
                 eprintln!("downloaded {file}: {total} bytes");
             }
         }
-        Progress::Verified { file } => eprintln!("verified {file}"),
+        other => eprintln!("{other:?}"),
     }
 }
 
 fn stt_dir(s: &VoiceSettings) -> Result<PathBuf> {
-    models::resolve(&s.stt_model, ModelKind::SpeechToText, &models::models_dir()?, &mut progress)
+    models::resolve(&s.stt_model, ModelKind::SpeechToText, &models::models_dir()?)
 }
 
 fn tts_dir(s: &VoiceSettings) -> Result<PathBuf> {
-    models::resolve(&s.tts_model, ModelKind::TextToSpeech, &models::models_dir()?, &mut progress)
+    models::resolve(&s.tts_model, ModelKind::TextToSpeech, &models::models_dir()?)
+}
+
+/// Download (when missing or damaged) a catalog model; a local folder is
+/// used as is.
+fn ensure(setting: &str, opts: &models::DownloadOptions) -> Result<PathBuf> {
+    match models::find(setting) {
+        Some(spec) => models::ensure_with(spec, &models::models_dir()?, opts, &mut progress),
+        None => Ok(PathBuf::from(setting)),
+    }
 }
 
 fn main() -> Result<()> {
@@ -58,8 +68,12 @@ fn main() -> Result<()> {
         }
         Some("models") => {
             let t = Instant::now();
-            let a = stt_dir(&s)?;
-            let b = tts_dir(&s)?;
+            let opts = models::DownloadOptions {
+                use_fallback: !args.iter().any(|a| a == "--no-fallback"),
+                ..Default::default()
+            };
+            let a = ensure(&s.stt_model, &opts)?;
+            let b = ensure(&s.tts_model, &opts)?;
             println!("stt: {}\ntts: {}\nverified in {:?}", a.display(), b.display(), t.elapsed());
         }
         Some("stt") => {

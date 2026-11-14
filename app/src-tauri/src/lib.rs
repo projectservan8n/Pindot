@@ -217,6 +217,9 @@ pub fn run() {
                         test_timeout: Duration::from_secs(args.turn_timeout),
                         exit_when_done: !args.keep_running,
                         test_esc: args.test_voice_esc,
+                        hotkey: deskhand_core::settings::Settings::load()
+                            .map(|(s, _)| s.effective().hotkey)
+                            .unwrap_or_else(|_| deskhand_core::platform::HotkeyBinding::platform_default()),
                     };
                     app.manage(voice::start(app.handle(), state.clone(), link, opts));
                 }

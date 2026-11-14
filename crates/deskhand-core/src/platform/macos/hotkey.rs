@@ -1,20 +1,31 @@
-//! Hold-Fn push-to-talk through a CGEventTap.
+//! Hold-to-talk through a CGEventTap: Fn (the default) or any chord of
+//! modifier keys (Right Option, Ctrl+Cmd, ...).
 //!
-//! An active (filtering) tap at the session level sees `flagsChanged` events
-//! for keycode 0x3F (kVK_Function). Fn down sets `MaskSecondaryFn`, Fn up
-//! clears it. We report the transitions and, when swallowing, return NULL so
-//! no app (and no later tap) receives the Fn press. We also swallow the
-//! Dictation (0xB0) and Globe (0xB3) key events that some keyboards send
-//! while Fn is held, so the Globe key's configured action does not fire.
+//! An active (filtering) tap at the session level sees `flagsChanged`,
+//! `keyDown` and `keyUp`. Each `flagsChanged` carries the full modifier
+//! state, left and right separately (device bits), which feeds the pure
+//! `ChordTracker` (exact match, cancel on any other key). Fn is tracked from
+//! its own key events (keycode 0x3F, `MaskSecondaryFn`).
 //!
-//! Limits (see CLAUDE.md): Fn only exists on Apple keyboards, and a physical
+//! Swallowing: only Fn. When the binding uses Fn we return NULL for the Fn
+//! events, and for the Dictation (0xB0) and Globe (0xB3) keys some keyboards
+//! send while Fn is held, so the Globe action does not fire. Other
+//! modifiers pass through: holding them alone does nothing in apps,
+//! swallowing a modifier does not remove it from the flags of later key
+//! events anyway, and it would break that key for typing.
+//!
+//! Events Deskhand itself posts (the `key` tool, stamped `INPUT_MARKER`) are
+//! ignored, so Claude pressing a shortcut never counts as a hold.
+//!
+//! Limits (see CLAUDE.md): Fn only exists on Apple keyboards (a non-Apple
+//! keyboard's Fn never reaches macOS, hence the other chords), and a physical
 //! test is still needed to prove the Globe action is suppressed, because the
 //! OS may act on it below the session tap.
 
 use std::ffi::c_void;
 use std::ptr::{NonNull, null_mut};
 use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
 use objc2_core_foundation::{CFMachPort, CFRunLoop, kCFRunLoopCommonModes, kCFRunLoopDefaultMode};
@@ -24,30 +35,79 @@ use objc2_core_graphics::{
 };
 
 use super::accessibility::ax_is_trusted;
+use super::input::INPUT_MARKER;
 use crate::platform::{
-    Hotkey, HotkeyBinding, HotkeyEvent, ListenerHandle, Permission, PlatformError, Result,
+    ChordTracker, HeldMods, Hotkey, HotkeyBinding, HotkeyEvent, ListenerHandle, ModKey, Permission, PlatformError,
+    Result, Side,
 };
 
 pub const KVK_FUNCTION: i64 = 0x3F;
 pub const KVK_DICTATION: i64 = 0xB0;
 pub const KVK_GLOBE: i64 = 0xB3;
+pub const KVK_LEFT_CONTROL: u16 = 0x3B;
+pub const KVK_RIGHT_CONTROL: u16 = 0x3E;
+pub const KVK_LEFT_SHIFT: u16 = 0x38;
+pub const KVK_RIGHT_SHIFT: u16 = 0x3C;
+pub const KVK_LEFT_COMMAND: u16 = 0x37;
+pub const KVK_RIGHT_COMMAND: u16 = 0x36;
+pub const KVK_LEFT_OPTION: u16 = 0x3A;
+pub const KVK_RIGHT_OPTION: u16 = 0x3D;
 
-/// Marker in `kCGEventSourceUserData` for the synthetic Fn events the spike
-/// posts, so the watcher can tell them apart from a real keyboard.
+/// Marker in `kCGEventSourceUserData` for the synthetic hotkey events the
+/// self-tests post, so the watcher can tell them apart from a real keyboard.
 pub const SYNTHETIC_FN_MARKER: i64 = 0x0DE5_0F11;
+
+/// The modifier a macOS virtual keycode belongs to.
+pub fn mac_keycode_mod(keycode: i64) -> Option<(ModKey, Side)> {
+    Some(match keycode as u16 {
+        KVK_LEFT_CONTROL => (ModKey::Control, Side::Left),
+        KVK_RIGHT_CONTROL => (ModKey::Control, Side::Right),
+        KVK_LEFT_SHIFT => (ModKey::Shift, Side::Left),
+        KVK_RIGHT_SHIFT => (ModKey::Shift, Side::Right),
+        KVK_LEFT_COMMAND => (ModKey::Command, Side::Left),
+        KVK_RIGHT_COMMAND => (ModKey::Command, Side::Right),
+        KVK_LEFT_OPTION => (ModKey::Option, Side::Left),
+        KVK_RIGHT_OPTION => (ModKey::Option, Side::Right),
+        0x3F => (ModKey::Fn, Side::Either),
+        _ => return None,
+    })
+}
+
+/// The device-dependent flag bit (plus the generic bit) for one modifier key,
+/// as a real keyboard sets them. Used to build synthetic test events.
+pub fn mac_flags_for(key: ModKey, side: Side) -> u64 {
+    match (key, side) {
+        (ModKey::Control, Side::Right) => 0x40000 | 0x2000,
+        (ModKey::Control, _) => 0x40000 | 0x1,
+        (ModKey::Shift, Side::Right) => 0x20000 | 0x4,
+        (ModKey::Shift, _) => 0x20000 | 0x2,
+        (ModKey::Command, Side::Right) => 0x100000 | 0x10,
+        (ModKey::Command, _) => 0x100000 | 0x8,
+        (ModKey::Option, Side::Right) => 0x80000 | 0x40,
+        (ModKey::Option, _) => 0x80000 | 0x20,
+        (ModKey::Fn, _) => 0x800000,
+    }
+}
+
+struct Chord {
+    tracker: ChordTracker,
+    fn_down: bool,
+}
 
 struct TapState {
     tx: mpsc::Sender<HotkeyEvent>,
     port: AtomicPtr<CFMachPort>,
-    fn_down: AtomicBool,
-    swallow: bool,
+    chord: Mutex<Chord>,
+    /// Swallow Fn (and Globe/Dictation while Fn is down). Only when the
+    /// binding uses Fn.
+    swallow_fn: bool,
 }
 
 pub(super) fn mask_of(types: &[CGEventType]) -> CGEventMask {
     types.iter().fold(0, |m, t| m | (1u64 << t.0))
 }
 
-unsafe extern "C-unwind" fn fn_tap_callback(
+unsafe extern "C-unwind" fn chord_tap_callback(
     _proxy: CGEventTapProxy,
     etype: CGEventType,
     event: NonNull<CGEvent>,
@@ -67,23 +127,38 @@ unsafe extern "C-unwind" fn fn_tap_callback(
     }
 
     let ev = unsafe { event.as_ref() };
+    if CGEvent::integer_value_field(Some(ev), CGEventField::EventSourceUserData) == INPUT_MARKER {
+        return event.as_ptr();
+    }
     let keycode = CGEvent::integer_value_field(Some(ev), CGEventField::KeyboardEventKeycode);
-    let has_fn = CGEvent::flags(Some(ev)).contains(CGEventFlags::MaskSecondaryFn);
+    let flags = CGEvent::flags(Some(ev));
+    let has_fn = flags.contains(CGEventFlags::MaskSecondaryFn);
+    let Ok(mut chord) = state.chord.lock() else {
+        return event.as_ptr();
+    };
 
-    if etype == CGEventType::FlagsChanged && keycode == KVK_FUNCTION {
-        let was_down = state.fn_down.swap(has_fn, Ordering::AcqRel);
-        if was_down != has_fn {
-            let _ = state.tx.send(if has_fn { HotkeyEvent::Down } else { HotkeyEvent::Up });
+    if etype == CGEventType::FlagsChanged {
+        if keycode == KVK_FUNCTION {
+            chord.fn_down = has_fn;
         }
-        if state.swallow {
+        let mut held = HeldMods::from_mac_flags(flags.0);
+        held.fn_key = chord.fn_down;
+        if let Some(e) = chord.tracker.on_mods(held) {
+            let _ = state.tx.send(e);
+        }
+        if keycode == KVK_FUNCTION && state.swallow_fn {
             return null_mut();
         }
     } else if (etype == CGEventType::KeyDown || etype == CGEventType::KeyUp)
         && (keycode == KVK_DICTATION || keycode == KVK_GLOBE)
-        && has_fn
-        && state.swallow
     {
-        return null_mut();
+        if has_fn && state.swallow_fn {
+            return null_mut();
+        }
+    } else if etype == CGEventType::KeyDown
+        && let Some(e) = chord.tracker.on_other_key()
+    {
+        let _ = state.tx.send(e);
     }
     event.as_ptr()
 }
@@ -98,18 +173,24 @@ unsafe extern "C-unwind" fn watch_callback(
     if etype == CGEventType::FlagsChanged {
         let ev = unsafe { event.as_ref() };
         let keycode = CGEvent::integer_value_field(Some(ev), CGEventField::KeyboardEventKeycode);
-        if keycode == KVK_FUNCTION {
-            let has_fn = CGEvent::flags(Some(ev)).contains(CGEventFlags::MaskSecondaryFn);
-            let marker = CGEvent::integer_value_field(Some(ev), CGEventField::EventSourceUserData);
-            let _ = state.tx.send(WatchedFn { down: has_fn, synthetic: marker == SYNTHETIC_FN_MARKER });
-        }
+        let flags = CGEvent::flags(Some(ev)).0;
+        let down = match mac_keycode_mod(keycode) {
+            Some((key, side)) => {
+                let want = mac_flags_for(key, side);
+                flags & want == want
+            }
+            None => false,
+        };
+        let marker = CGEvent::integer_value_field(Some(ev), CGEventField::EventSourceUserData);
+        let _ = state.tx.send(WatchedFn { keycode, down, synthetic: marker == SYNTHETIC_FN_MARKER });
     }
     event.as_ptr()
 }
 
-/// A Fn transition seen by the listen-only watcher tap.
+/// A modifier transition seen by the listen-only watcher tap.
 #[derive(Debug, Clone, Copy)]
 pub struct WatchedFn {
+    pub keycode: i64,
     pub down: bool,
     pub synthetic: bool,
 }
@@ -202,15 +283,32 @@ impl MacHotkey {
     /// Start the Fn tap. `swallow = false` reports Fn but lets it through
     /// (used as the control run in the spike).
     pub fn start_fn(&self, tx: mpsc::Sender<HotkeyEvent>, swallow: bool) -> Result<ListenerHandle> {
-        let state = Box::new(TapState { tx, port: AtomicPtr::new(null_mut()), fn_down: AtomicBool::new(false), swallow });
+        self.start_chord(HotkeyBinding::fn_key(), tx, swallow)
+    }
+
+    /// Start a tap for any modifier chord. `swallow_fn` applies only when the
+    /// binding uses Fn.
+    pub fn start_chord(
+        &self,
+        binding: HotkeyBinding,
+        tx: mpsc::Sender<HotkeyEvent>,
+        swallow_fn: bool,
+    ) -> Result<ListenerHandle> {
+        let swallow_fn = swallow_fn && binding.has_fn();
+        let state = Box::new(TapState {
+            tx,
+            port: AtomicPtr::new(null_mut()),
+            chord: Mutex::new(Chord { tracker: ChordTracker::new(binding), fn_down: false }),
+            swallow_fn,
+        });
         // An active (filtering) keyboard tap needs Accessibility; a listen-only
         // one needs Input Monitoring. Report whichever is actually missing.
         let missing = if ax_is_trusted() { Permission::InputMonitoring } else { Permission::Accessibility };
         run_tap(
             CGEventTapLocation::SessionEventTap,
-            if swallow { CGEventTapOptions::Default } else { CGEventTapOptions::ListenOnly },
+            if swallow_fn { CGEventTapOptions::Default } else { CGEventTapOptions::ListenOnly },
             mask_of(&[CGEventType::FlagsChanged, CGEventType::KeyDown, CGEventType::KeyUp]),
-            fn_tap_callback,
+            chord_tap_callback,
             state,
             |s: &TapState| Some(&s.port),
             missing,
@@ -220,10 +318,10 @@ impl MacHotkey {
 
 impl Hotkey for MacHotkey {
     fn start(&self, binding: HotkeyBinding, events: mpsc::Sender<HotkeyEvent>) -> Result<ListenerHandle> {
-        match binding {
-            HotkeyBinding::Fn => self.start_fn(events, true),
-            HotkeyBinding::CtrlWin => Err(PlatformError::Unsupported("Ctrl+Win is the Windows binding")),
+        if let Err(e) = binding.check_for(crate::platform::Os::MacOs) {
+            return Err(PlatformError::Other(e.to_string()));
         }
+        self.start_chord(binding, events, true)
     }
 }
 
@@ -245,16 +343,32 @@ pub fn watch_fn(tx: mpsc::Sender<WatchedFn>) -> Result<ListenerHandle> {
 /// `SYNTHETIC_FN_MARKER`. Uses a private event-source state so the system's
 /// real modifier state is never left "stuck".
 pub fn post_synthetic_fn(down: bool) -> Result<()> {
+    post_synthetic_flags(KVK_FUNCTION as u16, if down { mac_flags_for(ModKey::Fn, Side::Either) } else { 0 })
+}
+
+/// Post one synthetic `flagsChanged` for `keycode` with the full modifier
+/// state `flags` (generic + device bits, see [`mac_flags_for`]), marked with
+/// `SYNTHETIC_FN_MARKER`, at the HID level from a private source state.
+/// Callers must always post the matching release (flags 0) afterwards.
+pub fn post_synthetic_flags(keycode: u16, flags: u64) -> Result<()> {
     let source = CGEventSource::new(CGEventSourceStateID::Private);
-    let ev = CGEvent::new_keyboard_event(source.as_deref(), KVK_FUNCTION as u16, down)
+    let ev = CGEvent::new_keyboard_event(source.as_deref(), keycode, flags != 0)
         .ok_or_else(|| PlatformError::Other("CGEventCreateKeyboardEvent failed".into()))?;
     CGEvent::set_type(Some(&ev), CGEventType::FlagsChanged);
-    let flags = if down {
-        CGEventFlags::MaskSecondaryFn | CGEventFlags::MaskNonCoalesced
-    } else {
-        CGEventFlags::MaskNonCoalesced
-    };
-    CGEvent::set_flags(Some(&ev), flags);
+    CGEvent::set_flags(Some(&ev), CGEventFlags(flags) | CGEventFlags::MaskNonCoalesced);
+    CGEvent::set_integer_value_field(Some(&ev), CGEventField::EventSourceUserData, SYNTHETIC_FN_MARKER);
+    CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&ev));
+    Ok(())
+}
+
+/// Post one synthetic key down or up (e.g. F13) with modifier `flags`, marked
+/// with `SYNTHETIC_FN_MARKER`. Only for self-tests with our own test window
+/// frontmost: unlike Fn, the key reaches the frontmost app.
+pub fn post_synthetic_key(keycode: u16, down: bool, flags: u64) -> Result<()> {
+    let source = CGEventSource::new(CGEventSourceStateID::Private);
+    let ev = CGEvent::new_keyboard_event(source.as_deref(), keycode, down)
+        .ok_or_else(|| PlatformError::Other("CGEventCreateKeyboardEvent failed".into()))?;
+    CGEvent::set_flags(Some(&ev), CGEventFlags(flags) | CGEventFlags::MaskNonCoalesced);
     CGEvent::set_integer_value_field(Some(&ev), CGEventField::EventSourceUserData, SYNTHETIC_FN_MARKER);
     CGEvent::post(CGEventTapLocation::HIDEventTap, Some(&ev));
     Ok(())

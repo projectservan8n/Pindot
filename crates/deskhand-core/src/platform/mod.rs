@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+pub mod hotkey;
 pub mod keys;
 pub mod mock;
 
@@ -20,6 +21,7 @@ pub mod macos;
 #[cfg(windows)]
 pub mod windows;
 
+pub use hotkey::{BindingError, ChordTracker, HeldMods, HotkeyBinding, ModKey, Os, Side};
 pub use keys::{KeyCombo, KeyName};
 
 /// A macOS / Windows privacy permission the app may need.
@@ -164,19 +166,14 @@ pub trait Input: Send + Sync {
     fn drag(&self, from: Point, to: Point, should_stop: &(dyn Fn() -> bool + Sync)) -> Result<()>;
 }
 
-/// The push-to-talk hotkey.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum HotkeyBinding {
-    /// Hold Fn / Globe (macOS default).
-    Fn,
-    /// Hold Ctrl+Win (Windows default).
-    CtrlWin,
-}
-
+/// What a hold-to-talk hook reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum HotkeyEvent {
     Down,
     Up,
+    /// Another key or modifier joined the hold: it was a shortcut, so the
+    /// recording is dropped.
+    Cancel,
 }
 
 /// Stops a running listener when dropped (or when `stop` is called).
@@ -203,8 +200,10 @@ impl Drop for ListenerHandle {
     }
 }
 
-/// A low-level hold-to-talk hotkey. Must report down/up for modifier-only
-/// keys and swallow the key so the OS does not act on it.
+/// A low-level hold-to-talk hotkey for a chord of modifier keys. Must report
+/// Down/Up/Cancel (see `hotkey::ChordTracker`). Fn is swallowed so the OS
+/// does not run the Globe action; other modifiers pass through (holding them
+/// alone does nothing in apps, and swallowing them would break typing).
 pub trait Hotkey: Send + Sync {
     fn start(&self, binding: HotkeyBinding, events: std::sync::mpsc::Sender<HotkeyEvent>) -> Result<ListenerHandle>;
 }

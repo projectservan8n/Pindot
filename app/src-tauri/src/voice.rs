@@ -23,7 +23,7 @@ use deskhand_core::server::control::ControlEvent;
 use deskhand_core::voice::audio::{self, AudioSink, CpalMicrophone, CpalSpeaker, Microphone, WavMicrophone, WavSink};
 use deskhand_core::voice::engines::{MoonshineStt, PhononTts, STT_SAMPLE_RATE, SpeechToText, TextToSpeech};
 use deskhand_core::voice::machine::{Display, Input, Machine};
-use deskhand_core::voice::models::{self, ModelKind, Progress};
+use deskhand_core::voice::models::{self, ModelKind};
 use deskhand_core::voice::runner::{self, LiveIo, Metric, Recorder, StatusSink, VoiceHandle, VoiceRunner, VoiceStatus};
 use deskhand_core::voice::speaker::Speaker;
 use deskhand_core::voice::{VOICE_SYSTEM_PROMPT, VoiceSettings};
@@ -54,6 +54,8 @@ pub struct VoiceOptions {
     /// Test: press Esc during the first turn (once a tool ran and a
     /// test-approved app is in front), then speak the request again.
     pub test_esc: bool,
+    /// The hold-to-talk chord (from the settings).
+    pub hotkey: HotkeyBinding,
 }
 
 /// Keeps the voice loop alive. `shutdown` stops the hotkey tap, speech, the
@@ -126,23 +128,12 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
         tracing::warn!("{banner}");
     }
 
-    // Models: present and verified, else downloaded with checksums.
+    // Models: present and verified. Never downloaded here: the user starts
+    // the download on the Setup screen after seeing each license.
     let root = models::models_dir()?;
     let t0 = Instant::now();
-    let mut last = Instant::now() - Duration::from_secs(1);
-    let mut progress = |p: Progress| match p {
-        Progress::Downloading { file, done, total } => {
-            if last.elapsed() >= Duration::from_millis(500) || done == total {
-                last = Instant::now();
-                let pct = (done * 100).checked_div(total).unwrap_or(0);
-                show(app, Display::Idle, Some(format!("Downloading the voice models: {file} {pct}%")));
-            }
-        }
-        Progress::Verified { file } => tracing::info!("voice model file verified: {file}"),
-        Progress::Checking { .. } => {}
-    };
-    let stt_dir = models::resolve(&settings.stt_model, ModelKind::SpeechToText, &root, &mut progress)?;
-    let tts_dir = models::resolve(&settings.tts_model, ModelKind::TextToSpeech, &root, &mut progress)?;
+    let stt_dir = models::resolve(&settings.stt_model, ModelKind::SpeechToText, &root)?;
+    let tts_dir = models::resolve(&settings.tts_model, ModelKind::TextToSpeech, &root)?;
     println!("voice: models checked in {:.2} s ({} and {})", t0.elapsed().as_secs_f64(), settings.stt_model, settings.tts_model);
     let stt = MoonshineStt::load(&stt_dir)?;
     let tts: Arc<dyn TextToSpeech> = Arc::new(PhononTts::load(&tts_dir, settings.tts_voice.as_deref())?);
@@ -206,7 +197,8 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
     let runner = VoiceRunner::start(handle.clone(), inbox, machine, Box::new(io))?;
 
     forward_esc(&state, handle.clone());
-    let hotkey = match start_hotkey(handle.clone()) {
+    let hotkey_label = opts.hotkey.label_for(deskhand_core::platform::Os::current());
+    let hotkey = match start_hotkey(opts.hotkey.clone(), handle.clone()) {
         Ok(l) => Some(l),
         Err(e) => {
             println!("voice: the hold-to-talk hotkey is off: {e}");
@@ -224,10 +216,9 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
         *running = Some(Running { hotkey, runner });
     }
     println!(
-        "voice: ready (speak mode {:?}, idle reset {} s). Hold {} to talk; Esc stops everything.",
+        "voice: ready (speak mode {:?}, idle reset {} s). Hold {hotkey_label} to talk; Esc stops everything.",
         settings.speak_mode,
         settings.idle_reset().as_secs(),
-        if cfg!(target_os = "macos") { "Fn" } else { "Ctrl+Win" }
     );
 
     if let (Some(probe), Some(sink)) = (probe, wav_sink) {
@@ -277,11 +268,7 @@ fn forward_esc(state: &Arc<ServerState>, handle: VoiceHandle) {
     }
 }
 
-fn start_hotkey(handle: VoiceHandle) -> Result<ListenerHandle, String> {
-    #[cfg(target_os = "macos")]
-    let binding = HotkeyBinding::Fn;
-    #[cfg(not(target_os = "macos"))]
-    let binding = HotkeyBinding::CtrlWin;
+fn start_hotkey(binding: HotkeyBinding, handle: VoiceHandle) -> Result<ListenerHandle, String> {
     let (tx, rx) = std::sync::mpsc::channel();
     let listener = deskhand_core::platform::native().hotkey.start(binding, tx).map_err(|e| e.to_string())?;
     std::thread::Builder::new()
@@ -291,6 +278,9 @@ fn start_hotkey(handle: VoiceHandle) -> Result<ListenerHandle, String> {
                 handle.input(match e {
                     HotkeyEvent::Down => Input::HotkeyDown,
                     HotkeyEvent::Up => Input::HotkeyUp,
+                    // Another key joined the chord: it was a shortcut, not
+                    // push-to-talk, so the recording is dropped.
+                    HotkeyEvent::Cancel => Input::HotkeyCancel,
                 });
             }
         })
