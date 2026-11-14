@@ -25,11 +25,29 @@
   body.acting #banner, body.stopped #banner { display: block; }
   body.stopped #banner { border-color: #ffb300; }
   body.stopped #banner .dot { background: #ffb300; animation: none; }
+  /* Voice pill: listening / thinking / acting / speaking, and short notices. */
+  #voice { position: absolute; bottom: 56px; left: 50%; transform: translateX(-50%); display: none;
+           max-width: 70%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+           font: 600 13px -apple-system, "Segoe UI", sans-serif; color: #fff;
+           background: rgba(20, 20, 24, 0.88); border: 2px solid #8a8a99; padding: 7px 16px; border-radius: 18px;
+           box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+  #voice.show { display: block; }
+  #voice .vdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px;
+                 vertical-align: 0; background: #8a8a99; }
+  #voice[data-state="listening"] { border-color: #ff2d95; }
+  #voice[data-state="listening"] .vdot { background: #ff2d95; animation: blink 0.8s ease-in-out infinite; }
+  #voice[data-state="thinking"] .vdot { background: #ffb300; animation: blink 1.2s ease-in-out infinite; }
+  #voice[data-state="acting"] { border-color: #ff2d95; }
+  #voice[data-state="acting"] .vdot { background: #ff2d95; }
+  #voice[data-state="speaking"] { border-color: #2ec27e; }
+  #voice[data-state="speaking"] .vdot { background: #2ec27e; animation: blink 0.6s ease-in-out infinite; }
+  #voice.notice { border-color: #ffb300; }
 </style>
 </head>
 <body>
   <!-- Shown whenever Claude controls input (not visible to screenshots). -->
   <div id="banner"><span class="dot"></span><span id="banner-text">Claude is controlling input · press Esc to stop</span></div>
+  <div id="voice" data-state="idle"><span class="vdot"></span><span id="voice-text"></span></div>
   <div id="cursor">
     <div id="ring"></div>
     <!-- Arrow tip is at (0,0) of #cursor, so translate() puts the tip on the target. -->

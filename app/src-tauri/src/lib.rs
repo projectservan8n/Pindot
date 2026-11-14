@@ -1,21 +1,30 @@
 //! Deskhand app: one click-through AI-cursor overlay per monitor (with the
-//! "Claude is controlling input" banner), the embedded MCP server with the
-//! desktop tools, the per-app approval window and the activity view.
+//! "Claude is controlling input" banner and the voice pill), the embedded
+//! MCP server with the desktop tools, the per-app approval window, the
+//! activity view and the voice loop.
 //!
-//!   deskhand [--activity] [--capturable] [--demo] [--exit-after SECONDS] [--no-server]
+//!   deskhand [--voice] [--activity] [--capturable] [--demo] [--exit-after SECONDS] [--no-server]
 //!            [--test-turn PROMPT [--model M] [--permission-mode MODE] [--turn-timeout S] [--accept-trust]]
 //!            [--test-esc-after MS]
+//!            [--test-voice WAV [--test-voice-esc] [--model M] [--turn-timeout S] [--keep-running]]
 //!
-//! `--activity` opens the activity view. `--capturable` lets screenshots see
-//! Deskhand's own windows (tests and evidence only). `--test-turn` runs one
-//! real turn of interactive `claude` against this app and quits.
-//! `--test-esc-after MS` (with `DESKHAND_TEST_AUTO_APPROVE`) posts one
-//! synthetic Esc once an action has run for MS with a test app in front, and
-//! checks that no app received it.
+//! `--voice` turns on hold-to-talk (Fn on macOS) with a persistent
+//! interactive `claude`. `--activity` opens the activity view.
+//! `--capturable` lets screenshots see Deskhand's own windows (tests and
+//! evidence only). `--test-turn` runs one real turn of interactive `claude`
+//! against this app and quits. `--test-esc-after MS` (with
+//! `DESKHAND_TEST_AUTO_APPROVE`) posts one synthetic Esc once an action has
+//! run for MS with a test app in front, and checks that no app received it.
+//! `--test-voice WAV` (TEST ONLY) runs the voice loop with the WAV in place
+//! of the microphone and a synthetic hotkey press, prints the latency of each
+//! stage and quits (stays up with `--keep-running`). `--test-voice-esc` also
+//! presses Esc during that first turn (only with a test-approved app in
+//! front) and then speaks the request again. Ctrl+C or SIGTERM quit cleanly.
 
 mod approval;
 mod overlay;
 mod test_turn;
+mod voice;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -44,6 +53,10 @@ struct Args {
     turn_timeout: u64,
     accept_trust: bool,
     test_esc_after: Option<u64>,
+    voice: bool,
+    test_voice: Option<String>,
+    keep_running: bool,
+    test_voice_esc: bool,
 }
 
 fn parse_args() -> Args {
@@ -62,6 +75,10 @@ fn parse_args() -> Args {
         turn_timeout: opt("--turn-timeout").and_then(|s| s.parse().ok()).unwrap_or(240),
         accept_trust: flag("--accept-trust"),
         test_esc_after: opt("--test-esc-after").and_then(|s| s.parse().ok()),
+        voice: flag("--voice"),
+        test_voice: opt("--test-voice"),
+        keep_running: flag("--keep-running"),
+        test_voice_esc: flag("--test-voice-esc"),
     }
 }
 
@@ -184,9 +201,31 @@ pub fn run() {
                         handle.exit(0);
                     });
                 }
+                if args.voice || args.test_voice.is_some() {
+                    let link = voice::ServerLink {
+                        mcp_url: server.mcp_url(),
+                        stop_hook_url: server.stop_hook_url(),
+                        token: token.clone(),
+                    };
+                    let test_wav = match &args.test_voice {
+                        Some(p) => Some(std::fs::canonicalize(p).map_err(|e| format!("--test-voice {p}: {e}"))?),
+                        None => None,
+                    };
+                    let opts = voice::VoiceOptions {
+                        test_wav,
+                        model: args.model.clone(),
+                        test_timeout: Duration::from_secs(args.turn_timeout),
+                        exit_when_done: !args.keep_running,
+                        test_esc: args.test_voice_esc,
+                    };
+                    app.manage(voice::start(app.handle(), state.clone(), link, opts));
+                }
                 app.manage(state);
                 app.manage(server);
+            } else if args.voice || args.test_voice.is_some() {
+                println!("voice needs the MCP server; drop --no-server");
             }
+            quit_on_signals(app.handle());
 
             if args.activity {
                 open_activity_window(app.handle(), args.capturable)?;
@@ -216,6 +255,10 @@ pub fn run() {
             // Accessory app: closing the last normal window must not quit.
             tauri::RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
             tauri::RunEvent::Exit => {
+                // The voice loop first: hotkey tap, audio, the claude child.
+                if let Some(v) = app.try_state::<Arc<voice::VoiceApp>>() {
+                    v.shutdown();
+                }
                 // Never leave the Esc tap armed.
                 if let Some(s) = app.try_state::<Arc<ServerState>>() {
                     s.control.shutdown();
@@ -228,8 +271,39 @@ pub fn run() {
         });
 }
 
-/// Activity entries to the activity view; Esc to the overlays (and the
-/// place the voice loop will stop speech).
+/// Ctrl+C and SIGTERM quit through the normal exit path, so the voice loop,
+/// the `claude` child and the key taps are closed. If that hangs, a second
+/// timer ends the process.
+fn quit_on_signals(app: &AppHandle) {
+    let h = app.clone();
+    tauri::async_runtime::spawn(async move {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            let (Ok(mut int), Ok(mut term)) = (signal(SignalKind::interrupt()), signal(SignalKind::terminate())) else {
+                return;
+            };
+            tokio::select! {
+                _ = int.recv() => {}
+                _ = term.recv() => {}
+            }
+        }
+        #[cfg(not(unix))]
+        if tokio::signal::ctrl_c().await.is_err() {
+            return;
+        }
+        println!("signal received; quitting");
+        std::thread::spawn(|| {
+            std::thread::sleep(Duration::from_secs(15));
+            eprintln!("clean exit took too long; ending the process");
+            std::process::exit(1);
+        });
+        h.exit(0);
+    });
+}
+
+/// Activity entries to the activity view; Esc to the overlays (the voice
+/// loop has its own subscriber that stops speech and the turn).
 fn forward_events(app: &AppHandle, state: &Arc<ServerState>) {
     let mut act = state.activity.subscribe();
     let h = app.clone();

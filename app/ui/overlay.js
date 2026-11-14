@@ -58,5 +58,33 @@
     stoppedTimer = setTimeout(() => document.body.classList.remove('stopped'), 2500);
   });
   ev.listen('deskhand:hide', () => { cursor.style.opacity = '0'; pos = null; });
+
+  // Voice pill. A notice (e.g. "run `claude login`") stays for a few
+  // seconds; pressing the hotkey again replaces it.
+  const pill = document.getElementById('voice');
+  const pillText = document.getElementById('voice-text');
+  const LABELS = { listening: 'Listening', thinking: 'Thinking', acting: 'Working', speaking: 'Speaking' };
+  let voiceState = 'idle';
+  let notice = null;
+  let noticeTimer = null;
+  function renderVoice() {
+    pill.dataset.state = voiceState;
+    pillText.textContent = notice || LABELS[voiceState] || '';
+    pill.classList.toggle('notice', !!notice);
+    pill.classList.toggle('show', !!notice || voiceState !== 'idle');
+  }
+  ev.listen('deskhand:voice', (e) => {
+    const s = e.payload || {};
+    const state = s.state || 'idle';
+    if (s.notice) {
+      notice = s.notice;
+      if (noticeTimer) clearTimeout(noticeTimer);
+      noticeTimer = setTimeout(() => { notice = null; renderVoice(); }, 7000);
+    } else if (state === 'listening') {
+      notice = null;
+    }
+    voiceState = state;
+    renderVoice();
+  });
   ev.emit('deskhand:overlay-ready', { index: M.index });
 })();
