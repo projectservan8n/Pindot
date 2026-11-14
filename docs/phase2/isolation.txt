@@ -1,0 +1,41 @@
+# Settings isolation for Deskhand's claude sessions, Mac mini, claude 2.1.325, 2026-11-14
+# (Account details, email and organisation removed on purpose.)
+
+Launch (brain/pty.rs SpawnOptions::args), cwd ~/Library/Application Support/Deskhand/session (0700, empty):
+  claude --session-id <uuid> | --resume <uuid>
+         --setting-sources project,local
+         --mcp-config <data dir>/claude-mcp-brain.json --strict-mcp-config
+         --settings <data dir>/claude-settings.json   (Stop + UserPromptSubmit HTTP hooks,
+                                                            permissions.defaultMode "default")
+         --permission-mode default --model haiku
+         --append-system-prompt <voice prompt> --allowedTools mcp__desktop
+  env: ANTHROPIC_API_KEY="" (blanked)
+
+## Baseline: no isolation (Phase 1 sessions), TUI header
+  Haiku 5.5 with xhigh effort · Claude Ultra      <- xhigh effort and auto mode came from ~/.claude/settings.json
+
+## Isolated probe, /status screen (lines kept: no account data)
+  Setting sources: Command line arguments
+  Model: haiku (claude-haiku-5-5)
+  MCP servers: 1 connected · /mcp                 <- unexplained: the probe's strict MCP config was empty
+  Auto mode server: Disabled
+  Login method: Claude Ultra account              (the email and organisation lines are removed here)
+
+## Real voice runs under isolation (run1-voice.log, run2-voice-interrupt.log)
+  INFO claude is signed in (claude.ai)            <- `claude auth status --json`: only loggedIn + authMethod are read
+  INFO voice brain: claude ready in 2217 ms       (run 1), 2129 ms (run 2)
+  TUI (run 2 PTY log, not committed):  "Haiku 5.5 · Claude Ultra", "manual mode on", "◐ medium · /effort"
+     -> user effort (xhigh) and auto mode did not apply
+  Turns completed and the Stop hook fired: run 1 once, run 2 once (press 2). Login works under isolation.
+
+## Not isolated (known leaks)
+  - User skills (~/.claude/skills) and plugin skills still show in the slash palette
+    (e.g. /plugin-authoring). They load only when invoked; our tools allow only mcp__desktop.
+  - The session folder is empty, so no project CLAUDE.md applies. Whether ~/.claude/CLAUDE.md
+    still loads under --setting-sources project,local was not checked.
+
+## Options considered
+  --setting-sources project,local   CHOSEN: drops ~/.claude/settings.json, keeps claude login (OAuth) working
+  --restricted                      stricter (also removes Bash etc., ignores all settings files); option for Tony, not tested in a turn
+  --bare                            rejected: breaks OAuth login
+  --safe-mode                       rejected: disables hooks and MCP, which Deskhand needs

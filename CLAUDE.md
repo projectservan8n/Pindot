@@ -52,13 +52,22 @@ are done; the evidence is in `docs/phase0/` and `docs/phase1/`.
   - `brain/`: the PTY session (`pty.rs`), config-file writers (`config.rs`),
     transcript reading (`transcript.rs`) and one driven turn (`turn.rs`: Stop
     hook, Esc interrupt, permission-prompt and exit detection).
+    `persistent.rs` is the voice brain: one `claude` kept running across
+    turns on a worker thread; `tailer.rs` follows its transcript JSONL.
+  - `voice/`: the voice loop. `machine.rs` is the pure state machine
+    (inputs in, effects out, unit-tested), `runner.rs` drives it with real
+    I/O, `audio.rs` the cpal mic/speaker and the test WAV mic, `engines.rs`
+    Moonshine (transcribe-rs) and Phonon (ptts), `models.rs` the pinned model
+    catalog, download and SHA-256 check, `speaker.rs` the speech queue.
+    `src/bin/voice_check.rs` checks devices, models, STT and TTS by hand.
   - `coords.rs`: maps screenshot pixels to global points. `paths.rs`: the data
     dir, the token and its constant-time compare.
   - `src/bin/spike_*.rs`: Phase 0 spikes.
 - `app/src-tauri`: the Tauri 2 app: `overlay.rs` (NSPanel AI cursor and
   "controlling input" banner), `approval.rs` (the approval window, answered
   by a human), `test_turn.rs` (`--test-turn`, one real `claude` turn for the
-  done-when check) and `lib.rs`. `app/ui`: overlay, approval and activity
+  done-when check), `voice.rs` (`--voice` and the `--test-voice` path) and
+  `lib.rs`. `app/ui`: overlay (with the voice pill), approval and activity
   pages (plain HTML/JS).
 - `spikes/test-target`: a Swift test window for the Phase 0 spikes.
   `spikes/mcp-call.py` is the Phase 0 one-shot MCP client;
@@ -172,12 +181,72 @@ are done; the evidence is in `docs/phase0/` and `docs/phase1/`.
   yet, or it isn't in the tree yet), so an overlapping sheet counts and
   `window_tree` retries the lookup 3 times, 150 ms apart.
 
+### Phase 2: voice (see `docs/phase2/README.md`)
+
+- **Settings isolation** (Nico's brief: chosen on purpose, login must keep
+  working): every `claude` we start gets `--setting-sources project,local`
+  and runs in our own empty folder `<data dir>/session` (0700), so
+  `~/.claude/settings.json` (Tony's auto mode, xhigh effort, hooks) no longer
+  applies; our `--settings` file still does and sets
+  `permissions.defaultMode: "default"`, plus `--permission-mode default`.
+  `claude login` (OAuth) still works: proven by real turns. Rejected:
+  `--bare` (breaks OAuth), `--safe-mode` (drops hooks and MCP).
+  `--restricted` is stricter and untested: Tony's call.
+- **Trusting our own session folder**: it is empty and Deskhand's, so the
+  voice brain answers the folder-trust dialog with Yes for it (and only it).
+  Claude Code itself records that answer in `~/.claude.json` once.
+- **The brain stays interactive `claude` in a PTY**: never `-p`, the Agent
+  SDK or an API key; `ANTHROPIC_API_KEY` is blanked; sign-in is checked
+  with `claude auth status --json`, reading only `loggedIn` and
+  `authMethod`. Signed out or not installed: a notice says to run
+  `claude login` (we never handle login) and the brain retries 20 s → 5 min.
+- **One persistent `claude`** for voice (`brain/persistent.rs`): prompts are
+  typed into the same session; a new session starts after 10 idle minutes
+  (only if the session was used). If `claude` exits it is resumed with
+  `--resume`.
+- **Speak each assistant message as it lands** (`SpeakMode::EachMessage`,
+  default): reliable in run 1 (the first message was spoken 5.8 s before the
+  Stop hook). The transcript is the source; the Stop hook's
+  `last_assistant_message` is spoken if the transcript lags. `at_stop` is a
+  setting. Side effect: intermediate narration ("An Open dialog appeared,
+  so I'll click New Document") is spoken too.
+- **"Acting"** comes from the transcript tailer: a `tool_use` sets Working,
+  its `tool_result` sets Thinking.
+- **Interrupts**: Fn while speaking stops speech and listens (barge-in). Fn
+  or Esc while Claude works sends Esc to the PTY and waits up to 3 s for
+  "Interrupted"; if it doesn't come, kill and `--resume` (same session). Esc
+  is never sent to an idle TUI: two Escs open the rewind menu.
+- **Global Esc during voice**: the Esc tap is armed for the whole voice
+  interaction (`Control::arm_for_voice`), not just during an action; Esc
+  cancels the action, stops speech and interrupts the turn
+  (`ControlEvent::EmergencyStop` → `Input::Esc`).
+- **Models are settings, never in git**: pinned to a Hugging Face commit with
+  a size and SHA-256 per file (`voice/models.rs`), downloaded on first use to
+  `<data dir>/models/<id>`, verified on every load. Moonshine v2 Small
+  streaming EN (MIT, 165.5 MB) and Phonon 31m EN (Apache-2.0, 65.1 MB).
+- **Test path** (off by default, loud banner): `--test-voice WAV` replaces
+  the mic with a WAV and presses Fn synthetically through the real tap;
+  `--test-voice-esc` adds an Esc mid-turn and a second request; replies go
+  to a temp WAV, play at 20% volume and are transcribed back.
+  `voice_check` covers devices, models, STT and TTS without `claude`.
+- **Clean exit**: Ctrl+C / SIGTERM quit through Tauri's exit path (voice
+  loop, tap, audio and `claude` closed, server stopped); a 15 s watchdog
+  forces the exit if that hangs.
+
 ## Known risks (open)
 
-- **User settings leak into Deskhand sessions.** Tony's auto mode, effort level
-  and so on showed up in the nested TUI. `--settings` adds to the user
-  settings rather than replacing them. Options for Phase 2: pass
-  `--setting-sources` and/or `--permission-mode`, chosen on purpose.
+- **Settings isolation is partial.** User and plugin skills still show in
+  the nested session's slash palette, and an isolated `/status` showed "MCP
+  servers: 1 connected" with an empty strict MCP config (unexplained).
+- **Moonshine source**: the pinned `quantized_26_07_30` folder is the last
+  one with a single `frontend.ort`, which transcribe-rs 0.3.12 needs. If
+  Moonshine AI prunes it, the pinned commit URL should keep working unless
+  the repo history is rewritten; a fallback mirror is `blob.handy.computer`.
+- **STT accuracy**: the test phrase comes out as "Open text edit n type
+  hello"; Claude copes, but short words get lost.
+- **The real microphone was never opened** in tests (only the WAV path), nor
+  the physical Fn key or real speech.
+- **ort downloads ONNX Runtime (~148 MB) at build time** (not at run time).
 - The physical Fn/Globe key, the physical Esc and multi-monitor overlay
   have only been tested with synthetic events and one display. The approval
   window's buttons have not been clicked by a human yet. See

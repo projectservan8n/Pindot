@@ -1,0 +1,71 @@
+monitor 0: origin (0, 0) size 1920x1080 pt, scale 1
+2026-11-14T02:21:11.814300Z  WARN !!! TEST-ONLY: DESKHAND_TEST_AUTO_APPROVE is set; these apps are approved WITHOUT asking the user: TextEdit. Never use this outside automated tests. !!!
+!!! TEST-ONLY: DESKHAND_TEST_AUTO_APPROVE is set; these apps are approved WITHOUT asking the user: TextEdit. Never use this outside automated tests. !!!
+2026-11-14T02:21:11.815100Z  INFO Deskhand server on http://127.0.0.1:47823 (MCP at /mcp)
+MCP server: http://127.0.0.1:47823/mcp (token and configs in the Deskhand data dir)
+activity log: ~/Library/Application Support/Deskhand/activity.jsonl
+*** TEST VOICE MODE: the microphone is replaced by ~/deskhand/docs/phase2/test-utterance.wav and the hotkey is pressed synthetically. Never for normal use. ***
+2026-11-14T02:21:11.824149Z  WARN TEST VOICE MODE: the microphone is replaced by ~/deskhand/docs/phase2/test-utterance.wav and the hotkey is pressed synthetically. Never for normal use.
+activation policy at launch: NSApplicationActivationPolicy(1)
+2026-11-14T02:21:11.911788Z  INFO voice model file verified: frontend.ort
+2026-11-14T02:21:12.080726Z  INFO voice model file verified: encoder.ort
+2026-11-14T02:21:12.095547Z  INFO voice model file verified: adapter.ort
+2026-11-14T02:21:12.122016Z  INFO voice model file verified: cross_kv.ort
+2026-11-14T02:21:12.317871Z  INFO voice model file verified: decoder_kv.ort
+2026-11-14T02:21:12.318849Z  INFO voice model file verified: tokenizer.bin
+2026-11-14T02:21:12.319004Z  INFO voice model file verified: streaming_config.json
+2026-11-14T02:21:12.319196Z  INFO voice model file verified: config.json
+2026-11-14T02:21:12.440957Z  INFO voice model file verified: model.q8.gguf
+2026-11-14T02:21:12.441938Z  INFO voice model file verified: tokenizer.json
+2026-11-14T02:21:12.442815Z  INFO voice model file verified: default-voice.safetensors
+voice: models checked in 0.62 s (moonshine-small-streaming-en and phonon-31m-en)
+2026-11-14T02:21:12.595247Z  INFO Moonshine loaded from ~/Library/Application Support/Deskhand/models/moonshine-small-streaming-en in 152.3995ms (4 threads)
+2026-11-14T02:21:12.595687Z  INFO loading Hugging Face tokenizer path="~/Library/Application Support/Deskhand/models/phonon-31m-en/tokenizer.json"
+2026-11-14T02:21:12.615972Z  INFO Phonon loaded from ~/Library/Application Support/Deskhand/models/phonon-31m-en in 20.682833ms
+voice: ready (speak mode EachMessage, idle reset 600 s). Hold Fn to talk; Esc stops everything.
+2026-11-14T02:21:12.719523Z  INFO claude is signed in (claude.ai)
+2026-11-14T02:21:12.729986Z  INFO voice brain: starting claude (new session 0d0f449a-bfae-40d8-be79-3552a389180a)
+2026-11-14T02:21:14.947253Z  INFO voice brain: claude ready in 2217 ms (pid Some(66002))
+test-voice: claude session ready 2.3 s after the models loaded
+test-voice: === press 1 ===
+test-voice: posting a synthetic Fn down
+2026-11-14T02:21:15.576827Z  WARN TEST VOICE INPUT: the microphone is replaced by ~/deskhand/docs/phase2/test-utterance.wav
+test-voice: the Fn tap reported the synthetic press (overlay shows listening)
+test-voice: posting a synthetic Fn up
+2026-11-14T02:21:17.451239Z  INFO voice latency: speech to text 224 ms for 1.82 s of audio
+2026-11-14T02:21:17.451496Z  INFO voice: heard "Open text edit n type hello"
+2026-11-14T02:21:17.451530Z  INFO voice latency: hotkey release to text 227 ms
+2026-11-14T02:21:17.451538Z  INFO voice: sending the spoken request to claude: "Open text edit n type hello"
+2026-11-14T02:21:17.451548Z  INFO voice brain: typing the prompt (27 chars)
+2026-11-14T02:21:17.914061Z  INFO UserPromptSubmit hook received session=0d0f449a-bfae-40d8-be79-3552a389180a
+!!! TEST-ONLY: auto-approved TextEdit without asking (DESKHAND_TEST_AUTO_APPROVE) !!!
+2026-11-14T02:21:23.008779Z  INFO controlling-input indicator on=true
+2026-11-14T02:21:27.074959Z  INFO voice: speaking #1: "An Open dialog appeared, so I'll click \"New Document\" to get a blank document."
+2026-11-14T02:21:27.199512Z  INFO voice latency: text to speech, first audio 124 ms
+2026-11-14T02:21:27.199546Z  INFO voice latency: hotkey release to first spoken audio 9975 ms
+2026-11-14T02:21:32.319885Z  INFO speech written to $TMPDIR/deskhand-test-voice-65970/speech-01.wav (4.88 s)
+2026-11-14T02:21:32.751059Z  INFO Stop hook received session=0d0f449a-bfae-40d8-be79-3552a389180a
+2026-11-14T02:21:32.878051Z  INFO voice brain: Stop hook 15009 ms after the prompt was typed
+2026-11-14T02:21:32.878145Z  INFO voice latency: claude turn (prompt typed to Stop hook) 15426 ms
+2026-11-14T02:21:32.878165Z  INFO voice: speaking #2: "I opened a new TextEdit document and typed \"hello\" into it. The document is untitled and unsaved."
+2026-11-14T02:21:32.921261Z  INFO voice latency: text to speech, first audio 43 ms
+2026-11-14T02:21:39.532321Z  INFO speech written to $TMPDIR/deskhand-test-voice-65970/speech-02.wav (6.40 s)
+test-voice: overlay states after the press: Listening @0.00s -> Thinking @1.65s -> Acting @4.20s -> Thinking @4.20s -> Acting @5.13s -> Thinking @5.13s -> Acting @6.59s -> Thinking @6.59s -> Acting @7.67s -> Thinking @9.25s -> Acting @10.21s -> Thinking @10.21s -> Speaking @11.50s -> Acting @11.50s -> Speaking @12.17s -> Acting @13.13s -> Speaking @13.13s -> Acting @14.25s -> Speaking @15.06s -> Acting @16.08s -> Speaking @16.08s -> Thinking @16.74s -> Speaking @17.30s -> Idle @23.96s
+test-voice: tools called (transcript): ["ToolSearch", "mcp__desktop__desktop_context", "mcp__desktop__request_access", "mcp__desktop__open_app", "mcp__desktop__read_window", "mcp__desktop__click", "mcp__desktop__read_window", "mcp__desktop__click", "mcp__desktop__type_text", "mcp__desktop__read_window"]
+test-voice: assistant text messages (transcript): ["An Open dialog appeared, so I'll click \"New Document\" to get a blank document.", "I opened a new TextEdit document and typed \"hello\" into it. The document is untitled and unsaved."]
+test-voice: Stop hook 15.65 s after the release; last message Some("I opened a new TextEdit document and typed \"hello\" into it. The document is untitled and unsaved.")
+test-voice: speech started 5803 ms BEFORE the Stop hook (spoken as the message landed)
+test-voice: latency so far, hotkey release to text: 227 ms
+test-voice: latency so far, text to speech, first audio: 124 ms
+test-voice: latency so far, hotkey release to first spoken audio: 9975 ms
+test-voice: latency so far, claude turn (prompt typed to Stop hook): 15426 ms
+test-voice: latency so far, text to speech, first audio: 43 ms
+2026-11-14T02:21:40.191853Z  INFO Moonshine loaded from ~/Library/Application Support/Deskhand/models/moonshine-small-streaming-en in 246.710375ms (4 threads)
+test-voice: spoken audio $TMPDIR/deskhand-test-voice-65970/speech-01.wav: 4.88 s at 24000 Hz, rms 0.0712, transcribed back as "An open dialog appeared, so I'll click New Document to get a blank document."
+2026-11-14T02:21:40.565033Z  INFO controlling-input indicator on=false
+test-voice: spoken audio $TMPDIR/deskhand-test-voice-65970/speech-02.wav: 6.40 s at 24000 Hz, rms 0.0629, transcribed back as "I opened a new text edit document and typed hello into it. The document is untitled and unsaved."
+test-voice: RESULT PASS
+2026-11-14T02:21:42.241131Z  INFO voice brain: claude (pid Some(66002)) closed
+2026-11-14T02:21:42.241161Z  INFO Claude session ended session=0d0f449a
+voice loop stopped (hotkey tap, audio and claude closed)
+server stopping on 127.0.0.1:47823

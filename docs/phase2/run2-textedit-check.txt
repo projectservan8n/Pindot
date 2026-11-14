@@ -1,0 +1,3 @@
+[read_window ok in 0.07s]
+Window 355172 "Untitled" of TextEdit — 28 elements (interactive), page 1 of 1.
+[e1] textarea value="hello" (142,118 391x255) focused

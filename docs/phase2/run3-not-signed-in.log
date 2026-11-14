@@ -1,0 +1,22 @@
+monitor 0: origin (0, 0) size 1920x1080 pt, scale 1
+2026-11-14T02:28:19.561726Z  INFO Deskhand server on http://127.0.0.1:47823 (MCP at /mcp)
+MCP server: http://127.0.0.1:47823/mcp (token and configs in the Deskhand data dir)
+activity log: ~/Library/Application Support/Deskhand/activity.jsonl
+*** TEST VOICE MODE: the microphone is replaced by ~/deskhand/docs/phase2/test-utterance.wav and the hotkey is pressed synthetically. Never for normal use. ***
+2026-11-14T02:28:19.574646Z  WARN TEST VOICE MODE: the microphone is replaced by ~/deskhand/docs/phase2/test-utterance.wav and the hotkey is pressed synthetically. Never for normal use.
+activation policy at launch: NSApplicationActivationPolicy(1)
+voice: models checked in 0.50 s (moonshine-small-streaming-en and phonon-31m-en)
+2026-11-14T02:28:20.218322Z  INFO Moonshine loaded from ~/Library/Application Support/Deskhand/models/moonshine-small-streaming-en in 147.204208ms (4 threads)
+2026-11-14T02:28:20.221091Z  INFO loading Hugging Face tokenizer path="~/Library/Application Support/Deskhand/models/phonon-31m-en/tokenizer.json"
+2026-11-14T02:28:20.245522Z  INFO Phonon loaded from ~/Library/Application Support/Deskhand/models/phonon-31m-en in 27.173125ms
+2026-11-14T02:28:20.249845Z  WARN voice brain unavailable (retry in 20s): Claude Code is not signed in. Open a terminal, run `claude login`, then try again.
+2026-11-14T02:28:20.249889Z  INFO voice notice: Claude Code is not signed in. Open a terminal, run `claude login`, then try again.
+voice: ready (speak mode EachMessage, idle reset 600 s). Hold Fn to talk; Esc stops everything.
+test-voice: the brain is unavailable: Claude Code is not signed in. Open a terminal, run `claude login`, then try again.
+test-voice: RESULT CHECK OUTPUT
+test-voice: still running (--keep-running); quit with Ctrl+C
+2026-11-14T02:28:40.324662Z  WARN voice brain unavailable (retry in 40s): Claude Code is not signed in. Open a terminal, run `claude login`, then try again.
+2026-11-14T02:28:40.324722Z  INFO voice notice: Claude Code is not signed in. Open a terminal, run `claude login`, then try again.
+exit-after 30s reached; quitting
+voice loop stopped (hotkey tap, audio and claude closed)
+server stopping on 127.0.0.1:47823

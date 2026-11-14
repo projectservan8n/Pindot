@@ -10,10 +10,11 @@ driven by your voice. It is a Tauri 2 app that does three jobs:
 
 It never uses an API key and never runs `claude -p`. License: MIT.
 
-**Status:** Phase 0 (spikes) and Phase 1 (15 desktop tools, the
-accessibility tree and the guardrails, macOS only) are done. There is no voice
-loop or main window yet. The evidence is in `docs/phase0/` and
-`docs/phase1/`. Conventions and decisions are in `CLAUDE.md`.
+**Status:** Phase 0 (spikes), Phase 1 (15 desktop tools, the accessibility
+tree and the guardrails) and Phase 2 (the voice loop) are done, macOS only.
+There is no main window or tray yet. The evidence is in `docs/phase0/`,
+`docs/phase1/` and `docs/phase2/`. Conventions and decisions are in
+`CLAUDE.md`.
 
 ## Build
 
@@ -57,6 +58,21 @@ DESKHAND_TEST_AUTO_APPROVE=TextEdit ./target/debug/deskhand --model haiku \
 ```
 
 The activity log is `~/Library/Application Support/Deskhand/activity.jsonl`.
+
+## Phase 2: the voice loop (macOS)
+
+```sh
+cargo build --release
+./target/release/deskhand --voice      # hold Fn, speak, release; Esc stops everything
+```
+
+Hold Fn and speak. Moonshine (speech to text) and Phonon (text to speech) run
+on your Mac; their weights (about 231 MB) download to
+`~/Library/Application Support/Deskhand/models/` on first use and are
+checked against pinned SHA-256 sums. Your request is typed into one
+long-running interactive `claude`, and its replies are spoken. Grant the
+Microphone permission when macOS asks. Manual test steps and the test-only
+`--test-voice` path are in `docs/phase2/README.md`.
 
 ## Phase 0 spikes (macOS)
 
