@@ -1,0 +1,31 @@
+Run D (01:23-01:24 UTC, 14 Nov 2026): the Phase 1 done-when check. PASSED.
+Real interactive claude 2.1.325 in a PTY (claude login, no -p, no API key), model haiku, --permission-mode default, --allowedTools mcp__desktop,
+--mcp-config/--settings files from the Deskhand data dir, cwd ~/deskhand/.spike-cwd. TextEdit approved by DESKHAND_TEST_AUTO_APPROVE (test-only).
+
+test-turn: claude /Users/opusautomationsmacmini/.local/bin/claude (2.1.325 (Claude Code))
+test-turn: args --session-id 313ef9cb-fc1e-45f8-970d-72d5e7f12c9d --mcp-config <data dir>/claude-mcp-brain.json --strict-mcp-config --settings <data dir>/claude-settings.json --permission-mode default --model haiku --allowedTools mcp__desktop
+test-turn: spawned interactive claude pid Some(3047), session 313ef9cb-fc1e-45f8-970d-72d5e7f12c9d
+test-turn: TUI ready after 2.2s; prompt: Use the desktop tools to do this in TextEdit: open TextEdit, create a new blank document (TextEdit may first show an Open panel: use its New Document button, or the File > New menu item, found by ref with read_window or find), then type this line into the new document: Hello from Deskhand phase 1. Prefer read_window, find and refs; take at most one screensh
+2026-11-14T01:23:46.802800Z  INFO UserPromptSubmit hook received session=313ef9cb-fc1e-45f8-970d-72d5e7f12c9d
+2026-11-14T01:23:50.564231Z  INFO serve_inner: new Claude session session=313ef9cb
+tool: desktop_context  -> Displays:   0: Display #5409 (1920x1080 pt, scale 1, main), screenshots are 1280x720 px Frontmost app: Google Chrome (not approved) Approved for this session: none yet; call request_access Windows of approved apps (front to back):   none Other apps with windows (not approved; greyed out in screensho… [ok]
+tool: approval TextEdit -> TEST-ONLY auto-approved via DESKHAND_TEST_AUTO_APPROVE (no human asked) [ok]
+tool: request_access TextEdit (Create a new blank TextEdit document and type one line into it, as you asked, wi…) -> Approved for this session: TextEdit. Next: open_app or focus_window, then read_window. [ok]
+tool: lock  -> took the input lock [ok]
+tool: open_app TextEdit -> Opened TextEdit. Its windows (front to back):   window_id 353945 "Open" Next: read_window to see its elements. [ok]
+tool: read_window window=353945 filter=Interactive page=1 menus=true -> 198 lines, page 1/2 of window 353945 [ok]
+tool: click ref=e35 Left x1 -> Clicked e35 "New Document" (Left, x1). Use read_window or find to see the result. [ok]
+tool: read_window window=front filter=Interactive page=1 menus=false -> 28 lines, page 1/1 of window 353952 [ok]
+tool: click ref=e199 Left x1 -> Clicked e199 "e199" (Left, x1). Use read_window or find to see the result. [ok]
+tool: type_text "Hello from Deskhand phase 1" -> Typed 27 characters. [ok]
+tool: read_window window=353952 filter=All page=1 menus=false -> 55 lines, page 1/1 of window 353952 [ok]
+2026-11-14T01:24:03.479852Z  INFO Stop hook received session=313ef9cb-fc1e-45f8-970d-72d5e7f12c9d
+test-turn: Stop hook after 17.3s
+test-turn: final message: Some("The line \"Hello from Deskhand phase 1\" is in the new untitled TextEdit document, which is unsaved and still open.")
+test-turn: transcript tool calls: ["ToolSearch", "mcp__desktop__desktop_context", "mcp__desktop__request_access", "mcp__desktop__open_app", "mcp__desktop__read_window", "mcp__desktop__click", "mcp__desktop__read_window", "mcp__desktop__click", "mcp__desktop__type_text", "mcp__desktop__read_window"]
+test-turn: hook and transcript agree: true
+test-turn: activity sequence: desktop_context, approval, request_access, lock, open_app, read_window, click, read_window, click, type_text, read_window
+test-turn: screenshots taken: 0
+test-turn: child claude still running after /exit: Some(false)
+2026-11-14T01:24:05.121642Z  INFO Claude session ended session=313ef9cb
+test-turn: RESULT TURN COMPLETED

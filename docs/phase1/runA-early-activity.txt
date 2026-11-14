@@ -1,0 +1,12 @@
+Runs A and B (start): gate, approval timeout, open_app (from activity.jsonl, before 01:01)
+00:54:29 ok  desktop_context                                                              -> Displays:   0: Display #5409 (1920x1080 pt, scale 1, main), screenshots are 1280x720 px Frontmost app: Google Chrome (not approved) Approved for this 
+00:56:34 ERR approval        TextEdit                                                     -> timed out: denied
+00:56:34 ERR request_access  TextEdit (Phase 1 test: open a new document and type one lin -> The user did not answer the approval prompt for TextEdit within 120 s, so access is denied.
+00:56:41 ERR open_app        TextEdit                                                     -> TextEdit is not approved for this session. Call request_access first.
+00:56:41 ERR read_window     window=front filter=Interactive page=1 menus=false           -> No window of an approved app is on screen. Use request_access and open_app first.
+00:57:58 ok  approval        TextEdit                                                     -> TEST-ONLY auto-approved via DESKHAND_TEST_AUTO_APPROVE (no human asked)
+00:57:58 ok  request_access  TextEdit (Phase 1 tool test)                                 -> Approved for this session: TextEdit. Next: open_app or focus_window, then read_window.
+00:57:58 ok  lock                                                                         -> took the input lock
+00:57:59 ok  open_app        TextEdit                                                     -> Opened TextEdit. Its windows (front to back):   window_id 353338 "Open" Next: read_window to see its elements.
+00:58:02 ok  desktop_context                                                              -> Displays:   0: Display #5409 (1920x1080 pt, scale 1, main), screenshots are 1280x720 px Frontmost app: TextEdit (approved) Approved for this session: 
+00:58:06 ok  read_window     window=front filter=Interactive page=1 menus=false           -> 70 lines, page 1/1 of window 353338

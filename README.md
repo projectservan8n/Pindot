@@ -10,8 +10,10 @@ driven by your voice. It is a Tauri 2 app that does three jobs:
 
 It never uses an API key and never runs `claude -p`. License: MIT.
 
-**Status:** Phase 0 (spikes) only. The evidence is in `docs/phase0/`.
-Conventions and decisions are in `CLAUDE.md`.
+**Status:** Phase 0 (spikes) and Phase 1 (15 desktop tools, the
+accessibility tree and the guardrails, macOS only) are done. There is no voice
+loop or main window yet. The evidence is in `docs/phase0/` and
+`docs/phase1/`. Conventions and decisions are in `CLAUDE.md`.
 
 ## Build
 
@@ -23,6 +25,38 @@ cargo build --workspace
 cargo test --workspace
 swiftc -O -o spikes/test-target/test-target spikes/test-target/main.swift
 ```
+
+## Phase 1: the desktop tools (macOS)
+
+`./target/debug/deskhand` starts the MCP server on 127.0.0.1:47823 with the
+tools `desktop_context`, `request_access`, `open_app`, `focus_window`,
+`read_window`, `find`, `screenshot`, `zoom`, `click`, `type_text`, `key`,
+`scroll`, `drag`, `wait` and `point`. Claude must ask for each app with
+`request_access`, and you answer in Deskhand's own window ("Allow for this
+session" or Deny). Press Esc while Claude is acting to stop everything.
+
+```sh
+./target/debug/deskhand --activity            # also open the live activity view
+python3 scripts/mcp_call.py init              # call the tools by hand (one session)
+python3 scripts/mcp_call.py call desktop_context '{}'
+python3 scripts/mcp_call.py call request_access '{"apps":["TextEdit"],"reason":"try it"}'
+python3 scripts/mcp_call.py end
+```
+
+To use the tools from your own `claude`, run it from a scratch folder with
+`--mcp-config "$HOME/Library/Application Support/Deskhand/claude-mcp.json"
+--strict-mcp-config --allowedTools mcp__desktop`.
+
+The done-when check runs one real interactive `claude` turn against the app.
+It is test-only: `DESKHAND_TEST_AUTO_APPROVE` approves the named apps without
+asking you, and the app prints a loud warning while it is set.
+
+```sh
+DESKHAND_TEST_AUTO_APPROVE=TextEdit ./target/debug/deskhand --model haiku \
+  --permission-mode default --accept-trust --test-turn 'Open TextEdit, ...'
+```
+
+The activity log is `~/Library/Application Support/Deskhand/activity.jsonl`.
 
 ## Phase 0 spikes (macOS)
 
@@ -76,4 +110,5 @@ Accepting it adds the scratch folder to `~/.claude.json`.
 
 ## Windows
 
-Windows is stubbed in Phase 0. See `docs/windows-test-checklist.md`.
+Windows is stubbed (trait stubs that return "not supported yet"). See
+`docs/windows-test-checklist.md`.

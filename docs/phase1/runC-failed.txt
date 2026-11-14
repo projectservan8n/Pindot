@@ -1,0 +1,20 @@
+Run C (01:11-01:17 UTC, 14 Nov 2026): FAILED, two bugs found and fixed (see CLAUDE.md).
+1. The prompt was typed into claude's input box but Enter was lost (paste handling); it sat unsent for 300 s:
+test-turn: claude /Users/opusautomationsmacmini/.local/bin/claude (2.1.325 (Claude Code))
+test-turn: args --session-id 616b631e-9490-4585-86e2-b1f10e68a1c8 --mcp-config /Users/opusautomationsmacmini/Library/Application Support/Deskhand/claude-mcp.json --strict-mcp-config --settings /Users/
+test-turn: spawned interactive claude pid Some(63531), session 616b631e-9490-4585-86e2-b1f10e68a1c8
+test-turn: TUI ready after 9.4s; prompt: Use the desktop tools to do this in TextEdit: open TextEdit, create a new blank document (TextEdit may first show an Open panel: use its New Document button, o
+test-turn: TIMEOUT after 300.4s:
+test-turn: activity sequence: 
+test-turn: screenshots taken: 0
+test-turn: child claude still running after /exit: Some(false)
+test-turn: RESULT CHECK OUTPUT
+   Screen at timeout (input box, prompt not sent):
+   ❯ Use the desktop tools to do this in TextEdit: open TextEdit, create a new blank document (TextEdit may first show an Open panel: use its New Document button, or the File > New menu item, found by ref with read_window or find), then type this line into the new document: Hello from Deskhand phase 1. Prefer read_window, find and refs; take at most one screenshot, ideally none. Do not save or close the document. Reply with one short sentence when the line is in the document. ─── ⏸ manual mode on
+2. Teardown typed /exit after it, Enter submitted the lot, and claude's tool calls came as stateless MCP 2026-07-28 requests, each a new MCP session, so the approval was lost at once:
+   01:17:01 5909b57a desktop_context -> Displays:
+   01:17:01 37b54376 approval -> TEST-ONLY auto-approved via DESKHAND_TEST_AUTO_APPROVE (no human asked)
+   01:17:01 37b54376 request_access -> Approved for this session: TextEdit.
+   01:17:02 301ac7e3 open_app -> TextEdit is not approved for this session. Call request_access first.
+   01:17:03 0e2089a1 desktop_context -> Displays:
+   claude was killed 4 s later; TextEdit was never opened.

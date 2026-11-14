@@ -405,12 +405,33 @@ fn ax_window(window: &WindowInfo) -> Result<CFRetained<AXUIElement>> {
     if fallback.is_none() {
         // A sheet (a Save sheet, say) has its own CGWindowID but no AX
         // window: it is a child of its document window, so read that.
-        fallback = wins.into_iter().find(|w| {
-            attr_opt(w, "AXChildren").map(|v| as_elements(&v)).unwrap_or_default().iter().any(|c| {
-                attr_opt(c, "AXRole").and_then(|v| as_string(&v)).as_deref() == Some("AXSheet")
-                    && same(frame_of(attr_opt(c, "AXPosition").as_deref(), attr_opt(c, "AXSize").as_deref()))
+        // While the sheet slides in its frame is not yet the CG one, so an
+        // overlapping sheet counts when no frame matches exactly.
+        let sheets = |w: &CFRetained<AXUIElement>| -> Vec<Option<Rect>> {
+            attr_opt(w, "AXChildren")
+                .map(|v| as_elements(&v))
+                .unwrap_or_default()
+                .iter()
+                .filter(|c| attr_opt(c, "AXRole").and_then(|v| as_string(&v)).as_deref() == Some("AXSheet"))
+                .map(|c| frame_of(attr_opt(c, "AXPosition").as_deref(), attr_opt(c, "AXSize").as_deref()))
+                .collect()
+        };
+        let with_sheets: Vec<_> = wins
+            .into_iter()
+            .map(|w| {
+                let s = sheets(&w);
+                (w, s)
             })
-        });
+            .collect();
+        fallback = with_sheets
+            .iter()
+            .find(|(_, s)| s.iter().any(|f| same(*f)))
+            .or_else(|| {
+                with_sheets
+                    .iter()
+                    .find(|(_, s)| s.iter().any(|f| f.is_some_and(|f| f.intersect(&window.bounds).is_some())))
+            })
+            .map(|(w, _)| w.clone());
     }
     fallback.ok_or_else(|| {
         PlatformError::Other(format!(
@@ -578,7 +599,19 @@ impl Accessibility for MacAccessibility {
             return Err(PlatformError::PermissionMissing(crate::platform::Permission::Accessibility));
         }
         set_global_timeout();
-        let win = ax_window(window)?;
+        // A window that just appeared (a sheet after cmd+w) can take a
+        // moment to show up in the accessibility tree.
+        let mut tries = 0;
+        let win = loop {
+            match ax_window(window) {
+                Ok(w) => break w,
+                Err(_) if tries < 3 => {
+                    tries += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(150));
+                }
+                Err(e) => return Err(e),
+            }
+        };
         let mut w = Walker::new(limits);
         w.walk(&win, 0)?;
         let app = unsafe { AXUIElement::new_application(window.pid) };

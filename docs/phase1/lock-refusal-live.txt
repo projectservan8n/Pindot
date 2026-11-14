@@ -1,0 +1,7 @@
+01:26:31.698 session A (scripts/mcp_call.py): wait 3000 ms
+01:26:32.575 session B (spikes/mcp-call.py, a new MCP session): wait 100 ms while A holds the lock
+B result: initialize: {'name': 'deskhand', 'version': '0.0.1'}
+wait: Another Claude session (52e01c70) is controlling this computer. Only one session may control input at a time; try again when it has finished.
+wait isError: true
+01:26:34.792 A result: [wait ok in 3.03s]
+Waited 3000 ms.

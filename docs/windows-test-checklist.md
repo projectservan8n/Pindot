@@ -1,13 +1,16 @@
 # Windows test checklist
 
-Phase 0 was built and tested on macOS only. On Windows today:
+Phases 0 and 1 were built and tested on macOS only. On Windows today:
 
 - `deskhand-core` type-checks for `x86_64-pc-windows-msvc`. Command:
   `cargo check -p deskhand-core --all-targets --target x86_64-pc-windows-msvc`
   (run on the Mac, 14 Nov 2026).
 - The platform traits have Windows stubs that return
-  `PlatformError::Unsupported`. They are capture, input, hotkey and
-  accessibility.
+  `PlatformError::Unsupported`: `Capture`, `Input`, `Hotkey`, `StopKey` (the
+  global Esc) and `Accessibility` (window list, element tree, element
+  actions, frontmost app, launch, secure-field check). The server, the
+  approval gate, the session lock, the activity log and the tree text are
+  plain Rust and are covered by `cargo test` on any OS.
 - The app's Windows overlay path is written but has never been compiled:
   `overlay.rs`, `#[cfg(not(target_os = "macos"))]`. It is a transparent,
   always-on-top, undecorated webview window per monitor with
@@ -54,7 +57,7 @@ them scaled to 150%.
 
 - [ ] Implement `Capture` (xcap) and `Input` (enigo); add both crates under
       `[target.'cfg(windows)'.dependencies]`.
-- [ ] `python3 spikes/mcp-call.py screenshot '{}'` returns a JPEG with a long
+- [ ] `python3 scripts/mcp_call.py init; python3 scripts/mcp_call.py call screenshot '{}'` returns a JPEG with a long
       edge of at most 1280 px.
 - [ ] From a normal `claude` session with `--mcp-config`, "take a screenshot
       and click X" clicks the right spot on each monitor and at each scale.
@@ -76,3 +79,41 @@ them scaled to 150%.
 
 - [ ] The token and configs go in `%APPDATA%\Deskhand\` and are readable by
       the current user only (check the ACL with `icacls`).
+
+## (e) Phase 1: tools, element tree and guardrails
+
+Implement the Windows side of each trait, then repeat the macOS checks in
+`docs/phase1/README.md` in Notepad (the Windows stand-in for TextEdit).
+Only click and type in windows you opened for the test.
+
+- [ ] `Accessibility` with UI Automation (`uiautomation` or `windows` crate):
+      `windows()` from `EnumWindows` front to back, with pid, owner app,
+      title, bounds and a layer/topmost hint; `window_tree()` maps UIA
+      control types to our roles (Button -> AXButton and so on) and fills
+      name, value, bounds, enabled and focused; `press()` uses the Invoke
+      pattern, `set_focus()` and `raise_window()` use `SetForegroundWindow`
+      rules (it may refuse; report that clearly).
+- [ ] `read_window` on Notepad lists the menu bar (File, Edit, ...) and the
+      edit area with refs; `find("Save as")` finds the menu item.
+- [ ] Secure fields: a password box (UIA `IsPassword`) is reported as
+      `securetextfield` and `type_text` refuses to type into it.
+- [ ] `StopKey` with `WH_KEYBOARD_LL`: while armed, a physical Esc returns 1
+      (swallowed: Notepad must not see it), stops the action in flight and
+      shows the "Stopped" banner. Our own `key esc` (tagged with
+      `dwExtraInfo` = our marker) passes through.
+- [ ] Approval window: `request_access(["Notepad"])` shows our prompt, Deny
+      and "Allow for this session" both work by mouse, Esc denies, and a
+      120 s timeout denies. Extra warning shows for Terminal/PowerShell,
+      Explorer, Settings/Control Panel, password managers.
+- [ ] The gate: `click` on a point over a window of a non-approved app is
+      refused before any input; screenshots grey out windows of
+      non-approved apps.
+- [ ] The banner "Claude is controlling input" shows while an action runs
+      and is not in our own screenshots (`WDA_EXCLUDEFROMCAPTURE`).
+- [ ] Coordinates on a 150% monitor and a 100% monitor: `click(x,y)` from a
+      screenshot of each display lands on the right spot.
+- [ ] The activity view (`deskhand --activity`) lists calls live, and
+      `%APPDATA%\Deskhand\activity.jsonl` is readable by the user only.
+- [ ] Done-when on Windows: `deskhand --test-turn "...Notepad..." --model
+      haiku --permission-mode default` with `DESKHAND_TEST_AUTO_APPROVE=Notepad`
+      completes with at most one screenshot.

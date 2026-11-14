@@ -1,0 +1,81 @@
+Run B: direct MCP tool tests on a TextEdit window opened for the test (from activity.jsonl)
+01:01:01 ok  lock                                                                                   -> released the input lock (session ended)
+01:01:27 ok  desktop_context                                                                        -> Displays:   0: Display #5409 (1920x1080 pt, scale 1, main), screenshots are 1280x720 px Fr
+01:01:33 ok  approval        TextEdit                                                               -> TEST-ONLY auto-approved via DESKHAND_TEST_AUTO_APPROVE (no human asked)
+01:01:33 ok  request_access  TextEdit (Phase 1 tool test in a TextEdit window I opened)             -> Approved for this session: TextEdit. Next: open_app or focus_window, then read_window.
+01:01:35 ok  read_window     window=front filter=Interactive page=1 menus=false                     -> 45 lines, page 1/1 of window 353338
+01:01:42 ok  lock                                                                                   -> took the input lock
+01:01:42 ERR click           ref=e35 Left x1                                                        -> That point is on a window of Dock, which is not approved for this session. Call request_ac
+01:01:44 ok  desktop_context                                                                        -> Displays:   0: Display #5409 (1920x1080 pt, scale 1, main), screenshots are 1280x720 px Fr
+01:02:46 ok  lock                                                                                   -> released the input lock (session ended)
+01:03:06 ok  approval        TextEdit                                                               -> TEST-ONLY auto-approved via DESKHAND_TEST_AUTO_APPROVE (no human asked)
+01:03:06 ok  request_access  TextEdit (Phase 1 tool test in a TextEdit window I opened)             -> Approved for this session: TextEdit. Next: open_app or focus_window, then read_window.
+01:03:06 ok  lock                                                                                   -> took the input lock
+01:03:06 ok  focus_window    353338                                                                 -> Focused window 353338 "Open" of TextEdit.
+01:03:06 ok  read_window     window=front filter=Interactive page=1 menus=false                     -> 45 lines, page 1/1 of window 353338
+01:03:12 ok  click           ref=e35 Left x1                                                        -> Clicked e35 "New Document" (Left, x1). Use read_window or find to see the result.
+01:03:13 ok  desktop_context                                                                        -> Displays:   0: Display #5409 (1920x1080 pt, scale 1, main), screenshots are 1280x720 px Fr
+01:03:37 ok  read_window     window=front filter=Interactive page=1 menus=false                     -> 28 lines, page 1/1 of window 353453
+01:03:55 ok  type_text       "Deskhand phase 1 test line."                                          -> Typed 27 characters.
+01:03:55 ok  key             return x3                                                              -> Pressed return x3.
+01:03:55 ok  type_text       "Second line."                                                         -> Typed 12 characters.
+01:03:56 ok  find            "textarea"                                                             -> 1 matches for "textarea"
+01:04:00 ok  find            "Make Plain Text"                                                      -> 1 matches for "Make Plain Text"
+01:04:05 ok  click           ref=e75 Left x1                                                        -> Pressed e75 "Format > Make Plain Text" via accessibility. Use read_window or find to see t
+01:04:06 ok  read_window     window=front filter=Interactive page=1 menus=false                     -> 12 lines, page 1/1 of window 353453
+01:04:10 ok  screenshot      window=353453                                                          -> Screenshot 1 this session: 603x505 px image of a window region on display 0 (display 0 of 
+01:04:18 ok  zoom            0,25 200x70                                                            -> Zoomed view of (0,25 200x70) at 200x70 px. Coordinates for other tools are still pixels of
+01:04:27 ok  point           e76                                                                    -> Pointed (the AI cursor moved; nothing was clicked).
+01:04:29 ok  stop            Esc                                                                    -> user pressed Esc: cancelled the action in flight and halted
+01:04:29 ERR key             return x25                                                             -> Stopped: the user pressed Esc. Do not continue; wait for the user's next message.
+01:04:29 ERR type_text       "Bottom line."                                                         -> The user pressed Esc to stop you. Do not act again until the user sends a new message.
+01:04:46 ok  type_text       "After stop."                                                          -> Typed 11 characters.
+01:04:47 ok  scroll          e76 Up 10                                                              -> scrolled up 10 lines.
+01:04:48 ok  screenshot      window=353453                                                          -> Screenshot 2 this session: 603x505 px image of a window region on display 0 (display 0 of 
+01:04:59 ok  key             return x30                                                             -> Pressed return x30.
+01:04:59 ok  type_text       "Bottom line."                                                         -> Typed 12 characters.
+01:05:00 ok  scroll          e76 Up 15                                                              -> scrolled up 15 lines.
+01:05:01 ok  screenshot      window=353453                                                          -> Screenshot 3 this session: 603x505 px image of a window region on display 0 (display 0 of 
+01:05:09 ok  drag            Some(9.0),Some(53.0) -> Some(90.0),Some(53.0)                          -> Dragged.
+01:05:10 ok  screenshot      window=353453                                                          -> Screenshot 4 this session: 603x505 px image of a window region on display 0 (display 0 of 
+01:05:27 ok  screenshot      display=0                                                              -> Screenshot 5 this session: 1280x720 px image of the whole display on display 0 (display 0 
+01:05:28 ok  click           x=Some(342.0) y=Some(208.0) Left x1                                    -> Clicked (342, 208) (Left, x1). Use read_window or find to see the result.
+01:05:28 ok  type_text       " [xy click]"                                                          -> Typed 11 characters.
+01:05:28 ok  find            "textarea"                                                             -> 1 matches for "textarea"
+01:05:33 ok  screenshot      window=353453                                                          -> Screenshot 6 this session: 603x505 px image of a window region on display 0 (display 0 of 
+01:05:38 ok  key             cmd+z x1                                                               -> Pressed cmd+z.
+01:05:39 ok  find            "xy click"                                                             -> No element matches "xy click". Try other words, read_window, or (last resort) a screenshot
+01:05:48 ERR click           x=Some(800.0) y=Some(267.0) Left x1                                    -> (800, 267) is outside the latest screenshot (603x505 px).
+01:05:49 ok  type_text       "x"                                                                    -> Typed 1 characters.
+01:06:19 ok  screenshot      display=0                                                              -> Screenshot 7 this session: 1280x720 px image of the whole display on display 0 (display 0 
+01:06:21 ERR click           x=Some(800.0) y=Some(267.0) Left x1                                    -> That point is on a Deskhand window (approval prompt or activity view). Claude may not clic
+01:07:09 ok  screenshot      display=0                                                              -> Screenshot 8 this session: 1280x720 px image of the whole display on display 0 (display 0 
+01:07:36 ok  screenshot      display=0                                                              -> Screenshot 9 this session: 1280x720 px image of the whole display on display 0 (display 0 
+01:07:47 ok  screenshot      display=0                                                              -> Screenshot 10 this session: 1280x720 px image of the whole display on display 0 (display 0
+01:07:49 ok  screenshot      display=0                                                              -> Screenshot 11 this session: 1280x720 px image of the whole display on display 0 (display 0
+01:08:55 ok  lock                                                                                   -> released the input lock (session ended)
+01:09:15 ok  approval        TextEdit                                                               -> TEST-ONLY auto-approved via DESKHAND_TEST_AUTO_APPROVE (no human asked)
+01:09:15 ok  request_access  TextEdit (Phase 1 tool test in a TextEdit window I opened)             -> Approved for this session: TextEdit. Next: open_app or focus_window, then read_window.
+01:09:15 ok  desktop_context                                                                        -> Displays:   0: Display #5409 (1920x1080 pt, scale 1, main), screenshots are 1280x720 px Fr
+01:09:19 ok  lock                                                                                   -> took the input lock
+01:09:20 ok  focus_window    353453                                                                 -> Focused window 353453 "Untitled" of TextEdit.
+01:09:20 ERR point           Some(300.0),Some(200.0)                                                -> No screenshot coordinate space yet. Use refs from read_window, or take a screenshot first.
+01:09:21 ok  screenshot      display=0                                                              -> Screenshot 1 this session: 1280x720 px image of the whole display on display 0 (display 0 
+01:09:23 ok  screenshot      display=0                                                              -> Screenshot 2 this session: 1280x720 px image of the whole display on display 0 (display 0 
+01:09:24 ok  screenshot      display=0                                                              -> Screenshot 3 this session: 1280x720 px image of the whole display on display 0 (display 0 
+01:09:31 ok  point           Some(300.0),Some(200.0)                                                -> Pointed (the AI cursor moved; nothing was clicked).
+01:09:32 ok  screenshot      display=0                                                              -> Screenshot 4 this session: 1280x720 px image of the whole display on display 0 (display 0 
+01:09:48 ok  key             cmd+w x1                                                               -> Pressed cmd+w.
+01:09:49 ERR read_window     window=front filter=Interactive page=1 menus=false                     -> no accessibility window found for window 353639 of TextEdit (is it a panel from another pr
+01:09:52 ok  desktop_context                                                                        -> Displays:   0: Display #5409 (1920x1080 pt, scale 1, main), screenshots are 1280x720 px Fr
+01:09:57 ok  read_window     window=353453 filter=Interactive page=1 menus=false                    -> 24 lines, page 1/1 of window 353453
+01:10:27 ok  lock                                                                                   -> released the input lock (session ended)
+01:10:40 ok  approval        TextEdit                                                               -> TEST-ONLY auto-approved via DESKHAND_TEST_AUTO_APPROVE (no human asked)
+01:10:40 ok  request_access  TextEdit (Phase 1 tool test in a TextEdit window I opened)             -> Approved for this session: TextEdit. Next: open_app or focus_window, then read_window.
+01:10:40 ok  read_window     window=353639 filter=Interactive page=1 menus=false                    -> 24 lines, page 1/1 of window 353639
+01:10:45 ok  lock                                                                                   -> took the input lock
+01:10:45 ok  click           ref=e15 Left x1                                                        -> Clicked e15 "Delete" (Left, x1). Use read_window or find to see the result.
+01:10:50 ok  desktop_context                                                                        -> Displays:   0: Display #5409 (1920x1080 pt, scale 1, main), screenshots are 1280x720 px Fr
+01:10:56 ok  desktop_context                                                                        -> Displays:   0: Display #5409 (1920x1080 pt, scale 1, main), screenshots are 1280x720 px Fr
+01:11:01 ok  key             cmd+q x1                                                               -> Pressed cmd+q.
+01:11:03 ok  lock                                                                                   -> released the input lock (session ended)
