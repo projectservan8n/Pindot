@@ -1,31 +1,115 @@
 //! In-process tests of the MCP server and hook receiver with mock platform
-//! implementations: auth, Origin rejection, the MCP handshake, and the
-//! screenshot -> click flow including the pixel -> point mapping.
+//! implementations: auth and Origin checks, the approval gate, the one-
+//! session input lock, the Esc stop, refs from the accessibility tree,
+//! pagination, masking, and the pixel -> point mapping.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
-use deskhand_core::platform::mock::{MockCapture, MockInput, MockOverlay};
-use deskhand_core::platform::{MouseButton, Point};
-use deskhand_core::server::{ServerState, router};
+use deskhand_core::platform::mock::{
+    InputAction, MockAccessibility, MockCapture, MockInput, MockNode, MockOverlay, MockStopKey,
+};
+use deskhand_core::platform::{AppInfo, MouseButton, Point, Rect, WindowInfo};
+use deskhand_core::server::activity::ActivityLog;
+use deskhand_core::server::approval::{ApprovalRequest, Approver};
+use deskhand_core::server::control::ControlEvent;
+use deskhand_core::server::{ServerDeps, ServerState, router};
 use serde_json::{Value, json};
+use tokio::sync::oneshot;
 use tower::ServiceExt;
 
 const TOKEN: &str = "test-token-0123456789abcdef";
+const OWN_PID: i32 = 99;
+const TEXTEDIT: i32 = 10;
+const CHROME: i32 = 20;
+
+/// Answers approval prompts with a scripted value and records them.
+#[derive(Default)]
+struct ScriptedApprover {
+    answer: Mutex<bool>,
+    asked: Mutex<Vec<ApprovalRequest>>,
+}
+
+impl Approver for ScriptedApprover {
+    fn ask(&self, req: ApprovalRequest, reply: oneshot::Sender<bool>) {
+        self.asked.lock().unwrap().push(req);
+        let _ = reply.send(*self.answer.lock().unwrap());
+    }
+    fn cancel(&self, _id: &str) {}
+}
 
 struct Harness {
     app: axum::Router,
     input: Arc<MockInput>,
     overlay: Arc<MockOverlay>,
+    ax: Arc<MockAccessibility>,
+    stop: Arc<MockStopKey>,
+    approver: Arc<ScriptedApprover>,
+    activity: Arc<ActivityLog>,
     state: Arc<ServerState>,
 }
 
-fn harness() -> Harness {
+fn win(id: u64, pid: i32, app: &str, b: Rect) -> WindowInfo {
+    WindowInfo { id, pid, app: app.into(), title: format!("{app} window"), bounds: b, layer: 0, alpha: 1.0 }
+}
+
+/// Display 1440x900 pt at 2x (screenshots 1280x800). TextEdit window 100 at
+/// (100,100 800x600) with Chrome window 200 in front of its right edge at
+/// (800,100 500x400).
+fn fixture() -> MockAccessibility {
+    let ax = MockAccessibility::default();
+    *ax.apps.lock().unwrap() = vec![
+        AppInfo { pid: TEXTEDIT, name: "TextEdit".into(), bundle_id: Some("com.apple.TextEdit".into()) },
+        AppInfo { pid: CHROME, name: "Google Chrome".into(), bundle_id: Some("com.google.Chrome".into()) },
+        AppInfo { pid: OWN_PID, name: "Deskhand".into(), bundle_id: Some("dev.deskhand.app".into()) },
+    ];
+    *ax.windows.lock().unwrap() = vec![
+        win(200, CHROME, "Google Chrome", Rect::new(800.0, 100.0, 500.0, 400.0)),
+        win(100, TEXTEDIT, "TextEdit", Rect::new(100.0, 100.0, 800.0, 600.0)),
+    ];
+    *ax.frontmost.lock().unwrap() = Some(TEXTEDIT);
+    let mut item = MockNode::new(5, 1, "AXMenuItem", "New", None);
+    item.menu_path = Some("File > New".into());
+    item.menu_root = Some(2); // the "File" menu bar item below
+    ax.trees.lock().unwrap().insert(
+        100,
+        vec![
+            MockNode::new(1, 0, "AXWindow", "Untitled", Some(Rect::new(100.0, 100.0, 800.0, 600.0))),
+            MockNode::new(2, 1, "AXButton", "New Document", Some(Rect::new(200.0, 200.0, 90.0, 20.0))),
+            MockNode::new(3, 0, "AXMenuBarItem", "File", Some(Rect::new(50.0, 0.0, 40.0, 24.0))),
+            MockNode::new(4, 1, "AXTextArea", "", Some(Rect::new(120.0, 250.0, 600.0, 400.0))),
+            item,
+        ],
+    );
+    ax
+}
+
+fn harness_with(ax: MockAccessibility, auto: &[&str]) -> Harness {
     let input = Arc::new(MockInput::default());
     let overlay = Arc::new(MockOverlay::default());
-    let state = ServerState::new(Arc::new(MockCapture::default()), input.clone(), overlay.clone());
-    Harness { app: router(state.clone(), TOKEN), input, overlay, state }
+    let ax = Arc::new(ax);
+    let stop = Arc::new(MockStopKey::default());
+    let approver = Arc::new(ScriptedApprover::default());
+    let activity = Arc::new(ActivityLog::memory());
+    let state = ServerState::new(ServerDeps {
+        capture: Arc::new(MockCapture::default()),
+        input: input.clone(),
+        accessibility: ax.clone(),
+        stop_key: stop.clone(),
+        overlay: overlay.clone(),
+        approver: approver.clone(),
+        activity: activity.clone(),
+        test_auto_approve: auto.iter().map(|s| s.to_string()).collect(),
+        own_pid: OWN_PID,
+        idle: Duration::from_millis(50),
+    });
+    Harness { app: router(state.clone(), TOKEN), input, overlay, ax, stop, approver, activity, state }
+}
+
+fn harness() -> Harness {
+    harness_with(fixture(), &[])
 }
 
 fn req(method: &str, path: &str) -> axum::http::request::Builder {
@@ -60,6 +144,73 @@ async fn mcp(app: &axum::Router, session: Option<&str>, body: Value) -> (StatusC
     (status, sid, rpc_body(&bytes))
 }
 
+/// Initialize an MCP session; returns its id and the initialize result.
+async fn open(app: &axum::Router) -> (String, Value) {
+    let (st, sid, init) = mcp(
+        app,
+        None,
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+            "protocolVersion":"2025-06-18","capabilities":{},
+            "clientInfo":{"name":"test","version":"0"}}}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "initialize: {init}");
+    let sid = sid.expect("session id");
+    let (st, _, _) = mcp(app, Some(&sid), json!({"jsonrpc":"2.0","method":"notifications/initialized"})).await;
+    assert!(st.is_success());
+    (sid, init)
+}
+
+/// Call a tool. Returns (is_error, all text content joined, raw result).
+async fn call(app: &axum::Router, sid: &str, name: &str, args: Value) -> (bool, String, Value) {
+    let (_, _, v) = mcp(
+        app,
+        Some(sid),
+        json!({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":name,"arguments":args}}),
+    )
+    .await;
+    let r = v.get("result").cloned().unwrap_or_else(|| panic!("{name}: no result: {v}"));
+    let err = r.get("isError").and_then(Value::as_bool).unwrap_or(false);
+    let text = r
+        .get("content")
+        .and_then(Value::as_array)
+        .map(|c| c.iter().filter_map(|b| b.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n"))
+        .unwrap_or_default();
+    (err, text, r)
+}
+
+async fn ok(app: &axum::Router, sid: &str, name: &str, args: Value) -> String {
+    let (err, text, _) = call(app, sid, name, args.clone()).await;
+    assert!(!err, "{name}({args}) failed: {text}");
+    text
+}
+
+async fn fails(app: &axum::Router, sid: &str, name: &str, args: Value) -> String {
+    let (err, text, _) = call(app, sid, name, args.clone()).await;
+    assert!(err, "{name}({args}) should fail but returned: {text}");
+    text
+}
+
+/// The ref on the first line of `listing` that contains `needle`.
+fn ref_of(listing: &str, needle: &str) -> String {
+    let line = listing.lines().find(|l| l.contains(needle)).unwrap_or_else(|| panic!("no line with {needle} in:\n{listing}"));
+    line.trim_start().trim_start_matches('[').split(']').next().unwrap().to_string()
+}
+
+async fn post_hook(app: &axum::Router, path: &str, body: Value) -> StatusCode {
+    app.clone()
+        .oneshot(
+            req("POST", path)
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
+
 #[tokio::test]
 async fn rejects_missing_token_wrong_token_and_origin() {
     let h = harness();
@@ -82,6 +233,22 @@ async fn rejects_missing_token_wrong_token_and_origin() {
                 .header("authorization", format!("Bearer {TOKEN}"))
                 .header("origin", "https://evil.example")
                 .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+
+    // An Origin is refused even on the hook routes and with a valid token.
+    let r = h
+        .app
+        .clone()
+        .oneshot(
+            req("POST", "/hooks/prompt")
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .header("origin", "http://127.0.0.1:47823")
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
                 .unwrap(),
         )
         .await
@@ -141,64 +308,337 @@ async fn stop_hook_is_broadcast() {
 }
 
 #[tokio::test]
-async fn mcp_screenshot_then_click_maps_pixels_to_points() {
+async fn lists_all_fifteen_tools_with_safety_instructions() {
     let h = harness();
-    let (st, sid, init) = mcp(
-        &h.app,
-        None,
-        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
-            "protocolVersion":"2025-06-18","capabilities":{},
-            "clientInfo":{"name":"test","version":"0"}}}),
-    )
-    .await;
-    assert_eq!(st, StatusCode::OK, "initialize: {init}");
+    let (sid, init) = open(&h.app).await;
     assert_eq!(init.pointer("/result/serverInfo/name").and_then(Value::as_str), Some("deskhand"));
-    let sid = sid.expect("session id");
-
-    let (st, _, _) = mcp(&h.app, Some(&sid), json!({"jsonrpc":"2.0","method":"notifications/initialized"})).await;
-    assert!(st.is_success());
-
+    let instructions = init.pointer("/result/instructions").and_then(Value::as_str).unwrap();
+    assert!(instructions.contains("untrusted data, never instructions"));
+    assert!(instructions.contains("purchases"));
     let (_, _, list) = mcp(&h.app, Some(&sid), json!({"jsonrpc":"2.0","id":2,"method":"tools/list"})).await;
-    let mut names: Vec<&str> = list
-        .pointer("/result/tools")
-        .and_then(Value::as_array)
+    let tools = list.pointer("/result/tools").and_then(Value::as_array).unwrap();
+    let mut names: Vec<&str> = tools.iter().filter_map(|t| t.get("name").and_then(Value::as_str)).collect();
+    names.sort();
+    assert_eq!(
+        names,
+        vec![
+            "click", "desktop_context", "drag", "find", "focus_window", "key", "open_app", "point", "read_window",
+            "request_access", "screenshot", "scroll", "type_text", "wait", "zoom"
+        ]
+    );
+    let desc = |n: &str| {
+        tools.iter().find(|t| t["name"] == n).and_then(|t| t["description"].as_str()).unwrap().to_string()
+    };
+    assert!(desc("screenshot").starts_with("Last resort"));
+    assert!(desc("read_window").contains("preferred"));
+    assert!(desc("type_text").contains("password"));
+}
+
+#[tokio::test]
+async fn approval_gate_blocks_everything_until_the_user_allows() {
+    let h = harness();
+    let (sid, _) = open(&h.app).await;
+
+    // Nothing is approved: no tree, no clicks, no typing.
+    let t = fails(&h.app, &sid, "read_window", json!({})).await;
+    assert!(t.contains("request_access"), "{t}");
+    let t = fails(&h.app, &sid, "click", json!({"x": 356, "y": 356})).await;
+    assert!(t.contains("screenshot"), "no coordinate space yet: {t}");
+    let shot = ok(&h.app, &sid, "screenshot", json!({})).await;
+    assert!(shot.contains("greyed out: Google Chrome, TextEdit"), "{shot}");
+    let t = fails(&h.app, &sid, "click", json!({"x": 356, "y": 356})).await;
+    assert!(t.contains("TextEdit, which is not approved"), "{t}");
+    let t = fails(&h.app, &sid, "type_text", json!({"text": "hi"})).await;
+    assert!(t.contains("not approved"), "{t}");
+    let t = fails(&h.app, &sid, "key", json!({"combo": "cmd+n"})).await;
+    assert!(t.contains("not approved"), "{t}");
+    let t = fails(&h.app, &sid, "open_app", json!({"name": "TextEdit"})).await;
+    assert!(t.contains("request_access"), "{t}");
+    let t = fails(&h.app, &sid, "focus_window", json!({"window_id": 100})).await;
+    assert!(t.contains("not approved"), "{t}");
+
+    // The user denies.
+    let t = fails(&h.app, &sid, "request_access", json!({"apps": ["TextEdit"], "reason": "write a note"})).await;
+    assert!(t.contains("denied"), "{t}");
+    {
+        let asked = h.approver.asked.lock().unwrap();
+        assert_eq!(asked.len(), 1);
+        assert_eq!(asked[0].apps[0].name, "TextEdit");
+        assert_eq!(asked[0].reason, "write a note");
+    }
+    fails(&h.app, &sid, "click", json!({"x": 356, "y": 356})).await;
+
+    // The user allows: TextEdit works, Chrome (in front of part of it) does not.
+    *h.approver.answer.lock().unwrap() = true;
+    let t = ok(&h.app, &sid, "request_access", json!({"apps": ["textedit"], "reason": "write a note"})).await;
+    assert!(t.contains("approved for this session: TextEdit"), "{t}");
+    ok(&h.app, &sid, "click", json!({"x": 356, "y": 356})).await;
+    let t = fails(&h.app, &sid, "click", json!({"x": 756, "y": 267})).await;
+    assert!(t.contains("Google Chrome, which is not approved"), "{t}");
+    assert_eq!(h.input.clicks(), vec![(Point::new(400.5, 400.5), MouseButton::Left, 1)]);
+    let shot = ok(&h.app, &sid, "screenshot", json!({})).await;
+    assert!(shot.contains("greyed out: Google Chrome.") && !shot.contains("TextEdit."), "{shot}");
+
+    // High-risk apps carry a warning to the user and back to Claude.
+    let mut ax = fixture();
+    ax.installed = vec!["Terminal".into()];
+    let h2 = harness_with(ax, &[]);
+    *h2.approver.answer.lock().unwrap() = true;
+    let (sid2, _) = open(&h2.app).await;
+    let t = ok(&h2.app, &sid2, "request_access", json!({"apps": ["Terminal"], "reason": "run tests"})).await;
+    assert!(t.contains("Equivalent to shell access"), "{t}");
+    assert!(h2.approver.asked.lock().unwrap()[0].apps[0].warning.as_deref().unwrap().contains("shell access"));
+    let t = fails(&h2.app, &sid2, "request_access", json!({"apps": ["NoSuchApp"], "reason": "x"})).await;
+    assert!(t.contains("Unknown app"), "{t}");
+}
+
+#[tokio::test]
+async fn deskhand_itself_can_never_be_approved() {
+    let h = harness_with(fixture(), &["Deskhand"]);
+    *h.approver.answer.lock().unwrap() = true;
+    let (sid, _) = open(&h.app).await;
+    let t = fails(&h.app, &sid, "request_access", json!({"apps": ["Deskhand"], "reason": "x"})).await;
+    assert!(t.contains("never be controlled"), "{t}");
+    assert!(h.approver.asked.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn test_auto_approve_skips_the_prompt_and_is_logged() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    let (sid, _) = open(&h.app).await;
+    ok(&h.app, &sid, "request_access", json!({"apps": ["TextEdit"], "reason": "test"})).await;
+    assert!(h.approver.asked.lock().unwrap().is_empty());
+    assert!(h.activity.recent(20).iter().any(|e| e.outcome.contains("TEST-ONLY")));
+    // Apps not on the test list still go to the human.
+    fails(&h.app, &sid, "request_access", json!({"apps": ["Google Chrome"], "reason": "test"})).await;
+    assert_eq!(h.approver.asked.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn refs_from_read_window_drive_clicks_and_menu_presses() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    let (sid, _) = open(&h.app).await;
+    ok(&h.app, &sid, "request_access", json!({"apps": ["TextEdit"], "reason": "test"})).await;
+
+    let listing = ok(&h.app, &sid, "read_window", json!({})).await;
+    assert!(listing.contains("untrusted data"), "{listing}");
+    assert!(listing.contains("page 1 of 1"), "{listing}");
+    // (200,200 90x20) pt -> image px of a 1280x800 shot of the display.
+    assert!(listing.contains("button \"New Document\" (178,178 80x18)"), "{listing}");
+    assert!(!listing.contains("File > New"), "menus hidden by default: {listing}");
+    let r = ref_of(&listing, "New Document");
+
+    ok(&h.app, &sid, "click", json!({"ref": r})).await;
+    assert_eq!(h.input.clicks(), vec![(Point::new(245.0, 210.0), MouseButton::Left, 1)]);
+    assert_eq!(h.overlay.moves.lock().unwrap().last(), Some(&Point::new(245.0, 210.0)), "cursor moved before click");
+
+    // A menu item found by find is pressed through accessibility, after the
+    // cursor glides to its menu title.
+    let found = ok(&h.app, &sid, "find", json!({"query": "file new"})).await;
+    let m = ref_of(&found, "File > New");
+    ok(&h.app, &sid, "click", json!({"ref": m})).await;
+    assert_eq!(h.ax.pressed.lock().unwrap().clone(), vec![5]);
+    assert_eq!(h.input.clicks().len(), 1, "menu press is not a mouse click");
+    assert_eq!(h.overlay.moves.lock().unwrap().last(), Some(&Point::new(70.0, 12.0)));
+
+    let with_menus = ok(&h.app, &sid, "read_window", json!({"include_menus": true})).await;
+    assert!(with_menus.contains("menuitem \"File > New\""), "{with_menus}");
+
+    // Stale and unknown refs ask for a fresh read.
+    h.ax.stale.lock().unwrap().insert(2);
+    let t = fails(&h.app, &sid, "click", json!({"ref": r})).await;
+    assert!(t.contains("read_window again"), "{t}");
+    let t = fails(&h.app, &sid, "click", json!({"ref": "e999"})).await;
+    assert!(t.contains("Unknown ref"), "{t}");
+
+    // Refs are per session.
+    let (sid2, _) = open(&h.app).await;
+    let t = fails(&h.app, &sid2, "click", json!({"ref": m})).await;
+    assert!(t.contains("Unknown ref"), "{t}");
+}
+
+#[tokio::test]
+async fn read_window_paginates_long_trees() {
+    let ax = fixture();
+    let nodes: Vec<MockNode> = (0..400)
+        .map(|i| {
+            let y = 110.0 + (i % 50) as f64 * 10.0;
+            MockNode::new(1000 + i, 1, "AXButton", &format!("Button {i}"), Some(Rect::new(150.0, y, 50.0, 8.0)))
+        })
+        .collect();
+    ax.trees.lock().unwrap().insert(100, nodes);
+    let h = harness_with(ax, &["TextEdit"]);
+    let (sid, _) = open(&h.app).await;
+    ok(&h.app, &sid, "request_access", json!({"apps": ["TextEdit"], "reason": "test"})).await;
+
+    let p1 = ok(&h.app, &sid, "read_window", json!({"window_id": 100})).await;
+    assert!(p1.contains("400 elements (interactive), page 1 of 3"), "{p1}");
+    assert!(p1.contains("page=2"), "{p1}");
+    assert_eq!(p1.lines().filter(|l| l.starts_with('[')).count(), 150);
+    let p3 = ok(&h.app, &sid, "read_window", json!({"window_id": 100, "page": 3})).await;
+    assert_eq!(p3.lines().filter(|l| l.starts_with('[')).count(), 100);
+    // Later pages reuse the snapshot, so refs continue rather than restart.
+    assert!(p3.contains("[e301] button \"Button 300\""), "{p3}");
+    assert!(p3.contains("[e400] button \"Button 399\""), "{p3}");
+    assert!(!p3.contains("page=4"));
+}
+
+#[tokio::test]
+async fn one_session_holds_the_input_lock() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    let (a, _) = open(&h.app).await;
+    let (b, _) = open(&h.app).await;
+    for s in [&a, &b] {
+        ok(&h.app, s, "request_access", json!({"apps": ["TextEdit"], "reason": "test"})).await;
+        ok(&h.app, s, "screenshot", json!({})).await;
+    }
+    ok(&h.app, &a, "click", json!({"x": 356, "y": 356})).await;
+    let holder = h.state.control.lock_holder().expect("A holds the lock");
+    let t = fails(&h.app, &b, "click", json!({"x": 356, "y": 356})).await;
+    assert!(t.contains("Another Claude session") && t.contains(&holder), "{t}");
+    fails(&h.app, &b, "type_text", json!({"text": "x"})).await;
+    let ctx = ok(&h.app, &b, "desktop_context", json!({})).await;
+    assert!(ctx.contains("held by another session"), "{ctx}");
+    // Reading is not input: B may still look.
+    ok(&h.app, &b, "read_window", json!({})).await;
+    assert_eq!(h.input.clicks().len(), 1);
+
+    // When A's MCP session ends, the lock is free for B.
+    let r = h
+        .app
+        .clone()
+        .oneshot(
+            req("DELETE", "/mcp")
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .header("mcp-session-id", &a)
+                .header("mcp-protocol-version", "2025-06-18")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(r.status().is_success(), "DELETE session: {}", r.status());
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while h.state.control.lock_holder().is_some() && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    ok(&h.app, &b, "click", json!({"x": 356, "y": 356})).await;
+    assert_ne!(h.state.control.lock_holder(), Some(holder));
+}
+
+#[tokio::test]
+async fn esc_cancels_the_action_and_halts_until_the_next_prompt() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    let (sid, _) = open(&h.app).await;
+    ok(&h.app, &sid, "request_access", json!({"apps": ["TextEdit"], "reason": "test"})).await;
+    ok(&h.app, &sid, "screenshot", json!({})).await;
+    assert!(!h.stop.is_armed(), "the Esc tap is off until Claude acts");
+    assert!(!h.stop.press(), "Esc passes through when Claude is not acting");
+
+    let mut events = h.state.control.subscribe();
+    let app = h.app.clone();
+    let s = sid.clone();
+    let started = Instant::now();
+    let waiting = tokio::spawn(async move { call(&app, &s, "wait", json!({"ms": 5000})).await });
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !h.stop.is_armed() && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(h.stop.is_armed(), "the Esc tap is armed while Claude acts");
+    assert_eq!(h.overlay.acting.lock().unwrap().first(), Some(&true), "indicator on");
+    assert!(h.stop.press(), "Esc is consumed by the tap");
+
+    let (err, text, _) = waiting.await.unwrap();
+    assert!(err && text.contains("pressed Esc"), "{text}");
+    assert!(started.elapsed() < Duration::from_secs(2), "wait was cancelled, not run out");
+    let mut saw_stop = false;
+    while let Ok(ev) = events.try_recv() {
+        saw_stop |= matches!(ev, ControlEvent::EmergencyStop);
+    }
+    assert!(saw_stop, "voice loop hook got EmergencyStop");
+    assert_eq!(h.overlay.acting.lock().unwrap().last(), Some(&false), "indicator off");
+
+    // Halted: nothing acts until the user's next message.
+    let t = fails(&h.app, &sid, "click", json!({"x": 356, "y": 356})).await;
+    assert!(t.contains("pressed Esc"), "{t}");
+    assert!(h.input.clicks().is_empty());
+    assert_eq!(post_hook(&h.app, "/hooks/prompt", json!({"session_id": "x", "prompt": "go on"})).await, StatusCode::OK);
+    ok(&h.app, &sid, "click", json!({"x": 356, "y": 356})).await;
+    assert_eq!(h.input.clicks().len(), 1);
+
+    // After the idle period the tap disarms and the indicator goes off.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while h.stop.is_armed() && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(!h.stop.is_armed());
+    assert_eq!(h.overlay.acting.lock().unwrap().last(), Some(&false));
+}
+
+#[tokio::test]
+async fn typing_refuses_password_fields_and_unapproved_focus() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    let (sid, _) = open(&h.app).await;
+    ok(&h.app, &sid, "request_access", json!({"apps": ["TextEdit"], "reason": "test"})).await;
+
+    h.ax.secure_focus.store(true, std::sync::atomic::Ordering::SeqCst);
+    let t = fails(&h.app, &sid, "type_text", json!({"text": "hunter2"})).await;
+    assert!(t.contains("password"), "{t}");
+    h.ax.secure_focus.store(false, std::sync::atomic::Ordering::SeqCst);
+
+    let long = "The quick brown fox jumps over the lazy dog.";
+    ok(&h.app, &sid, "type_text", json!({"text": long})).await;
+    ok(&h.app, &sid, "key", json!({"combo": "cmd+n"})).await;
+    let typed: String = h
+        .input
+        .actions
+        .lock()
         .unwrap()
         .iter()
-        .filter_map(|t| t.get("name").and_then(Value::as_str))
+        .filter_map(|a| if let InputAction::Type(s) = a { Some(s.clone()) } else { None })
         .collect();
-    names.sort();
-    assert_eq!(names, vec!["click", "screenshot"]);
+    assert_eq!(typed, long, "typed in chunks, nothing lost");
+    assert!(h.input.actions.lock().unwrap().iter().any(|a| matches!(a, InputAction::Key(_))));
+    fails(&h.app, &sid, "key", json!({"combo": "cmd+banana"})).await;
 
-    // Click before any screenshot is refused.
-    let (_, _, early) = mcp(
-        &h.app,
-        Some(&sid),
-        json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"click","arguments":{"x":1,"y":1}}}),
-    )
-    .await;
-    assert_eq!(early.pointer("/result/isError"), Some(&Value::Bool(true)));
+    // Focus moves to an unapproved app: typing stops.
+    *h.ax.frontmost.lock().unwrap() = Some(CHROME);
+    let t = fails(&h.app, &sid, "type_text", json!({"text": "secret"})).await;
+    assert!(t.contains("Google Chrome"), "{t}");
+    fails(&h.app, &sid, "key", json!({"combo": "return"})).await;
 
-    let (_, _, shot) = mcp(
-        &h.app,
-        Some(&sid),
-        json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"screenshot","arguments":{}}}),
-    )
-    .await;
-    let content = shot.pointer("/result/content").and_then(Value::as_array).expect("content");
+    // focus_window brings the approved window back.
+    ok(&h.app, &sid, "focus_window", json!({"window_id": 100})).await;
+    assert_eq!(h.ax.raised.lock().unwrap().clone(), vec![100]);
+    ok(&h.app, &sid, "type_text", json!({"text": "ok"})).await;
+}
+
+#[tokio::test]
+async fn screenshot_then_click_maps_pixels_to_points() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    let (sid, _) = open(&h.app).await;
+    ok(&h.app, &sid, "request_access", json!({"apps": ["TextEdit"], "reason": "test"})).await;
+
+    let (err, text, shot) = call(&h.app, &sid, "screenshot", json!({})).await;
+    assert!(!err, "{text}");
+    let content = shot.get("content").and_then(Value::as_array).expect("content");
     assert_eq!(content[0].get("type").and_then(Value::as_str), Some("image"));
     assert_eq!(content[0].get("mimeType").and_then(Value::as_str), Some("image/jpeg"));
     // Mock display: 1440x900 pt at 2x -> 2880x1800 px -> sent at 1280x800.
-    assert!(content[1].get("text").and_then(Value::as_str).unwrap().contains("1280x800"));
+    assert!(text.contains("1280x800"), "{text}");
+    assert_eq!(h.state.activity.recent(50).iter().filter(|e| e.tool == "screenshot").count(), 1);
 
-    let (_, _, click) = mcp(
-        &h.app,
-        Some(&sid),
-        json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"click","arguments":{"x":640,"y":400}}}),
-    )
-    .await;
-    assert_ne!(click.pointer("/result/isError"), Some(&Value::Bool(true)), "{click}");
-    let clicks = h.input.clicks.lock().unwrap().clone();
-    assert_eq!(clicks, vec![(Point::new(720.0, 450.0), MouseButton::Left, 1)]);
-    // The overlay cursor moved to the same point before the click.
+    ok(&h.app, &sid, "click", json!({"x": 640, "y": 400})).await;
+    assert_eq!(h.input.clicks(), vec![(Point::new(720.0, 450.0), MouseButton::Left, 1)]);
     assert_eq!(h.overlay.moves.lock().unwrap().clone(), vec![Point::new(720.0, 450.0)]);
+
+    // A window screenshot changes the coordinate space to that window.
+    let t = ok(&h.app, &sid, "screenshot", json!({"window_id": 100})).await;
+    assert!(t.contains("1280x960"), "{t}");
+    // Window (100,100 800x600) at 1.6 px/pt: pixel (160,160) = point (200,200).
+    ok(&h.app, &sid, "click", json!({"x": 160, "y": 160, "count": 2})).await;
+    assert_eq!(h.input.clicks()[1], (Point::new(200.0, 200.0), MouseButton::Left, 2));
+    fails(&h.app, &sid, "screenshot", json!({"window_id": 200})).await;
+    let z = ok(&h.app, &sid, "zoom", json!({"x": 0, "y": 0, "width": 320, "height": 240})).await;
+    assert!(z.contains("400x300"), "{z}");
 }

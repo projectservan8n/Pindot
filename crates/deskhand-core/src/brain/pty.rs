@@ -55,6 +55,8 @@ pub struct SpawnOptions {
     pub mcp_config: Option<PathBuf>,
     pub settings: Option<PathBuf>,
     pub allowed_tools: Vec<String>,
+    /// `--permission-mode` (unset = Claude Code's own default).
+    pub permission_mode: Option<String>,
     pub model: Option<String>,
     pub append_system_prompt: Option<String>,
     pub cols: u16,
@@ -70,6 +72,7 @@ impl SpawnOptions {
             mcp_config: None,
             settings: None,
             allowed_tools: vec![],
+            permission_mode: None,
             model: None,
             append_system_prompt: None,
             cols: 220,
@@ -87,6 +90,10 @@ impl SpawnOptions {
         if let Some(p) = &self.settings {
             a.push("--settings".into());
             a.push(p.display().to_string());
+        }
+        if let Some(m) = &self.permission_mode {
+            a.push("--permission-mode".into());
+            a.push(m.clone());
         }
         if let Some(m) = &self.model {
             a.push("--model".into());

@@ -43,7 +43,7 @@ struct TapState {
     swallow: bool,
 }
 
-fn mask_of(types: &[CGEventType]) -> CGEventMask {
+pub(super) fn mask_of(types: &[CGEventType]) -> CGEventMask {
     types.iter().fold(0, |m, t| m | (1u64 << t.0))
 }
 
@@ -120,7 +120,7 @@ struct WatchState {
 
 /// Run a tap on its own thread with its own CFRunLoop. The returned handle
 /// disables and invalidates the tap and joins the thread.
-fn run_tap<S: Send + 'static>(
+pub(super) fn run_tap<S: Send + 'static>(
     location: CGEventTapLocation,
     options: CGEventTapOptions,
     mask: CGEventMask,

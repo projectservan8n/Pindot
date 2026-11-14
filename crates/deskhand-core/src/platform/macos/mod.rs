@@ -4,11 +4,13 @@ mod accessibility;
 mod capture;
 pub mod hotkey;
 mod input;
+pub mod stopkey;
 
 pub use accessibility::{MacAccessibility, ax_is_trusted};
 pub use capture::MacCapture;
 pub use hotkey::MacHotkey;
-pub use input::MacInput;
+pub use input::{INPUT_MARKER, MacInput};
+pub use stopkey::MacStopKey;
 
 use super::{Permission, PermissionStatus};
 

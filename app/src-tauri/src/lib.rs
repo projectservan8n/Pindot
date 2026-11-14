@@ -1,22 +1,34 @@
-//! Deskhand app, Phase 0: one click-through AI-cursor overlay per monitor,
-//! plus the embedded MCP server whose click tool drives that cursor.
+//! Deskhand app: one click-through AI-cursor overlay per monitor (with the
+//! "Claude is controlling input" banner), the embedded MCP server with the
+//! desktop tools, the per-app approval window and the activity view.
 //!
-//!   deskhand [--demo] [--exit-after SECONDS] [--no-server] [--capturable]
+//!   deskhand [--activity] [--capturable] [--demo] [--exit-after SECONDS] [--no-server]
+//!            [--test-turn PROMPT [--model M] [--permission-mode MODE] [--turn-timeout S] [--accept-trust]]
+//!            [--test-esc-after MS]
 //!
-//! `--demo` flies the cursor to the centre and corners of every monitor.
-//! `--capturable` lets screenshots see the cursor (for tests only).
+//! `--activity` opens the activity view. `--capturable` lets screenshots see
+//! Deskhand's own windows (tests and evidence only). `--test-turn` runs one
+//! real turn of interactive `claude` against this app and quits.
+//! `--test-esc-after` posts one synthetic Esc MS after the next action starts
+//! (only while the stop key is armed) and checks no app received it.
 
+mod approval;
 mod overlay;
+mod test_turn;
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use deskhand_core::brain::config::{write_hook_settings, write_mcp_config};
-use deskhand_core::paths::load_or_create_token;
-use deskhand_core::platform::{Overlay, Point, native};
-use deskhand_core::server::{ServerState, start};
-use tauri::Manager;
+use deskhand_core::paths::{activity_log_path, load_or_create_token};
+use deskhand_core::platform::{Overlay, Point};
+use deskhand_core::server::activity::{ActivityEntry, ActivityLog};
+use deskhand_core::server::control::ControlEvent;
+use deskhand_core::server::{RunningServer, ServerDeps, ServerState, start};
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
+pub use approval::TauriApprover;
 pub use overlay::{MonitorRect, TauriOverlay};
 
 struct Args {
@@ -24,16 +36,61 @@ struct Args {
     exit_after: Option<u64>,
     server: bool,
     capturable: bool,
+    activity: bool,
+    test_turn: Option<String>,
+    model: Option<String>,
+    permission_mode: Option<String>,
+    turn_timeout: u64,
+    accept_trust: bool,
+    test_esc_after: Option<u64>,
 }
 
 fn parse_args() -> Args {
     let a: Vec<String> = std::env::args().skip(1).collect();
+    let opt = |name: &str| a.iter().position(|x| x == name).and_then(|i| a.get(i + 1)).cloned();
+    let flag = |name: &str| a.iter().any(|x| x == name);
     Args {
-        demo: a.iter().any(|x| x == "--demo"),
-        exit_after: a.iter().position(|x| x == "--exit-after").and_then(|i| a.get(i + 1)).and_then(|s| s.parse().ok()),
-        server: !a.iter().any(|x| x == "--no-server"),
-        capturable: a.iter().any(|x| x == "--capturable"),
+        demo: flag("--demo"),
+        exit_after: opt("--exit-after").and_then(|s| s.parse().ok()),
+        server: !flag("--no-server"),
+        capturable: flag("--capturable"),
+        activity: flag("--activity"),
+        test_turn: opt("--test-turn"),
+        model: opt("--model"),
+        permission_mode: opt("--permission-mode"),
+        turn_timeout: opt("--turn-timeout").and_then(|s| s.parse().ok()).unwrap_or(240),
+        accept_trust: flag("--accept-trust"),
+        test_esc_after: opt("--test-esc-after").and_then(|s| s.parse().ok()),
     }
+}
+
+#[derive(Serialize)]
+struct Recent {
+    path: Option<String>,
+    entries: Vec<ActivityEntry>,
+}
+
+/// The activity view's initial rows.
+#[tauri::command]
+fn activity_recent(app: AppHandle) -> Recent {
+    match app.try_state::<Arc<ServerState>>() {
+        Some(s) => Recent {
+            path: s.activity.path().map(|p| p.display().to_string()),
+            entries: s.activity.recent(300),
+        },
+        None => Recent { path: None, entries: vec![] },
+    }
+}
+
+fn open_activity_window(app: &AppHandle, capturable: bool) -> tauri::Result<()> {
+    WebviewWindowBuilder::new(app, "activity", WebviewUrl::App("activity.html".into()))
+        .title("Deskhand activity")
+        .inner_size(820.0, 460.0)
+        .focused(false)
+        // Deskhand's own windows stay out of Claude's screenshots.
+        .content_protected(!capturable)
+        .build()?;
+    Ok(())
 }
 
 pub fn run() {
@@ -47,6 +104,16 @@ pub fn run() {
     let builder = builder.plugin(tauri_nspanel::init()).activate_ignoring_other_apps(false);
 
     builder
+        .invoke_handler(tauri::generate_handler![approval::approval_answer, activity_recent])
+        .on_window_event(|window, event| {
+            // Closing an approval window is a "Deny".
+            if let tauri::WindowEvent::Destroyed = event
+                && window.label().starts_with(approval::LABEL_PREFIX)
+                && let Some(a) = window.app_handle().try_state::<Arc<TauriApprover>>()
+            {
+                a.answer_from_window(window.label(), false);
+            }
+        })
         .setup(move |app| {
             // No Dock icon, no menu bar, never steals focus.
             #[cfg(target_os = "macos")]
@@ -70,17 +137,59 @@ pub fn run() {
             app.manage(ov.clone());
 
             if args.server {
-                let platform = native();
-                let state = ServerState::new(platform.capture.clone(), platform.input.clone(), ov.clone());
+                let ax = deskhand_core::platform::native().accessibility;
+                let approver = Arc::new(TauriApprover::new(app.handle().clone(), ax, args.capturable));
+                app.manage(approver.clone());
+                let log_path = activity_log_path()?;
+                let activity = Arc::new(ActivityLog::open(log_path.clone()));
+                let state = ServerState::new(ServerDeps::native(ov.clone(), approver, activity));
                 let token = load_or_create_token()?;
                 let port = deskhand_core::port_from_env();
-                let server = tauri::async_runtime::block_on(start(state, &token, port))?;
+                let server = tauri::async_runtime::block_on(start(state.clone(), &token, port))?;
                 write_mcp_config(&server.mcp_url(), &token)?;
                 write_hook_settings(&server.stop_hook_url(), &token)?;
                 println!("MCP server: {} (token and configs in the Deskhand data dir)", server.mcp_url());
+                println!("activity log: {}", log_path.display());
+                forward_events(app.handle(), &state);
+                if let Some(ms) = args.test_esc_after {
+                    spawn_esc_self_test(state.clone(), ms);
+                }
+                if let Some(prompt) = args.test_turn.clone() {
+                    let urls = test_turn::ServerUrls {
+                        mcp: server.mcp_url(),
+                        stop_hook: server.stop_hook_url(),
+                        token: token.clone(),
+                    };
+                    let targs = test_turn::TurnArgs {
+                        prompt,
+                        model: args.model.clone(),
+                        permission_mode: args.permission_mode.clone(),
+                        timeout: Duration::from_secs(args.turn_timeout),
+                        accept_trust: args.accept_trust,
+                        cwd: None,
+                    };
+                    let st = state.clone();
+                    let handle = app.handle().clone();
+                    std::thread::spawn(move || {
+                        let ok = match test_turn::run(st, urls, targs) {
+                            Ok(ok) => ok,
+                            Err(e) => {
+                                println!("test-turn: error: {e:#}");
+                                false
+                            }
+                        };
+                        println!("test-turn: RESULT {}", if ok { "TURN COMPLETED" } else { "CHECK OUTPUT" });
+                        std::thread::sleep(Duration::from_millis(500));
+                        handle.exit(0);
+                    });
+                }
+                app.manage(state);
                 app.manage(server);
             }
 
+            if args.activity {
+                open_activity_window(app.handle(), args.capturable)?;
+            }
             if args.demo {
                 let ov = ov.clone();
                 let monitors = monitors.clone();
@@ -98,12 +207,102 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building Deskhand")
-        .run(|_app, event| {
-            if let tauri::RunEvent::Ready = event {
+        .run(|app, event| match event {
+            tauri::RunEvent::Ready => {
                 #[cfg(target_os = "macos")]
                 overlay::log_activation_policy();
             }
+            // Accessory app: closing the last normal window must not quit.
+            tauri::RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
+            tauri::RunEvent::Exit => {
+                // Never leave the Esc tap armed.
+                if let Some(s) = app.try_state::<Arc<ServerState>>() {
+                    s.control.shutdown();
+                }
+                if let Some(s) = app.try_state::<RunningServer>() {
+                    println!("server stopping on {}", s.addr);
+                }
+            }
+            _ => {}
         });
+}
+
+/// Activity entries to the activity view; Esc to the overlays (and the
+/// place the voice loop will stop speech).
+fn forward_events(app: &AppHandle, state: &Arc<ServerState>) {
+    let mut act = state.activity.subscribe();
+    let h = app.clone();
+    tauri::async_runtime::spawn(async move {
+        use tokio::sync::broadcast::error::RecvError;
+        loop {
+            match act.recv().await {
+                Ok(e) => {
+                    let _ = h.emit_to("activity", "deskhand:activity", e);
+                }
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => break,
+            }
+        }
+    });
+    let mut ctl = state.control.subscribe();
+    let h = app.clone();
+    tauri::async_runtime::spawn(async move {
+        use tokio::sync::broadcast::error::RecvError;
+        loop {
+            match ctl.recv().await {
+                Ok(ControlEvent::EmergencyStop) => {
+                    println!("EMERGENCY STOP: user pressed Esc (action cancelled, input released)");
+                    let _ = h.emit("deskhand:stopped", ());
+                }
+                Ok(ControlEvent::Acting { on }) => tracing::info!(on, "controlling-input indicator"),
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
+/// Self-test of the stop key: once an action has armed the Esc tap, wait
+/// `ms`, post one unmarked Esc, and check that no app received it.
+fn spawn_esc_self_test(state: Arc<ServerState>, ms: u64) {
+    std::thread::spawn(move || {
+        let t0 = std::time::Instant::now();
+        while !state.control.is_armed() {
+            if t0.elapsed() > Duration::from_secs(300) {
+                println!("esc-test: no action armed the stop key within 300 s; not posting");
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(ms));
+        if !state.control.is_armed() {
+            println!("esc-test: stop key no longer armed; not posting (would reach the front app)");
+            return;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            use deskhand_core::platform::macos::stopkey::{post_test_escape, watch_escape};
+            let (tx, rx) = std::sync::mpsc::channel();
+            let watcher = watch_escape(tx);
+            if let Err(e) = &watcher {
+                println!("esc-test: watcher tap failed ({e}); posting anyway");
+            }
+            std::thread::sleep(Duration::from_millis(100));
+            println!("esc-test: posting one synthetic (unmarked) Esc");
+            if let Err(e) = post_test_escape() {
+                println!("esc-test: post failed: {e}");
+            }
+            std::thread::sleep(Duration::from_millis(400));
+            drop(watcher);
+            let seen: Vec<bool> = rx.try_iter().collect();
+            println!(
+                "esc-test: Esc events that reached apps: {} ({})",
+                seen.len(),
+                if seen.is_empty() { "consumed: PASS" } else { "NOT consumed: FAIL" }
+            );
+            println!("esc-test: halted after Esc: {}", state.control.is_halted());
+        }
+    });
 }
 
 /// Centre, then each corner (inset 60 pt), then centre, on every monitor.

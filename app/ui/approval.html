@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Deskhand: allow Claude to control an app?</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; padding: 18px 20px; font: 13px -apple-system, "Segoe UI", sans-serif;
+         background: Canvas; color: CanvasText; user-select: none; -webkit-user-select: none; }
+  h1 { font-size: 15px; margin: 0 0 10px; }
+  .app { border: 1px solid rgba(128,128,128,.35); border-radius: 8px; padding: 8px 10px; margin: 6px 0; }
+  .app .name { font-weight: 600; }
+  .app .meta { opacity: .65; font-size: 11px; }
+  .warn { color: #c62828; font-weight: 600; margin-top: 4px; }
+  .reason { margin: 12px 0 4px; padding: 8px 10px; border-radius: 8px; background: rgba(128,128,128,.12);
+            max-height: 70px; overflow: auto; white-space: pre-wrap; word-break: break-word; user-select: text;
+            -webkit-user-select: text; }
+  .label { font-size: 11px; opacity: .65; margin-top: 10px; }
+  .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+  button { font: inherit; padding: 7px 14px; border-radius: 7px; border: 1px solid rgba(128,128,128,.5);
+           background: transparent; color: inherit; cursor: pointer; }
+  button.allow { background: #0a64d8; border-color: #0a64d8; color: #fff; }
+  .foot { font-size: 11px; opacity: .6; margin-top: 10px; }
+</style>
+</head>
+<body>
+  <h1>Claude wants to control <span id="title"></span></h1>
+  <div id="apps"></div>
+  <div class="label">Claude's reason (written by Claude, not verified):</div>
+  <div class="reason" id="reason"></div>
+  <div class="row">
+    <button id="deny">Deny</button>
+    <button id="allow" class="allow">Allow for this session</button>
+  </div>
+  <div class="foot">Claude can click and type in approved apps until this session ends. Press Esc at any time to stop it.</div>
+  <script src="approval.js"></script>
+</body>
+</html>

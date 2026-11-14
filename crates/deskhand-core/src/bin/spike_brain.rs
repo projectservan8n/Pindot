@@ -1,7 +1,7 @@
 //! Spikes (c) and (d): drive the user's own interactive `claude` in a PTY.
 //!
 //!   spike_brain --prompt "Reply with exactly: pong" [--desktop] [--accept-trust]
-//!               [--model haiku] [--timeout 180] [--cwd DIR]
+//!               [--model haiku] [--timeout 180] [--cwd DIR] [--permission-mode MODE]
 //!
 //! Starts the Deskhand server (MCP tools + Stop hook receiver), writes the
 //! `--mcp-config` / `--settings` files, spawns `claude` (never `-p`) with
@@ -16,10 +16,13 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, bail};
 use deskhand_core::brain::config::{ALLOWED_TOOLS_RULE, write_hook_settings, write_mcp_config};
 use deskhand_core::brain::transcript::{find_transcript, wait_for_last_turn};
+use deskhand_core::brain::turn::{TurnEnd, drive_turn};
 use deskhand_core::brain::{ClaudeSession, SpawnOptions, claude_version, find_claude};
 use deskhand_core::paths::load_or_create_token;
-use deskhand_core::platform::{Overlay, Point, native};
-use deskhand_core::server::{StopHookEvent, ServerState, start};
+use deskhand_core::platform::{Overlay, Point};
+use deskhand_core::server::activity::ActivityLog;
+use deskhand_core::server::approval::NoApprover;
+use deskhand_core::server::{ServerDeps, ServerState, StopHookEvent, start};
 
 struct LogOverlay;
 
@@ -30,10 +33,6 @@ impl Overlay for LogOverlay {
     }
     fn set_acting(&self, _acting: bool) {}
 }
-
-/// Squashed lowercase phrases of a tool-permission prompt. We pass
-/// `--allowedTools`, so seeing one means the allow rule did not match.
-const PERMISSION_PROMPT_MARKERS: &[&str] = &["doyouwanttoproceed", "doyouwanttoallow"];
 
 fn main() -> anyhow::Result<()> {
     deskhand_core::init_logging();
@@ -57,8 +56,11 @@ fn main() -> anyhow::Result<()> {
     );
 
     let rt = tokio::runtime::Runtime::new()?;
-    let platform = native();
-    let state = ServerState::new(platform.capture.clone(), platform.input.clone(), Arc::new(LogOverlay));
+    let state = ServerState::new(ServerDeps::native(
+        Arc::new(LogOverlay),
+        Arc::new(NoApprover),
+        Arc::new(ActivityLog::memory()),
+    ));
     let token = load_or_create_token()?;
     let server = rt.block_on(start(state.clone(), &token, 0))?;
     println!("server: {}", server.mcp_url());
@@ -70,11 +72,10 @@ fn main() -> anyhow::Result<()> {
         opts.allowed_tools = vec![ALLOWED_TOOLS_RULE.into()];
     }
     opts.model = opt("--model");
+    opts.permission_mode = opt("--permission-mode");
     println!("cwd: {}", cwd.display());
     println!("args: {}", opts.args().join(" "));
 
-    let mut stop_rx = state.stop_events.subscribe();
-    let mut tool_rx = state.tool_events.subscribe();
     let t0 = Instant::now();
     let mut session = ClaudeSession::spawn(&opts)?;
     let pid = session.pid();
@@ -85,43 +86,21 @@ fn main() -> anyhow::Result<()> {
 
     session.wait_ready(Duration::from_secs(60), flag("--accept-trust"))?;
     println!("TUI ready after {:.1}s; typing prompt: {prompt}", t0.elapsed().as_secs_f64());
-    session.type_prompt(&prompt)?;
     let t1 = Instant::now();
-
     let want = session.session_id.to_string();
-    let ev: StopHookEvent = loop {
-        while let Ok(t) = tool_rx.try_recv() {
-            println!("tool call: {} {}", t.tool, t.detail);
-        }
-        match stop_rx.try_recv() {
-            Ok(ev) if ev.session_id == want => break ev,
-            Ok(ev) => println!("(Stop hook for another session {} ignored)", ev.session_id),
-            Err(_) => {}
-        }
-        let screen: String =
-            session.screen_text().chars().filter(|c| !c.is_whitespace()).flat_map(char::to_lowercase).collect();
-        if PERMISSION_PROMPT_MARKERS.iter().any(|m| screen.contains(m)) {
-            let tail = session.tail(1200);
-            session.interrupt()?;
-            session.exit(Duration::from_secs(5))?;
+    let end = drive_turn(&mut session, &state, &prompt, timeout, &mut |t| {
+        println!("tool call: {} {} -> {}", t.tool, t.args, t.outcome)
+    })?;
+    let ev: StopHookEvent = match end {
+        TurnEnd::Stopped(ev) => ev,
+        other => {
+            let _ = session.interrupt();
+            let _ = session.exit(Duration::from_secs(5));
+            state.control.shutdown();
             server.shutdown();
-            bail!("claude showed a permission prompt; the allow rule did not match. Screen:\n{tail}");
+            bail!("turn did not finish normally: {other:?}");
         }
-        if !session.is_running() {
-            bail!("claude exited before the Stop hook. Last output:\n{}", session.tail(1500));
-        }
-        if t1.elapsed() > timeout {
-            let tail = session.tail(1500);
-            session.interrupt()?;
-            session.exit(Duration::from_secs(5))?;
-            server.shutdown();
-            bail!("no Stop hook within {timeout:?}. Last output:\n{tail}");
-        }
-        std::thread::sleep(Duration::from_millis(100));
     };
-    while let Ok(t) = tool_rx.try_recv() {
-        println!("tool call: {} {}", t.tool, t.detail);
-    }
     println!("Stop hook after {:.1}s: last_assistant_message = {:?}", t1.elapsed().as_secs_f64(), ev.last_assistant_message);
 
     let path = ev
@@ -141,6 +120,7 @@ fn main() -> anyhow::Result<()> {
     std::thread::sleep(Duration::from_millis(300));
     let alive = pid.map(|p| std::process::Command::new("kill").args(["-0", &p.to_string()]).status().map(|s| s.success()).unwrap_or(false));
     println!("child claude still running after /exit: {alive:?}");
+    state.control.shutdown();
     server.shutdown();
     drop(rt);
 

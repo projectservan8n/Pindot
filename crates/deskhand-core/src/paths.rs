@@ -27,6 +27,11 @@ pub fn token_path() -> Result<PathBuf> {
     Ok(data_dir()?.join("mcp-token"))
 }
 
+/// The local activity log: one JSON line per tool call (0600, rotated at 5 MB).
+pub fn activity_log_path() -> Result<PathBuf> {
+    Ok(data_dir()?.join("activity.jsonl"))
+}
+
 /// Write `contents` to `path` readable and writable by the user only.
 pub fn write_private(path: &Path, contents: &[u8]) -> Result<()> {
     let tmp = path.with_extension("tmp");

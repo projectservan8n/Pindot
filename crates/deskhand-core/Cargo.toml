@@ -30,8 +30,13 @@ enigo = "0.6.1"
 objc2 = "0.6.5"
 objc2-core-graphics = "0.3.2"
 objc2-core-foundation = "0.3.2"
+# AXUIElement (accessibility tree, press, hit test). Same objc2 0.3 family.
+objc2-application-services = { version = "0.3.2", default-features = false, features = ["std", "libc", "HIServices", "AXUIElement", "AXValue", "AXError", "AXAttributeConstants", "AXActionConstants", "AXRoleConstants", "AXValueConstants"] }
+# NSRunningApplication: pid -> app name and bundle id, activation.
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "NSRunningApplication", "NSWorkspace"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSArray"] }
 
-# Windows: stubs only in Phase 0. The Windows implementation adds xcap and enigo here
+# Windows: stubs only (Phase 0 and 1). The Windows implementation adds xcap and enigo here
 # (see docs/windows-test-checklist.md).
 
 [dev-dependencies]

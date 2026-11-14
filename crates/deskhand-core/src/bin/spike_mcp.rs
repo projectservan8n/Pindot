@@ -1,5 +1,5 @@
-//! Spike (c), server half: run the desktop MCP server (screenshot + click)
-//! on 127.0.0.1 with the real macOS capture and input, and write the config
+//! Spike (c), server half: run the desktop MCP server (all desktop tools)
+//! on 127.0.0.1 with the real macOS platform, and write the config
 //! files a normal `claude` session needs to use it.
 //!
 //!   spike_mcp [--port N] [--seconds N]
@@ -14,8 +14,10 @@ use std::time::Duration;
 
 use deskhand_core::brain::config::{write_hook_settings, write_mcp_config};
 use deskhand_core::paths::{load_or_create_token, token_path};
-use deskhand_core::platform::{Overlay, Point, native, permission_report};
-use deskhand_core::server::{ServerState, start};
+use deskhand_core::platform::{Overlay, Point, permission_report};
+use deskhand_core::server::activity::ActivityLog;
+use deskhand_core::server::approval::NoApprover;
+use deskhand_core::server::{ServerDeps, ServerState, start};
 
 /// Prints where the AI cursor would go (the Tauri app draws it for real).
 struct LogOverlay;
@@ -41,8 +43,13 @@ async fn main() -> anyhow::Result<()> {
     for p in permission_report() {
         println!("permission {:?}: {}", p.permission, if p.granted { "granted" } else { "MISSING" });
     }
-    let platform = native();
-    let state = ServerState::new(platform.capture.clone(), platform.input.clone(), Arc::new(LogOverlay));
+    // No approval UI here: every request_access is denied unless the
+    // TEST-ONLY DESKHAND_TEST_AUTO_APPROVE list names the app.
+    let state = ServerState::new(ServerDeps::native(
+        Arc::new(LogOverlay),
+        Arc::new(NoApprover),
+        Arc::new(ActivityLog::memory()),
+    ));
     let token = load_or_create_token()?;
     let server = start(state.clone(), &token, port).await?;
     let mcp_cfg = write_mcp_config(&server.mcp_url(), &token)?;
@@ -54,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
     println!("--settings file (Stop hook): {}", hook_cfg.display());
     println!("running for {seconds}s; Ctrl-C to stop");
 
-    let mut tools = state.tool_events.subscribe();
+    let mut tools = state.activity.subscribe();
     let mut stops = state.stop_events.subscribe();
     let deadline = tokio::time::sleep(Duration::from_secs(seconds));
     tokio::pin!(deadline);
@@ -62,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
         tokio::select! {
             _ = &mut deadline => break,
             _ = tokio::signal::ctrl_c() => break,
-            Ok(ev) = tools.recv() => println!("tool call: {} {}", ev.tool, ev.detail),
+            Ok(ev) = tools.recv() => println!("tool call: {} {} -> {}", ev.tool, ev.args, ev.outcome),
             Ok(ev) = stops.recv() => println!(
                 "Stop hook: session {} last message {:?}",
                 ev.session_id,
@@ -70,6 +77,7 @@ async fn main() -> anyhow::Result<()> {
             ),
         }
     }
+    state.control.shutdown();
     server.shutdown();
     println!("server stopped");
     Ok(())

@@ -1,18 +1,26 @@
 //! The local server Claude Code talks to.
 //!
-//! One loopback HTTP listener serves two things:
+//! One loopback HTTP listener serves:
 //! - `/mcp`: the MCP server (rmcp, streamable HTTP) with the desktop tools.
-//! - `/hooks/stop`: receiver for Claude Code's `Stop` HTTP hook, which is how
-//!   the brain learns that an interactive turn finished.
+//! - `/hooks/stop`: Claude Code's `Stop` HTTP hook (a turn finished).
+//! - `/hooks/prompt`: the `UserPromptSubmit` HTTP hook (a new user turn
+//!   started), which clears an Esc halt.
 //!
 //! Every request must carry `Authorization: Bearer <token>` and must NOT
 //! carry an `Origin` header (browsers always send one, so this blocks web
-//! pages from reaching the server). rmcp additionally validates `Host`.
+//! pages from reaching the server). The Host must be loopback.
 
+pub mod activity;
+pub mod approval;
+pub mod control;
+pub mod session;
+pub mod shot;
 pub mod tools;
+pub mod tree;
 
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use axum::{
@@ -29,9 +37,11 @@ use rmcp::transport::streamable_http_server::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
-use crate::coords::ShotGeometry;
 use crate::paths::ct_eq;
-use crate::platform::{Capture, Input, Overlay};
+use crate::platform::{Accessibility, Capture, Input, Overlay, StopKey};
+use activity::ActivityLog;
+use approval::Approver;
+use control::Control;
 
 /// What Claude Code POSTs to the Stop hook (fields we use; others ignored).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,31 +59,72 @@ pub struct StopHookEvent {
     pub last_assistant_message: Option<String>,
 }
 
-/// One desktop tool call, for logs and the app's activity view.
-#[derive(Debug, Clone, Serialize)]
-pub struct ToolCallEvent {
-    pub tool: String,
-    pub detail: String,
+/// Everything the server needs from the outside.
+pub struct ServerDeps {
+    pub capture: Arc<dyn Capture>,
+    pub input: Arc<dyn Input>,
+    pub accessibility: Arc<dyn Accessibility>,
+    pub stop_key: Arc<dyn StopKey>,
+    pub overlay: Arc<dyn Overlay>,
+    /// Who answers `request_access` (the app's approval window).
+    pub approver: Arc<dyn Approver>,
+    pub activity: Arc<ActivityLog>,
+    /// TEST-ONLY apps approved without asking (`DESKHAND_TEST_AUTO_APPROVE`).
+    /// Empty in normal use.
+    pub test_auto_approve: Vec<String>,
+    /// Deskhand's own process: never controllable, never in screenshots.
+    pub own_pid: i32,
+    /// How long after the last action the "controlling input" state lasts.
+    pub idle: Duration,
+}
+
+impl ServerDeps {
+    /// The real platform for this OS. Reads `DESKHAND_TEST_AUTO_APPROVE`
+    /// (and logs loudly if it is set).
+    pub fn native(overlay: Arc<dyn Overlay>, approver: Arc<dyn Approver>, activity: Arc<ActivityLog>) -> Self {
+        let p = crate::platform::native();
+        Self {
+            capture: p.capture,
+            input: p.input,
+            accessibility: p.accessibility,
+            stop_key: p.stop_key,
+            overlay,
+            approver,
+            activity,
+            test_auto_approve: approval::auto_approve_from_env(),
+            own_pid: std::process::id() as i32,
+            idle: control::DEFAULT_IDLE,
+        }
+    }
 }
 
 pub struct ServerState {
     pub capture: Arc<dyn Capture>,
     pub input: Arc<dyn Input>,
+    pub accessibility: Arc<dyn Accessibility>,
     pub overlay: Arc<dyn Overlay>,
-    pub last_shot: Mutex<Option<ShotGeometry>>,
+    pub approver: Arc<dyn Approver>,
+    pub activity: Arc<ActivityLog>,
+    pub control: Arc<Control>,
+    pub auto_approve: Vec<String>,
+    pub own_pid: i32,
     pub stop_events: broadcast::Sender<StopHookEvent>,
-    pub tool_events: broadcast::Sender<ToolCallEvent>,
 }
 
 impl ServerState {
-    pub fn new(capture: Arc<dyn Capture>, input: Arc<dyn Input>, overlay: Arc<dyn Overlay>) -> Arc<Self> {
+    pub fn new(deps: ServerDeps) -> Arc<Self> {
+        let control = Control::new(deps.stop_key, deps.overlay.clone(), deps.activity.clone(), deps.idle);
         Arc::new(Self {
-            capture,
-            input,
-            overlay,
-            last_shot: Mutex::new(None),
+            capture: deps.capture,
+            input: deps.input,
+            accessibility: deps.accessibility,
+            overlay: deps.overlay,
+            approver: deps.approver,
+            activity: deps.activity,
+            control,
+            auto_approve: deps.test_auto_approve,
+            own_pid: deps.own_pid,
             stop_events: broadcast::channel(64).0,
-            tool_events: broadcast::channel(256).0,
         })
     }
 }
@@ -108,8 +159,16 @@ async fn guard(State(token): State<Arc<str>>, req: Request, next: Next) -> Respo
 
 async fn stop_hook(State(state): State<Arc<ServerState>>, Json(ev): Json<StopHookEvent>) -> StatusCode {
     tracing::info!(session = %ev.session_id, "Stop hook received");
+    state.control.turn_ended();
     let _ = state.stop_events.send(ev);
     // 2xx with an empty body = "success, no decision" for Claude Code.
+    StatusCode::OK
+}
+
+async fn prompt_hook(State(state): State<Arc<ServerState>>, Json(_ev): Json<serde_json::Value>) -> StatusCode {
+    // A new user turn: an Esc halt from the previous turn no longer applies.
+    tracing::info!("UserPromptSubmit hook received");
+    state.control.turn_ended();
     StatusCode::OK
 }
 
@@ -124,6 +183,7 @@ pub fn router(state: Arc<ServerState>, token: &str) -> Router {
     Router::new()
         .nest_service("/mcp", mcp)
         .route("/hooks/stop", post(stop_hook))
+        .route("/hooks/prompt", post(prompt_hook))
         .route("/health", get(|| async { "ok" }))
         .with_state(state)
         .layer(middleware::from_fn_with_state(Arc::<str>::from(token), guard))
@@ -140,6 +200,9 @@ impl RunningServer {
     }
     pub fn stop_hook_url(&self) -> String {
         format!("http://127.0.0.1:{}/hooks/stop", self.addr.port())
+    }
+    pub fn prompt_hook_url(&self) -> String {
+        format!("http://127.0.0.1:{}/hooks/prompt", self.addr.port())
     }
     pub fn shutdown(self) {
         self.task.abort();

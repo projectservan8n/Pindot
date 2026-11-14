@@ -15,9 +15,21 @@
   #label { position: absolute; left: 24px; top: 26px; display: none; white-space: nowrap;
            font: 600 12px -apple-system, "Segoe UI", sans-serif; color: #fff; background: #ff2d95;
            padding: 3px 8px; border-radius: 9px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
+  #banner { position: absolute; top: 34px; left: 50%; transform: translateX(-50%); display: none;
+            white-space: nowrap; font: 600 13px -apple-system, "Segoe UI", sans-serif; color: #fff;
+            background: rgba(20, 20, 24, 0.86); border: 2px solid #ff2d95; padding: 6px 14px; border-radius: 16px;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+  #banner .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ff2d95;
+                 margin-right: 8px; vertical-align: 1px; animation: blink 1s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity: 0.25; } }
+  body.acting #banner, body.stopped #banner { display: block; }
+  body.stopped #banner { border-color: #ffb300; }
+  body.stopped #banner .dot { background: #ffb300; animation: none; }
 </style>
 </head>
 <body>
+  <!-- Shown whenever Claude controls input (not visible to screenshots). -->
+  <div id="banner"><span class="dot"></span><span id="banner-text">Claude is controlling input · press Esc to stop</span></div>
   <div id="cursor">
     <div id="ring"></div>
     <!-- Arrow tip is at (0,0) of #cursor, so translate() puts the tip on the target. -->

@@ -38,7 +38,25 @@
   const ev = window.__TAURI__ && window.__TAURI__.event;
   if (!ev) return;
   ev.listen('deskhand:cursor', (e) => moveTo(e.payload.from, e.payload.to, e.payload.ms, e.payload.label));
-  ev.listen('deskhand:acting', (e) => document.body.classList.toggle('acting', !!e.payload));
+  const bannerText = document.getElementById('banner-text');
+  const ACTING = 'Claude is controlling input · press Esc to stop';
+  let stoppedTimer = null;
+  ev.listen('deskhand:acting', (e) => {
+    if (e.payload) {
+      document.body.classList.remove('stopped');
+      bannerText.textContent = ACTING;
+    }
+    document.body.classList.toggle('acting', !!e.payload);
+  });
+  ev.listen('deskhand:stopped', () => {
+    if (stoppedTimer) clearTimeout(stoppedTimer);
+    document.body.classList.remove('acting');
+    document.body.classList.add('stopped');
+    bannerText.textContent = 'Stopped: Claude no longer controls input';
+    cursor.style.opacity = '0';
+    pos = null;
+    stoppedTimer = setTimeout(() => document.body.classList.remove('stopped'), 2500);
+  });
   ev.listen('deskhand:hide', () => { cursor.style.opacity = '0'; pos = null; });
   ev.emit('deskhand:overlay-ready', { index: M.index });
 })();
