@@ -4,7 +4,8 @@
   "version": "0.0.1",
   "identifier": "dev.deskhand.app",
   "build": {
-    "frontendDist": "../ui"
+    "frontendDist": "../dist",
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
     "withGlobalTauri": true,
@@ -16,10 +17,19 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
-    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
     "macOS": {
       "minimumSystemVersion": "13.0"
-    }
+    },
+    "shortDescription": "Hold a key, speak, and your own Claude Code operates your desktop.",
+    "copyright": "Copyright (c) 2026 Tony Herrera. MIT License.",
+    "category": "Productivity"
   }
 }

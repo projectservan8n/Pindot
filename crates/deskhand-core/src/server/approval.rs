@@ -85,9 +85,22 @@ pub fn warning_for(name: &str, bundle_id: Option<&str>) -> Option<String> {
 }
 
 /// The test-only auto-approve list from the environment (comma-separated
-/// app names). Empty unless the variable is set. Logs loudly when on.
+/// app names). Always empty unless this build has the `test-switches` cargo
+/// feature AND the variable is set; logs loudly either way.
 pub fn auto_approve_from_env() -> Vec<String> {
-    let Ok(v) = std::env::var(AUTO_APPROVE_ENV) else { return vec![] };
+    auto_approve_list(std::env::var(AUTO_APPROVE_ENV).ok(), cfg!(feature = "test-switches"))
+}
+
+fn auto_approve_list(value: Option<String>, switches_built_in: bool) -> Vec<String> {
+    let Some(v) = value else { return vec![] };
+    if !switches_built_in {
+        let msg = format!(
+            "{AUTO_APPROVE_ENV} is set but this build has no test switches (cargo feature `test-switches`); ignored, every app still asks"
+        );
+        tracing::warn!("{msg}");
+        eprintln!("{msg}");
+        return vec![];
+    }
     let list: Vec<String> = v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
     if !list.is_empty() {
         let msg = format!(
@@ -109,6 +122,13 @@ pub fn is_deskhand(name: &str, bundle_id: Option<&str>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auto_approve_needs_the_test_switches_feature() {
+        assert!(auto_approve_list(Some("TextEdit".into()), false).is_empty());
+        assert!(auto_approve_list(None, true).is_empty());
+        assert_eq!(auto_approve_list(Some(" TextEdit, test-target ,".into()), true), ["TextEdit", "test-target"]);
+    }
 
     #[test]
     fn warnings_by_category() {

@@ -6,6 +6,11 @@ license.workspace = true
 rust-version.workspace = true
 description = "Deskhand core: OS traits, MCP server, and the interactive claude brain"
 
+[features]
+# TEST ONLY. Compiles in the switches the automated tests use
+# (DESKHAND_TEST_AUTO_APPROVE). Off by default and never in a release build.
+test-switches = []
+
 [dependencies]
 anyhow.workspace = true
 thiserror.workspace = true

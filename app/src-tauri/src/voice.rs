@@ -64,6 +64,8 @@ pub struct VoiceOptions {
 pub struct VoiceApp {
     running: Mutex<Option<Running>>,
     closed: AtomicBool,
+    /// Why setup failed (models, `claude`, audio), for the settings screen.
+    failed: Mutex<Option<String>>,
 }
 
 struct Running {
@@ -83,9 +85,33 @@ impl VoiceApp {
         }
     }
 
+    /// Running (the hotkey tap may still be off, see the log), starting,
+    /// failed or stopped.
+    pub fn state(&self) -> VoiceState {
+        if let Some(e) = self.failed.lock().unwrap().clone() {
+            return VoiceState::Failed(e);
+        }
+        if self.closed.load(Ordering::SeqCst) {
+            return VoiceState::Stopped;
+        }
+        match self.running.lock().unwrap().as_ref() {
+            Some(r) if r.hotkey.is_some() => VoiceState::Running,
+            Some(_) => VoiceState::Failed("the hold-to-talk key could not be watched (see the log)".into()),
+            None => VoiceState::Starting,
+        }
+    }
+
     fn metrics(&self) -> Vec<Metric> {
         self.running.lock().unwrap().as_ref().map(|r| r.runner.metrics()).unwrap_or_default()
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum VoiceState {
+    Starting,
+    Running,
+    Failed(String),
+    Stopped,
 }
 
 /// Start the voice loop on a background thread (models may need a download
@@ -98,6 +124,7 @@ pub fn start(app: &AppHandle, state: Arc<ServerState>, link: ServerLink, opts: V
         let exit_when_done = opts.exit_when_done;
         if let Err(e) = setup(&app, &v, state, link, opts) {
             println!("voice: could not start: {e:#}");
+            *v.failed.lock().unwrap() = Some(format!("{e:#}"));
             show(&app, Display::Idle, Some(format!("Voice is off: {e:#}")));
             if test {
                 println!("test-voice: RESULT CHECK OUTPUT");
@@ -196,7 +223,7 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
     let machine = Machine::new(settings.speak_mode, settings.idle_reset(), Instant::now());
     let runner = VoiceRunner::start(handle.clone(), inbox, machine, Box::new(io))?;
 
-    forward_esc(&state, handle.clone());
+    forward_esc(&state, handle.clone(), Arc::downgrade(voice));
     let hotkey_label = opts.hotkey.label_for(deskhand_core::platform::Os::current());
     let hotkey = match start_hotkey(opts.hotkey.clone(), handle.clone()) {
         Ok(l) => Some(l),
@@ -251,11 +278,15 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
 
 /// The Phase 1 emergency stop (Esc) also drops the recording, stops speech
 /// and interrupts the turn.
-fn forward_esc(state: &Arc<ServerState>, handle: VoiceHandle) {
+fn forward_esc(state: &Arc<ServerState>, handle: VoiceHandle, voice: std::sync::Weak<VoiceApp>) {
     let mut rx = state.control.subscribe();
     let spawned = std::thread::Builder::new().name("deskhand-voice-esc".into()).spawn(move || {
         use tokio::sync::broadcast::error::RecvError;
         loop {
+            // A restarted voice loop has its own forwarder; this one ends.
+            if voice.upgrade().is_none_or(|v| v.closed.load(Ordering::SeqCst)) {
+                break;
+            }
             match rx.blocking_recv() {
                 Ok(ControlEvent::EmergencyStop) => handle.input(Input::Esc),
                 Ok(_) | Err(RecvError::Lagged(_)) => continue,

@@ -55,8 +55,12 @@ final class Target: NSObject, NSApplicationDelegate {
         let bf = window.convertToScreen(button.convert(button.bounds, to: nil))
         log("READY pid=\(ProcessInfo.processInfo.processIdentifier) button_global_topleft=\(Int(bf.origin.x)),\(Int(primaryHeight - bf.origin.y - bf.height)),\(Int(bf.width)),\(Int(bf.height))")
 
-        NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { e in
-            log("FLAGS keycode=\(e.keyCode) fn=\(e.modifierFlags.contains(.function))")
+        NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { e in
+            if e.type == .keyDown {
+                log("KEY keycode=\(e.keyCode) option=\(e.modifierFlags.contains(.option))")
+            } else {
+                log("FLAGS keycode=\(e.keyCode) fn=\(e.modifierFlags.contains(.function))")
+            }
             return e
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {

@@ -4,7 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Deskhand desktop app (Phase 0: overlay spike + embedded MCP server)"
+description = "Deskhand desktop app: overlay, tray, setup and settings, MCP server, voice loop"
+
+[features]
+# TEST ONLY: the --test-turn, --test-esc-after, --test-voice, --test-voice-esc
+# and --keep-running flags and DESKHAND_TEST_AUTO_APPROVE. Off by default;
+# release builds never have it. Build with `--features test-switches`.
+test-switches = ["deskhand-core/test-switches"]
 
 [lib]
 name = "deskhand_app"
@@ -21,7 +27,7 @@ serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-tauri = { version = "2.12.5", features = ["macos-private-api"] }
+tauri = { version = "2.12.5", features = ["macos-private-api", "tray-icon", "image-png"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = "2.1.1"

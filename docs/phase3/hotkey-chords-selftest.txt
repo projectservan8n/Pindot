@@ -1,0 +1,36 @@
+pid 21369
+permission Accessibility: granted
+permission InputMonitoring: granted
+permission ScreenRecording: granted
+permission Microphone: MISSING
+AppleFnUsageType ("Press Globe key to"): unset (OS default)
+CASE Right Option: hold and release                             PASS binding Right Option  tap reported [Down, Up] (want [Down, Up]); synthetic modifier events that reached apps: 2 (want 2)
+CASE Right Option: Left Option is not a match                   PASS binding Right Option  tap reported [] (want []); synthetic modifier events that reached apps: 2 (want 2)
+CASE Ctrl+Cmd: press both, release                              PASS binding Ctrl+Cmd      tap reported [Down, Up] (want [Down, Up]); synthetic modifier events that reached apps: 4 (want 4)
+CASE Ctrl+Cmd: Ctrl alone does nothing                          PASS binding Ctrl+Cmd      tap reported [] (want []); synthetic modifier events that reached apps: 2
+CASE Ctrl+Cmd: Shift joins, the hold is cancelled and stays off PASS binding Ctrl+Cmd      tap reported [Down, Cancel] (want [Down, Cancel]); synthetic modifier events that reached apps: 6
+CASE Right Option + F13 key: cancelled                          PASS binding Right Option  tap reported [Down, Cancel] (want [Down, Cancel]); synthetic modifier events that reached apps: 2
+CASE Fn: reported and swallowed (apps never see it)             PASS binding Fn            tap reported [Down, Up] (want [Down, Up]); synthetic modifier events that reached apps: 0 (want 0)
+taps stopped
+RESULT PASS
+--- test window log ---
+1794625312.0653539 READY pid=21324 button_global_topleft=250,280,340,90
+1794625314.247405 FLAGS keycode=61 fn=false
+1794625314.844064 FLAGS keycode=61 fn=false
+1794625315.390623 FLAGS keycode=58 fn=false
+1794625315.9425259 FLAGS keycode=58 fn=false
+1794625316.490192 FLAGS keycode=59 fn=false
+1794625316.6021461 FLAGS keycode=55 fn=false
+1794625317.143879 FLAGS keycode=55 fn=false
+1794625317.255333 FLAGS keycode=59 fn=false
+1794625317.8103151 FLAGS keycode=59 fn=false
+1794625318.314405 FLAGS keycode=59 fn=false
+1794625318.863522 FLAGS keycode=59 fn=false
+1794625318.974334 FLAGS keycode=55 fn=false
+1794625319.495754 FLAGS keycode=56 fn=false
+1794625319.604227 FLAGS keycode=56 fn=false
+1794625320.1397471 FLAGS keycode=55 fn=false
+1794625320.2518911 FLAGS keycode=59 fn=false
+1794625320.791394 FLAGS keycode=61 fn=false
+1794625321.329482 KEY keycode=105 option=true
+1794625321.4815412 FLAGS keycode=61 fn=false

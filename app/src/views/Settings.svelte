@@ -1,0 +1,230 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { api, errorText, type AppInfo, type HotkeyCheck, type SettingsView } from '../lib/api';
+  import { chordFromCodes, formatBytes, hotkeyPresets } from '../lib/format';
+  import Connect from './Connect.svelte';
+
+  let { info }: { info: AppInfo | null } = $props();
+
+  let view = $state<SettingsView | null>(null);
+  let hotkeyText = $state('');
+  let check = $state<HotkeyCheck | null>(null);
+  let recording = $state(false);
+  let saving = $state(false);
+  let notes = $state<string[]>([]);
+  let problems = $state<string[]>([]);
+  let tokenConfirm = $state(false);
+  let tokenNote = $state('');
+
+  const presets = $derived(hotkeyPresets(view?.os ?? 'macos'));
+
+  async function load() {
+    try {
+      view = await api.settingsGet();
+      hotkeyText = view.settings.hotkey;
+      await runCheck();
+    } catch (e) {
+      problems = [errorText(e)];
+    }
+  }
+
+  async function runCheck() {
+    try {
+      check = await api.hotkeyCheck(hotkeyText);
+    } catch (e) {
+      check = { ok: false, normalized: null, label: null, caution: null, error: errorText(e) };
+    }
+  }
+
+  // Record a modifier-only shortcut inside this window: hold the keys, then
+  // let go of all of them.
+  function record() {
+    recording = true;
+    const pressed = new Set<string>();
+    let seen = new Set<string>();
+    const down = (e: KeyboardEvent) => {
+      e.preventDefault();
+      pressed.add(e.code);
+      if (pressed.size >= seen.size) seen = new Set(pressed);
+    };
+    const up = (e: KeyboardEvent) => {
+      e.preventDefault();
+      pressed.delete(e.code);
+      if (pressed.size === 0) {
+        stop();
+        const chord = chordFromCodes(seen);
+        if (chord) {
+          hotkeyText = chord;
+          runCheck();
+        } else {
+          check = {
+            ok: false,
+            normalized: null,
+            label: null,
+            caution: null,
+            error: 'Use modifier keys only (Ctrl, Option, Shift, Cmd). For Fn, pick it from the list.',
+          };
+        }
+      }
+    };
+    const stop = () => {
+      recording = false;
+      window.removeEventListener('keydown', down, true);
+      window.removeEventListener('keyup', up, true);
+      window.removeEventListener('blur', stop);
+    };
+    window.addEventListener('keydown', down, true);
+    window.addEventListener('keyup', up, true);
+    window.addEventListener('blur', stop);
+  }
+
+  async function save() {
+    if (!view) return;
+    saving = true;
+    notes = [];
+    problems = [];
+    try {
+      const s = { ...view.settings, hotkey: check?.ok && check.normalized ? check.normalized : hotkeyText };
+      const r = await api.settingsSave(s);
+      notes = r.notes.length ? r.notes : ['Saved.'];
+      await load();
+    } catch (e) {
+      problems = Array.isArray(e) ? (e as string[]) : [errorText(e)];
+    } finally {
+      saving = false;
+    }
+  }
+
+  async function regenerate() {
+    tokenConfirm = false;
+    try {
+      tokenNote = await api.tokenRegenerate();
+    } catch (e) {
+      tokenNote = errorText(e);
+    }
+  }
+
+  onMount(load);
+</script>
+
+{#if view}
+  {#if view.overrides.length > 0}
+    <div class="banner warn">
+      These environment variables override the saved settings right now: {view.overrides.join(', ')}.
+    </div>
+  {/if}
+
+  <section>
+    <h2>Hold-to-talk</h2>
+    <label class="row">
+      <input type="checkbox" bind:checked={view.settings.voice_enabled} />
+      Hold-to-talk is on
+    </label>
+    <div class="row">
+      <label for="hk">Shortcut</label>
+      <select
+        id="hk-preset"
+        aria-label="Shortcut presets"
+        value={presets.some((p) => p.value === hotkeyText) ? hotkeyText : ''}
+        onchange={(e) => {
+          const v = (e.currentTarget as HTMLSelectElement).value;
+          if (v) {
+            hotkeyText = v;
+            runCheck();
+          }
+        }}
+      >
+        <option value="">Custom…</option>
+        {#each presets as p (p.value)}<option value={p.value}>{p.label}</option>{/each}
+      </select>
+      <input id="hk" bind:value={hotkeyText} oninput={runCheck} placeholder="e.g. Right Option or Ctrl+Cmd" />
+      <button onclick={record} disabled={recording}>{recording ? 'Hold the keys, then let go…' : 'Record'}</button>
+    </div>
+    {#if check}
+      {#if check.ok}
+        <p class="small ok">Hold <strong>{check.label}</strong> to talk. Other keys pressed with it cancel the hold.</p>
+        {#if check.caution}<p class="small warn-text">{check.caution}</p>{/if}
+      {:else}
+        <p class="small bad">{check.error}</p>
+      {/if}
+    {/if}
+  </section>
+
+  <section>
+    <h2>Voice</h2>
+    <div class="row">
+      <label for="stt">Speech to text</label>
+      <select id="stt" bind:value={view.settings.voice.stt_model}>
+        {#each view.stt_models as m (m.id)}
+          <option value={m.id}>{m.display} ({m.license}, {formatBytes(m.size)})</option>
+        {/each}
+      </select>
+    </div>
+    <div class="row">
+      <label for="tts">Text to speech</label>
+      <select id="tts" bind:value={view.settings.voice.tts_model}>
+        {#each view.tts_models as m (m.id)}
+          <option value={m.id}>{m.display} ({m.license}, {formatBytes(m.size)})</option>
+        {/each}
+      </select>
+    </div>
+    <fieldset>
+      <legend>Speak</legend>
+      <label class="row">
+        <input type="radio" bind:group={view.settings.voice.speak_mode} value="each_message" />
+        Every message Claude writes (default)
+      </label>
+      <label class="row">
+        <input type="radio" bind:group={view.settings.voice.speak_mode} value="at_stop" />
+        Only the final reply
+      </label>
+    </fieldset>
+    <div class="row">
+      <label for="vol">Volume</label>
+      <input id="vol" type="range" min="0" max="1" step="0.05" bind:value={view.settings.voice.volume} />
+      <span class="small">{Math.round(view.settings.voice.volume * 100)}%</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>MCP server</h2>
+    <div class="row">
+      <label for="port">Port</label>
+      <input id="port" type="number" min="1024" max="65535" bind:value={view.settings.port} />
+      <span class="small muted">
+        Default {view.default_port}. Listens on 127.0.0.1 only{view.running_port
+          ? `; running on ${view.running_port} now`
+          : ''}.
+      </span>
+    </div>
+    <div class="row">
+      <span>Bearer token</span>
+      {#if !tokenConfirm}
+        <button onclick={() => (tokenConfirm = true)}>Regenerate token…</button>
+      {:else}
+        <span class="small">The old token stops working at once. Terminal Claude Code must Connect again.</span>
+        <button class="danger" onclick={regenerate}>Regenerate</button>
+        <button onclick={() => (tokenConfirm = false)}>Cancel</button>
+      {/if}
+    </div>
+    {#if tokenNote}<p class="small">{tokenNote}</p>{/if}
+    {#if info?.data_dir}
+      <p class="small muted">Stored only for you (file mode 600) in <code>{info.data_dir}</code>.</p>
+    {/if}
+  </section>
+
+  <div class="savebar">
+    <button class="primary" onclick={save} disabled={saving || (check !== null && !check.ok)}>Save</button>
+    {#each notes as n (n)}<span class="small ok">{n}</span>{/each}
+    {#each problems as p (p)}<span class="small bad">{p}</span>{/each}
+  </div>
+
+  <section>
+    <h2>Claude Code in your terminal</h2>
+    <Connect />
+  </section>
+{:else if problems.length}
+  {#each problems as p (p)}<p class="bad">{p}</p>{/each}
+{:else}
+  <p>Loading…</p>
+{/if}

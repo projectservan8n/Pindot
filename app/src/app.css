@@ -1,0 +1,326 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f6f6f4;
+  --fg: #1d1d1f;
+  --muted: #6b6b70;
+  --card: #ffffff;
+  --line: #dcdcd8;
+  --accent: #2d6cdf;
+  --ok: #1f7a3a;
+  --bad: #b3261e;
+  --warn: #8a5a00;
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1e20;
+    --fg: #ececec;
+    --muted: #a0a0a6;
+    --card: #2a2a2d;
+    --line: #3a3a3e;
+    --accent: #6b9cff;
+    --ok: #6fcf87;
+    --bad: #ff8a80;
+    --warn: #e0b45a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+}
+
+nav {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.tab {
+  border: none;
+  background: transparent;
+  padding: 6px 14px;
+  border-radius: 8px;
+}
+
+.tab.active {
+  background: var(--bg);
+  font-weight: 600;
+}
+
+main {
+  flex: 1;
+  padding: 8px 20px 20px;
+  max-width: 900px;
+  width: 100%;
+}
+
+footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  background: var(--card);
+  position: sticky;
+  bottom: 0;
+}
+
+section {
+  margin: 18px 0;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+h2 {
+  font-size: 16px;
+  margin: 0 0 6px;
+}
+
+p {
+  margin: 6px 0;
+}
+
+button {
+  font: inherit;
+  padding: 5px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--fg);
+  cursor: pointer;
+  margin: 2px 4px 2px 0;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.danger {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+input,
+select {
+  font: inherit;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--fg);
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  padding: 0;
+}
+
+fieldset {
+  border: none;
+  padding: 0;
+  margin: 8px 0;
+}
+
+legend {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  flex-wrap: wrap;
+}
+
+.row > label:first-child {
+  min-width: 110px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 12px;
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.bad {
+  color: var(--bad);
+}
+
+.warn-text {
+  color: var(--warn);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 8px 0;
+}
+
+.card.bad {
+  color: var(--fg);
+  border-color: var(--bad);
+}
+
+.banner {
+  padding: 8px 20px;
+  font-size: 13px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+
+.banner.warn {
+  color: var(--warn);
+}
+
+.banner.bad {
+  color: var(--bad);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+td,
+th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+td.state {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+td.actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+table.log {
+  font-size: 12px;
+}
+
+table.log td.args {
+  word-break: break-word;
+}
+
+table.log tr.fail td {
+  color: var(--bad);
+}
+
+.bar {
+  height: 6px;
+  background: var(--line);
+  border-radius: 3px;
+  margin: 6px 0 2px;
+  overflow: hidden;
+}
+
+.bar > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s;
+}
+
+pre.cmd,
+pre.out {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.license {
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+
+.savebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.dot.on {
+  background: var(--ok);
+}
+
+.dot.fail {
+  background: var(--bad);
+}
+
+code {
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+}

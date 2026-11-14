@@ -1,29 +1,38 @@
 //! Deskhand app: one click-through AI-cursor overlay per monitor (with the
 //! "Claude is controlling input" banner and the voice pill), the embedded
-//! MCP server with the desktop tools, the per-app approval window, the
-//! activity view and the voice loop.
+//! MCP server with the desktop tools, the per-app approval window, the tray
+//! icon, the Setup / Settings / Activity window and the voice loop.
 //!
-//!   deskhand [--voice] [--activity] [--capturable] [--demo] [--exit-after SECONDS] [--no-server]
-//!            [--test-turn PROMPT [--model M] [--permission-mode MODE] [--turn-timeout S] [--accept-trust]]
-//!            [--test-esc-after MS]
-//!            [--test-voice WAV [--test-voice-esc] [--model M] [--turn-timeout S] [--keep-running]]
+//!   deskhand [--voice] [--activity] [--setup] [--capturable] [--model M] [--no-server]
+//!            [--demo] [--exit-after SECONDS]
 //!
-//! `--voice` turns on hold-to-talk (Fn on macOS) with a persistent
-//! interactive `claude`. `--activity` opens the activity view.
-//! `--capturable` lets screenshots see Deskhand's own windows (tests and
-//! evidence only). `--test-turn` runs one real turn of interactive `claude`
-//! against this app and quits. `--test-esc-after MS` (with
-//! `DESKHAND_TEST_AUTO_APPROVE`) posts one synthetic Esc once an action has
-//! run for MS with a test app in front, and checks that no app received it.
-//! `--test-voice WAV` (TEST ONLY) runs the voice loop with the WAV in place
-//! of the microphone and a synthetic hotkey press, prints the latency of each
-//! stage and quits (stays up with `--keep-running`). `--test-voice-esc` also
-//! presses Esc during that first turn (only with a test-approved app in
-//! front) and then speaks the request again. Ctrl+C or SIGTERM quit cleanly.
+//! Normal start: the tray icon, the MCP server on the port from Settings, and
+//! hold-to-talk once Setup is done (models downloaded, permissions granted,
+//! `claude` signed in). The Setup window opens by itself (without taking
+//! focus) when something is missing. `--voice` starts hold-to-talk even
+//! before Setup is finished. `--activity` / `--setup` open that view.
+//! `--capturable` lets screenshots see Deskhand's own windows (evidence
+//! only). `--demo` moves the AI cursor around each monitor. Ctrl+C or SIGTERM
+//! quit cleanly.
+//!
+//! TEST BUILDS ONLY (`--features test-switches`, never in a release build):
+//!   [--test-turn PROMPT [--permission-mode MODE] [--turn-timeout S] [--accept-trust]]
+//!   [--test-esc-after MS]
+//!   [--test-voice WAV [--test-voice-esc] [--turn-timeout S] [--keep-running]]
+//! `--test-turn` runs one real turn of interactive `claude` against this app
+//! and quits. `--test-esc-after MS` (with `DESKHAND_TEST_AUTO_APPROVE`) posts
+//! one synthetic Esc once an action has run for MS with a test app in front,
+//! and checks that no app received it. `--test-voice WAV` runs the voice loop
+//! with the WAV in place of the microphone and a synthetic hotkey press,
+//! prints the latency of each stage and quits (stays up with
+//! `--keep-running`); `--test-voice-esc` also presses Esc during that first
+//! turn and then speaks the request again. Without the feature these flags
+//! are ignored with a warning.
 
 mod approval;
 mod overlay;
 mod test_turn;
+mod ui;
 mod voice;
 
 use std::sync::Arc;
@@ -32,11 +41,11 @@ use std::time::Duration;
 use deskhand_core::brain::config::{write_hook_settings, write_mcp_config};
 use deskhand_core::paths::{activity_log_path, load_or_create_token};
 use deskhand_core::platform::{Overlay, Point};
-use deskhand_core::server::activity::{ActivityEntry, ActivityLog};
+use deskhand_core::server::activity::ActivityLog;
 use deskhand_core::server::control::ControlEvent;
 use deskhand_core::server::{RunningServer, ServerDeps, ServerState, start};
-use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use deskhand_core::settings::{LoadNote, Settings};
+use tauri::{AppHandle, Emitter, Manager};
 
 pub use approval::TauriApprover;
 pub use overlay::{MonitorRect, TauriOverlay};
@@ -47,73 +56,106 @@ struct Args {
     server: bool,
     capturable: bool,
     activity: bool,
-    test_turn: Option<String>,
+    setup: bool,
+    voice: bool,
     model: Option<String>,
+    test: TestArgs,
+}
+
+/// The test-only switches. Empty unless the app was built with
+/// `--features test-switches`.
+#[derive(Default)]
+struct TestArgs {
+    test_turn: Option<String>,
     permission_mode: Option<String>,
     turn_timeout: u64,
     accept_trust: bool,
     test_esc_after: Option<u64>,
-    voice: bool,
     test_voice: Option<String>,
     keep_running: bool,
     test_voice_esc: bool,
 }
 
+impl TestArgs {
+    fn any(&self) -> bool {
+        self.test_turn.is_some() || self.test_esc_after.is_some() || self.test_voice.is_some()
+    }
+}
+
+const TEST_FLAGS: &[&str] = &[
+    "--test-turn",
+    "--permission-mode",
+    "--turn-timeout",
+    "--accept-trust",
+    "--test-esc-after",
+    "--test-voice",
+    "--keep-running",
+    "--test-voice-esc",
+];
+
 fn parse_args() -> Args {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let opt = |name: &str| a.iter().position(|x| x == name).and_then(|i| a.get(i + 1)).cloned();
     let flag = |name: &str| a.iter().any(|x| x == name);
+    let test = if cfg!(feature = "test-switches") {
+        TestArgs {
+            test_turn: opt("--test-turn"),
+            permission_mode: opt("--permission-mode"),
+            turn_timeout: opt("--turn-timeout").and_then(|s| s.parse().ok()).unwrap_or(240),
+            accept_trust: flag("--accept-trust"),
+            test_esc_after: opt("--test-esc-after").and_then(|s| s.parse().ok()),
+            test_voice: opt("--test-voice"),
+            keep_running: flag("--keep-running"),
+            test_voice_esc: flag("--test-voice-esc"),
+        }
+    } else {
+        let used: Vec<&str> = TEST_FLAGS.iter().copied().filter(|f| flag(f)).collect();
+        if !used.is_empty() {
+            println!(
+                "WARNING: {} ignored: this build has no test switches (build with --features test-switches)",
+                used.join(", ")
+            );
+        }
+        TestArgs { turn_timeout: 240, ..TestArgs::default() }
+    };
     Args {
         demo: flag("--demo"),
         exit_after: opt("--exit-after").and_then(|s| s.parse().ok()),
         server: !flag("--no-server"),
         capturable: flag("--capturable"),
         activity: flag("--activity"),
-        test_turn: opt("--test-turn"),
-        model: opt("--model"),
-        permission_mode: opt("--permission-mode"),
-        turn_timeout: opt("--turn-timeout").and_then(|s| s.parse().ok()).unwrap_or(240),
-        accept_trust: flag("--accept-trust"),
-        test_esc_after: opt("--test-esc-after").and_then(|s| s.parse().ok()),
+        setup: flag("--setup"),
         voice: flag("--voice"),
-        test_voice: opt("--test-voice"),
-        keep_running: flag("--keep-running"),
-        test_voice_esc: flag("--test-voice-esc"),
+        model: opt("--model"),
+        test,
     }
 }
 
-#[derive(Serialize)]
-struct Recent {
-    path: Option<String>,
-    entries: Vec<ActivityEntry>,
-}
-
-/// The activity view's initial rows.
-#[tauri::command]
-fn activity_recent(app: AppHandle) -> Recent {
-    match app.try_state::<Arc<ServerState>>() {
-        Some(s) => Recent {
-            path: s.activity.path().map(|p| p.display().to_string()),
-            entries: s.activity.recent(300),
-        },
-        None => Recent { path: None, entries: vec![] },
+fn load_settings() -> (Settings, String) {
+    match Settings::load() {
+        Ok((s, note)) => {
+            let text = match note {
+                LoadNote::Loaded => String::new(),
+                LoadNote::Fresh => "First start: default settings.".into(),
+                LoadNote::MigratedVoiceSettings => "Voice settings from the earlier voice-settings.json were moved into settings.json.".into(),
+                LoadNote::Invalid(e) => format!("settings.json could not be used ({e}); it was kept as a backup and the defaults are in use."),
+                LoadNote::NewerVersion(v) => format!("settings.json is from a newer Deskhand (version {v}); unknown fields are kept."),
+            };
+            (s, text)
+        }
+        Err(e) => (Settings::default(), format!("Settings could not be read ({e:#}); using the defaults.")),
     }
-}
-
-fn open_activity_window(app: &AppHandle, capturable: bool) -> tauri::Result<()> {
-    WebviewWindowBuilder::new(app, "activity", WebviewUrl::App("activity.html".into()))
-        .title("Deskhand activity")
-        .inner_size(820.0, 460.0)
-        .focused(false)
-        // Deskhand's own windows stay out of Claude's screenshots.
-        .content_protected(!capturable)
-        .build()?;
-    Ok(())
 }
 
 pub fn run() {
     deskhand_core::init_logging();
     let args = parse_args();
+    if cfg!(feature = "test-switches") {
+        println!("!!! TEST BUILD: test switches are compiled in (DESKHAND_TEST_AUTO_APPROVE, --test-*). Not for normal use. !!!");
+    }
+    if args.capturable {
+        println!("NOTE: --capturable: Deskhand's own windows show up in screenshots (evidence runs only)");
+    }
 
     let builder = tauri::Builder::default();
     // Tauri activates the app at launch by default; an overlay must never
@@ -122,7 +164,30 @@ pub fn run() {
     let builder = builder.plugin(tauri_nspanel::init()).activate_ignoring_other_apps(false);
 
     builder
-        .invoke_handler(tauri::generate_handler![approval::approval_answer, activity_recent])
+        .invoke_handler(tauri::generate_handler![
+            approval::approval_answer,
+            ui::app_info,
+            ui::settings_get,
+            ui::settings_save,
+            ui::hotkey_check,
+            ui::claude_status,
+            ui::permissions,
+            ui::permission_request,
+            ui::permission_open_settings,
+            ui::models_status,
+            ui::models_download,
+            ui::models_cancel,
+            ui::connect_status,
+            ui::connect_command,
+            ui::connect_claude,
+            ui::disconnect_claude,
+            ui::token_regenerate,
+            ui::activity_all,
+            ui::activity_clear,
+            ui::onboarding_finish,
+            ui::voice_set_enabled,
+            ui::voice_check,
+        ])
         .on_window_event(|window, event| {
             // Closing an approval window is a "Deny".
             if let tauri::WindowEvent::Destroyed = event
@@ -136,6 +201,13 @@ pub fn run() {
             // No Dock icon, no menu bar, never steals focus.
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            let (settings, load_note) = load_settings();
+            if !load_note.is_empty() {
+                println!("settings: {load_note}");
+            }
+            let port = settings.effective().port;
+            app.manage(ui::Ui::new(args.capturable, args.voice, args.model.clone(), settings, load_note));
 
             let monitors: Vec<MonitorRect> = app
                 .available_monitors()?
@@ -155,85 +227,42 @@ pub fn run() {
             app.manage(ov.clone());
 
             if args.server {
-                let ax = deskhand_core::platform::native().accessibility;
-                let approver = Arc::new(TauriApprover::new(app.handle().clone(), ax, args.capturable));
-                app.manage(approver.clone());
-                let log_path = activity_log_path()?;
-                let activity = Arc::new(ActivityLog::open(log_path.clone()));
-                let state = ServerState::new(ServerDeps::native(ov.clone(), approver, activity));
-                let token = load_or_create_token()?;
-                let port = deskhand_core::port_from_env();
-                let server = tauri::async_runtime::block_on(start(state.clone(), &token, port))?;
-                write_mcp_config(&server.mcp_url(), &token)?;
-                write_hook_settings(&server.stop_hook_url(), &token)?;
-                println!("MCP server: {} (token and configs in the Deskhand data dir)", server.mcp_url());
-                println!("activity log: {}", log_path.display());
-                forward_events(app.handle(), &state);
-                if let Some(ms) = args.test_esc_after {
-                    spawn_esc_self_test(state.clone(), ms);
+                match start_server(app.handle(), &ov, port, args.capturable) {
+                    Ok((state, server)) => {
+                        forward_events(app.handle(), &state);
+                        run_test_paths(app.handle(), &args, &state, &server)?;
+                        app.manage(state);
+                        app.manage(server);
+                    }
+                    Err(e) => {
+                        let msg = format!("{e:#}");
+                        println!("MCP server could not start: {msg}");
+                        app.state::<ui::Ui>().set_server_error(msg);
+                    }
                 }
-                if let Some(prompt) = args.test_turn.clone() {
-                    let urls = test_turn::ServerUrls {
-                        mcp: server.mcp_url(),
-                        stop_hook: server.stop_hook_url(),
-                        token: token.clone(),
-                    };
-                    let targs = test_turn::TurnArgs {
-                        prompt,
-                        model: args.model.clone(),
-                        permission_mode: args.permission_mode.clone(),
-                        timeout: Duration::from_secs(args.turn_timeout),
-                        accept_trust: args.accept_trust,
-                        cwd: None,
-                    };
-                    let st = state.clone();
-                    let handle = app.handle().clone();
-                    std::thread::spawn(move || {
-                        let ok = match test_turn::run(st, urls, targs) {
-                            Ok(ok) => ok,
-                            Err(e) => {
-                                println!("test-turn: error: {e:#}");
-                                false
-                            }
-                        };
-                        println!("test-turn: RESULT {}", if ok { "TURN COMPLETED" } else { "CHECK OUTPUT" });
-                        std::thread::sleep(Duration::from_millis(500));
-                        handle.exit(0);
-                    });
-                }
-                if args.voice || args.test_voice.is_some() {
-                    let link = voice::ServerLink {
-                        mcp_url: server.mcp_url(),
-                        stop_hook_url: server.stop_hook_url(),
-                        token: token.clone(),
-                    };
-                    let test_wav = match &args.test_voice {
-                        Some(p) => Some(std::fs::canonicalize(p).map_err(|e| format!("--test-voice {p}: {e}"))?),
-                        None => None,
-                    };
-                    let opts = voice::VoiceOptions {
-                        test_wav,
-                        model: args.model.clone(),
-                        test_timeout: Duration::from_secs(args.turn_timeout),
-                        exit_when_done: !args.keep_running,
-                        test_esc: args.test_voice_esc,
-                        hotkey: deskhand_core::settings::Settings::load()
-                            .map(|(s, _)| s.effective().hotkey)
-                            .unwrap_or_else(|_| deskhand_core::platform::HotkeyBinding::platform_default()),
-                    };
-                    app.manage(voice::start(app.handle(), state.clone(), link, opts));
-                }
-                app.manage(state);
-                app.manage(server);
-            } else if args.voice || args.test_voice.is_some() {
-                println!("voice needs the MCP server; drop --no-server");
+            } else {
+                app.state::<ui::Ui>().set_server_error("started with --no-server".into());
             }
             quit_on_signals(app.handle());
+            if let Err(e) = ui::build_tray(app.handle()) {
+                println!("tray icon could not be created: {e}");
+            }
 
             if args.activity {
-                open_activity_window(app.handle(), args.capturable)?;
+                ui::open_main(app.handle(), "activity", false)?;
+            } else if args.setup {
+                ui::open_main(app.handle(), "setup", false)?;
+            }
+            // The test paths drive their own voice loop / turn.
+            if !args.test.any() {
+                let handle = app.handle().clone();
+                let explicit_view = args.activity || args.setup;
+                std::thread::Builder::new()
+                    .name("deskhand-startup".into())
+                    .spawn(move || startup_checks(&handle, explicit_view))?;
             }
             if args.demo {
+                println!("NOTE: --demo: moving the AI cursor around each monitor");
                 let ov = ov.clone();
                 let monitors = monitors.clone();
                 std::thread::spawn(move || run_demo(&*ov, &monitors));
@@ -259,8 +288,8 @@ pub fn run() {
             tauri::RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
             tauri::RunEvent::Exit => {
                 // The voice loop first: hotkey tap, audio, the claude child.
-                if let Some(v) = app.try_state::<Arc<voice::VoiceApp>>() {
-                    v.shutdown();
+                if let Some(ui) = app.try_state::<ui::Ui>() {
+                    ui.shutdown_voice();
                 }
                 // Never leave the Esc tap armed.
                 if let Some(s) = app.try_state::<Arc<ServerState>>() {
@@ -269,9 +298,120 @@ pub fn run() {
                 if let Some(s) = app.try_state::<RunningServer>() {
                     println!("server stopping on {}", s.addr);
                 }
+                println!("Deskhand exited cleanly");
             }
             _ => {}
         });
+}
+
+fn start_server(
+    app: &AppHandle,
+    ov: &Arc<TauriOverlay>,
+    port: u16,
+    capturable: bool,
+) -> anyhow::Result<(Arc<ServerState>, RunningServer)> {
+    let ax = deskhand_core::platform::native().accessibility;
+    let approver = Arc::new(TauriApprover::new(app.clone(), ax, capturable));
+    let log_path = activity_log_path()?;
+    let activity = Arc::new(ActivityLog::open(log_path.clone()));
+    let state = ServerState::new(ServerDeps::native(ov.clone(), approver.clone(), activity));
+    let token = load_or_create_token()?;
+    let server = match tauri::async_runtime::block_on(start(state.clone(), &token, port)) {
+        Ok(s) => s,
+        Err(e) => {
+            state.control.shutdown();
+            return Err(e.context(format!("port {port} (change it in Settings, or quit what uses it)")));
+        }
+    };
+    app.manage(approver);
+    write_mcp_config(&server.mcp_url(), &token)?;
+    write_hook_settings(&server.stop_hook_url(), &token)?;
+    println!("MCP server: {} (token and configs in the Deskhand data dir)", server.mcp_url());
+    println!("activity log: {}", log_path.display());
+    Ok((state, server))
+}
+
+/// Opens Setup (without focus) when something is missing, then starts
+/// hold-to-talk if it can run.
+fn startup_checks(app: &AppHandle, explicit_view: bool) {
+    let ui = app.state::<ui::Ui>();
+    let claude = ui::claude_info();
+    let signed_in = claude.signed_in;
+    match &claude.path {
+        None => println!("claude: not found; Setup shows how to install it"),
+        Some(p) => println!(
+            "claude: {p} ({}), {}",
+            claude.version.as_deref().unwrap_or("version unknown"),
+            if signed_in { "signed in" } else { "NOT signed in (run `claude login`)" }
+        ),
+    }
+    let s = ui.settings();
+    let server_down = app.try_state::<RunningServer>().is_none();
+    let needs_setup = !s.onboarding_done || claude.path.is_none() || !signed_in || server_down;
+    if needs_setup && !explicit_view {
+        println!("setup: opening the Setup window");
+        if let Err(e) = ui::open_main(app, "setup", false) {
+            println!("setup window could not open: {e}");
+        }
+    }
+    ui::restart_voice_now(app);
+}
+
+/// The automated test paths (test builds only; `args.test` is empty
+/// otherwise).
+fn run_test_paths(
+    app: &AppHandle,
+    args: &Args,
+    state: &Arc<ServerState>,
+    server: &RunningServer,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let t = &args.test;
+    let token = server.token.get().to_string();
+    if let Some(ms) = t.test_esc_after {
+        println!("TEST SWITCH: --test-esc-after {ms}");
+        spawn_esc_self_test(state.clone(), ms);
+    }
+    if let Some(prompt) = t.test_turn.clone() {
+        println!("TEST SWITCH: --test-turn");
+        let urls = test_turn::ServerUrls { mcp: server.mcp_url(), stop_hook: server.stop_hook_url(), token: token.clone() };
+        let targs = test_turn::TurnArgs {
+            prompt,
+            model: args.model.clone(),
+            permission_mode: t.permission_mode.clone(),
+            timeout: Duration::from_secs(t.turn_timeout),
+            accept_trust: t.accept_trust,
+            cwd: None,
+        };
+        let st = state.clone();
+        let handle = app.clone();
+        std::thread::spawn(move || {
+            let ok = match test_turn::run(st, urls, targs) {
+                Ok(ok) => ok,
+                Err(e) => {
+                    println!("test-turn: error: {e:#}");
+                    false
+                }
+            };
+            println!("test-turn: RESULT {}", if ok { "TURN COMPLETED" } else { "CHECK OUTPUT" });
+            std::thread::sleep(Duration::from_millis(500));
+            handle.exit(0);
+        });
+    }
+    if let Some(p) = &t.test_voice {
+        println!("TEST SWITCH: --test-voice (WAV in place of the microphone, synthetic hotkey)");
+        let link = voice::ServerLink { mcp_url: server.mcp_url(), stop_hook_url: server.stop_hook_url(), token };
+        let test_wav = Some(std::fs::canonicalize(p).map_err(|e| format!("--test-voice {p}: {e}"))?);
+        let opts = voice::VoiceOptions {
+            test_wav,
+            model: args.model.clone(),
+            test_timeout: Duration::from_secs(t.turn_timeout),
+            exit_when_done: !t.keep_running,
+            test_esc: t.test_voice_esc,
+            hotkey: app.state::<ui::Ui>().settings().effective().hotkey,
+        };
+        app.state::<ui::Ui>().adopt_voice(voice::start(app, state.clone(), link, opts));
+    }
+    Ok(())
 }
 
 /// Ctrl+C and SIGTERM quit through the normal exit path, so the voice loop,
@@ -315,7 +455,7 @@ fn forward_events(app: &AppHandle, state: &Arc<ServerState>) {
         loop {
             match act.recv().await {
                 Ok(e) => {
-                    let _ = h.emit_to("activity", "deskhand:activity", e);
+                    let _ = h.emit_to(ui::MAIN, "deskhand:activity", e);
                 }
                 Err(RecvError::Lagged(_)) => continue,
                 Err(RecvError::Closed) => break,
