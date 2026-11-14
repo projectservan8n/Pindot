@@ -94,9 +94,80 @@ impl ActivityLog {
     }
 }
 
+impl ActivityLog {
+    /// Up to `limit` newest entries from the files (the rotated one first),
+    /// oldest first: the full viewer. Memory-only logs return the ring.
+    pub fn all(&self, limit: usize) -> Vec<ActivityEntry> {
+        let Some(p) = &self.path else { return self.recent(limit) };
+        let mut all: Vec<ActivityEntry> = Vec::new();
+        for file in [rotated(p), p.clone()] {
+            if let Ok(text) = fs::read_to_string(&file) {
+                all.extend(text.lines().filter_map(|l| serde_json::from_str::<ActivityEntry>(l).ok()));
+            }
+        }
+        let skip = all.len().saturating_sub(limit);
+        all.split_off(skip)
+    }
+
+    /// Empty the log: memory, the file and the rotated file. The file is
+    /// left in place, empty and user-only.
+    pub fn clear(&self) -> std::io::Result<()> {
+        self.ring.lock().unwrap().clear();
+        if let Some(p) = &self.path {
+            match fs::remove_file(rotated(p)) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
+            if p.exists() {
+                crate::paths::write_private(p, b"").map_err(std::io::Error::other)?;
+            }
+        }
+        tracing::info!("activity log cleared by the user");
+        Ok(())
+    }
+}
+
+/// The viewer's filter: empty fields match everything.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ActivityFilter {
+    pub session: Option<String>,
+    pub tool: Option<String>,
+}
+
+impl ActivityFilter {
+    pub fn matches(&self, e: &ActivityEntry) -> bool {
+        let ok = |want: &Option<String>, have: &str| want.as_deref().is_none_or(|w| w.is_empty() || w == have);
+        ok(&self.session, &e.session) && ok(&self.tool, &e.tool)
+    }
+
+    pub fn apply(&self, entries: Vec<ActivityEntry>) -> Vec<ActivityEntry> {
+        entries.into_iter().filter(|e| self.matches(e)).collect()
+    }
+}
+
+/// The distinct sessions and tools in `entries`, in first-seen order, for
+/// the viewer's filter menus.
+pub fn facets(entries: &[ActivityEntry]) -> (Vec<String>, Vec<String>) {
+    let (mut sessions, mut tools) = (Vec::<String>::new(), Vec::<String>::new());
+    for e in entries {
+        if !sessions.contains(&e.session) {
+            sessions.push(e.session.clone());
+        }
+        if !tools.contains(&e.tool) {
+            tools.push(e.tool.clone());
+        }
+    }
+    (sessions, tools)
+}
+
+fn rotated(path: &Path) -> PathBuf {
+    path.with_extension("1.jsonl")
+}
+
 fn append(path: &Path, e: &ActivityEntry) -> std::io::Result<()> {
     if fs::metadata(path).map(|m| m.len() > MAX_BYTES).unwrap_or(false) {
-        let _ = fs::rename(path, path.with_extension("1.jsonl"));
+        let _ = fs::rename(path, rotated(path));
     }
     let mut opts = OpenOptions::new();
     opts.create(true).append(true);
@@ -173,6 +244,50 @@ mod tests {
         // A fresh log (new process) reads history back from the file.
         let again = ActivityLog::open(p.clone());
         assert_eq!(again.recent(1)[0].tool, "type_text");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_viewer_reads_both_files_filters_and_clears() {
+        let dir = std::env::temp_dir().join(format!("dh-activity-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("activity.jsonl");
+        // An older, rotated file plus the current one.
+        let old = ActivityEntry { ts: "t0".into(), session: "s0".into(), tool: "click".into(), args: "".into(), outcome: "ok".into(), ok: true };
+        fs::write(rotated(&path), format!("{}\n", serde_json::to_string(&old).unwrap())).unwrap();
+        let log = ActivityLog::open(path.clone());
+        log.record("s1", "screenshot", "", "ok", true);
+        log.record("s1", "click", "x", "ok", true);
+        log.record("s2", "click", "y", "denied", false);
+        let all = log.all(100);
+        assert_eq!(all.len(), 4);
+        assert_eq!(all[0].session, "s0", "oldest first, rotated file first");
+        assert_eq!(log.all(2).len(), 2);
+        let (sessions, tools) = facets(&all);
+        assert_eq!(sessions, ["s0", "s1", "s2"]);
+        assert_eq!(tools, ["click", "screenshot"]);
+        let f = ActivityFilter { session: Some("s1".into()), tool: None };
+        assert_eq!(f.apply(all.clone()).len(), 2);
+        let f = ActivityFilter { session: None, tool: Some("click".into()) };
+        assert_eq!(f.apply(all.clone()).len(), 3);
+        let f = ActivityFilter { session: Some("s2".into()), tool: Some("click".into()) };
+        assert_eq!(f.apply(all.clone()).len(), 1);
+        assert_eq!(ActivityFilter { session: Some(String::new()), tool: None }.apply(all).len(), 4);
+
+        log.clear().unwrap();
+        assert!(log.all(100).is_empty());
+        assert!(log.recent(100).is_empty());
+        assert!(!rotated(&path).exists());
+        assert_eq!(fs::metadata(&path).unwrap().len(), 0);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        // Logging goes on after a clear.
+        log.record("s3", "wait", "", "ok", true);
+        assert_eq!(log.all(100).len(), 1);
         let _ = fs::remove_dir_all(&dir);
     }
 }

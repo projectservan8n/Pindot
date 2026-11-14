@@ -168,7 +168,25 @@ impl ServerState {
     }
 }
 
-async fn guard(State(token): State<Arc<str>>, req: Request, next: Next) -> Response {
+/// The bearer token, swappable while the server runs (Regenerate token).
+#[derive(Clone)]
+pub struct SharedToken(Arc<std::sync::RwLock<Arc<str>>>);
+
+impl SharedToken {
+    pub fn new(token: &str) -> Self {
+        Self(Arc::new(std::sync::RwLock::new(Arc::from(token))))
+    }
+    pub fn get(&self) -> Arc<str> {
+        self.0.read().unwrap().clone()
+    }
+    /// From now on only `token` is accepted.
+    pub fn set(&self, token: &str) {
+        *self.0.write().unwrap() = Arc::from(token);
+    }
+}
+
+async fn guard(State(token): State<SharedToken>, req: Request, next: Next) -> Response {
+    let token = token.get();
     let h = req.headers();
     if h.contains_key(header::ORIGIN) {
         return (StatusCode::FORBIDDEN, "requests with an Origin header are not allowed").into_response();
@@ -214,6 +232,10 @@ async fn prompt_hook(State(state): State<Arc<ServerState>>, Json(ev): Json<serde
 }
 
 pub fn router(state: Arc<ServerState>, token: &str) -> Router {
+    router_shared(state, SharedToken::new(token))
+}
+
+pub fn router_shared(state: Arc<ServerState>, token: SharedToken) -> Router {
     let mcp_state = state.clone();
     let mcp = StreamableHttpService::new(
         move || Ok(tools::DesktopServer::new(mcp_state.clone())),
@@ -227,11 +249,12 @@ pub fn router(state: Arc<ServerState>, token: &str) -> Router {
         .route("/hooks/prompt", post(prompt_hook))
         .route("/health", get(|| async { "ok" }))
         .with_state(state)
-        .layer(middleware::from_fn_with_state(Arc::<str>::from(token), guard))
+        .layer(middleware::from_fn_with_state(token, guard))
 }
 
 pub struct RunningServer {
     pub addr: SocketAddr,
+    pub token: SharedToken,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -252,16 +275,17 @@ impl RunningServer {
 
 /// Bind 127.0.0.1:`port` (0 = any free port) and serve in the background.
 pub async fn start(state: Arc<ServerState>, token: &str, port: u16) -> Result<RunningServer> {
+    let token = SharedToken::new(token);
     let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port)))
         .await
         .with_context(|| format!("binding 127.0.0.1:{port}"))?;
     let addr = listener.local_addr()?;
-    let app = router(state, token);
+    let app = router_shared(state, token.clone());
     let task = tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
             tracing::error!("server stopped: {e}");
         }
     });
     tracing::info!("Deskhand server on http://{addr} (MCP at /mcp)");
-    Ok(RunningServer { addr, task })
+    Ok(RunningServer { addr, token, task })
 }

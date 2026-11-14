@@ -25,12 +25,60 @@ pub use hotkey::{BindingError, ChordTracker, HeldMods, HotkeyBinding, ModKey, Os
 pub use keys::{KeyCombo, KeyName};
 
 /// A macOS / Windows privacy permission the app may need.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub enum Permission {
     Accessibility,
     InputMonitoring,
     ScreenRecording,
     Microphone,
+}
+
+impl Permission {
+    pub const ALL: [Permission; 4] =
+        [Permission::Accessibility, Permission::InputMonitoring, Permission::ScreenRecording, Permission::Microphone];
+
+    /// What Deskhand uses it for, for the setup screen.
+    pub fn why(self) -> &'static str {
+        match self {
+            Permission::Accessibility => "Click, type and read app windows for Claude, and swallow the hold-to-talk key",
+            Permission::InputMonitoring => "See the hold-to-talk key and the Esc stop key",
+            Permission::ScreenRecording => "Take the screenshots Claude asks for",
+            Permission::Microphone => "Hear you while you hold the hold-to-talk key",
+        }
+    }
+
+    /// The System Settings pane (macOS). Opening it is the user's button.
+    pub fn settings_url(self) -> &'static str {
+        match self {
+            Permission::Accessibility => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+            Permission::InputMonitoring => "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+            Permission::ScreenRecording => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+            Permission::Microphone => "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+        }
+    }
+}
+
+/// Finer than granted / not granted (only the microphone reports all of
+/// these on macOS).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionState {
+    Granted,
+    NotGranted,
+    /// Never asked yet (microphone).
+    NotAsked,
+    Denied,
+    /// Blocked by a device profile.
+    Restricted,
+    /// This OS needs no grant for it.
+    NotNeeded,
+    Unknown,
+}
+
+impl PermissionState {
+    pub fn ok(self) -> bool {
+        matches!(self, PermissionState::Granted | PermissionState::NotNeeded)
+    }
 }
 
 impl fmt::Display for Permission {
@@ -374,6 +422,23 @@ impl Overlay for NoOverlay {
 pub struct PermissionStatus {
     pub permission: Permission,
     pub granted: bool,
+    pub state: PermissionState,
+    pub name: String,
+    pub why: &'static str,
+    pub settings_url: &'static str,
+}
+
+impl PermissionStatus {
+    pub fn new(permission: Permission, state: PermissionState) -> Self {
+        Self {
+            permission,
+            granted: state.ok(),
+            state,
+            name: permission.to_string(),
+            why: permission.why(),
+            settings_url: permission.settings_url(),
+        }
+    }
 }
 
 /// The real implementations for the OS this was built for.
@@ -416,4 +481,37 @@ pub fn permission_report() -> Vec<PermissionStatus> {
 #[cfg(windows)]
 pub fn permission_report() -> Vec<PermissionStatus> {
     windows::permission_report()
+}
+
+/// FOR THE USER'S BUTTON ONLY: may show a system prompt (macOS).
+#[cfg(target_os = "macos")]
+pub fn request_permission(p: Permission) -> PermissionState {
+    macos::permissions::request(p)
+}
+
+#[cfg(windows)]
+pub fn request_permission(_p: Permission) -> PermissionState {
+    PermissionState::NotNeeded
+}
+
+#[cfg(test)]
+mod permission_tests {
+    use super::*;
+
+    #[test]
+    fn every_permission_has_a_settings_pane() {
+        let anchors = ["Privacy_Accessibility", "Privacy_ListenEvent", "Privacy_ScreenCapture", "Privacy_Microphone"];
+        for (p, a) in Permission::ALL.iter().zip(anchors) {
+            let url = p.settings_url();
+            assert!(url.starts_with("x-apple.systempreferences:com.apple.preference.security?"), "{url}");
+            assert!(url.ends_with(a), "{url}");
+            assert!(!p.why().is_empty());
+        }
+        let s = PermissionStatus::new(Permission::Microphone, PermissionState::NotAsked);
+        assert!(!s.granted);
+        assert_eq!(s.name, "Microphone");
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["state"], "not_asked");
+        assert!(PermissionStatus::new(Permission::Microphone, PermissionState::NotNeeded).granted);
+    }
 }

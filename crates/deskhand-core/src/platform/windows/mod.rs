@@ -107,6 +107,9 @@ impl Accessibility for WinAccessibility {
 }
 
 pub fn permission_report() -> Vec<PermissionStatus> {
-    // Windows only prompts for the microphone; the rest needs no grant.
-    vec![]
+    // Windows needs no grant for input, UI Automation or capture. The
+    // microphone has a privacy switch (Settings > Privacy > Microphone) that
+    // is NOT checked yet: not tested, no Windows machine.
+    use super::{Permission, PermissionState};
+    vec![PermissionStatus::new(Permission::Microphone, PermissionState::Unknown)]
 }

@@ -280,6 +280,28 @@ async fn rejects_missing_token_wrong_token_and_origin() {
 }
 
 #[tokio::test]
+async fn a_regenerated_token_takes_over_at_once() {
+    use deskhand_core::server::{SharedToken, router_shared};
+    let h = harness();
+    let token = SharedToken::new("first");
+    let app = router_shared(h.state.clone(), token.clone());
+    let health = |t: &str| {
+        let app = app.clone();
+        let t = t.to_string();
+        async move {
+            app.oneshot(req("GET", "/health").header("authorization", format!("Bearer {t}")).body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+    assert_eq!(health("first").await, StatusCode::OK);
+    token.set("second");
+    assert_eq!(health("first").await, StatusCode::UNAUTHORIZED);
+    assert_eq!(health("second").await, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn stop_hook_is_broadcast() {
     let h = harness();
     let mut rx = h.state.stop_events.subscribe();

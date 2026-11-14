@@ -4,6 +4,7 @@ mod accessibility;
 mod capture;
 pub mod hotkey;
 mod input;
+pub mod permissions;
 pub mod stopkey;
 
 pub use accessibility::{MacAccessibility, ax_is_trusted};
@@ -16,17 +17,8 @@ use super::{Permission, PermissionStatus};
 
 /// Current state of every permission Deskhand uses, for the calling process.
 /// macOS grants these per app (the .app bundle, or the terminal app a CLI
-/// binary was launched from), never per helper binary.
+/// binary was launched from), never per helper binary. Read-only: never
+/// prompts.
 pub fn permission_report() -> Vec<PermissionStatus> {
-    vec![
-        PermissionStatus { permission: Permission::Accessibility, granted: ax_is_trusted() },
-        PermissionStatus {
-            permission: Permission::InputMonitoring,
-            granted: objc2_core_graphics::CGPreflightListenEventAccess(),
-        },
-        PermissionStatus {
-            permission: Permission::ScreenRecording,
-            granted: objc2_core_graphics::CGPreflightScreenCaptureAccess(),
-        },
-    ]
+    Permission::ALL.iter().map(|&p| PermissionStatus::new(p, permissions::status(p))).collect()
 }
