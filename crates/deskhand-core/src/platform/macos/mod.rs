@@ -6,6 +6,7 @@ pub mod hotkey;
 mod input;
 pub mod permissions;
 pub mod stopkey;
+pub mod window;
 
 pub use accessibility::{MacAccessibility, ax_is_trusted};
 pub use capture::MacCapture;

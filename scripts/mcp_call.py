@@ -13,7 +13,7 @@ printed.
 """
 import base64, json, os, sys, time, urllib.request, urllib.error
 
-DATA = os.path.expanduser("~/Library/Application Support/Deskhand")
+DATA = os.environ.get("DESKHAND_DATA_DIR") or os.path.expanduser("~/Library/Application Support/Deskhand")
 SESSION_FILE = "/tmp/deskhand-mcp-session"
 IMG_DIR = os.environ.get("MCP_IMG_DIR", "/tmp/deskhand-mcp-img")
 

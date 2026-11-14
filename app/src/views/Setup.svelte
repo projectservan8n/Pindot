@@ -26,7 +26,8 @@
   let finishing = $state(false);
   let message = $state('');
 
-  const missing = $derived(models.filter((m) => m.in_use && !m.present));
+  const inUse = $derived(models.filter((m) => m.in_use));
+  const missing = $derived(inUse.filter((m) => !m.present));
   const missingSize = $derived(missing.reduce((n, m) => n + m.size, 0));
 
   async function checkClaude() {
@@ -73,17 +74,22 @@
     }
   }
 
-  async function download() {
+  // Downloads what is missing; for models already there it re-checks every
+  // file's SHA-256 and downloads a damaged file again.
+  async function download(list: ModelInfo[]) {
     licensesOpen = false;
     downloading = true;
     progress = {};
     try {
-      await api.modelsDownload(missing.map((m) => m.id));
+      await api.modelsDownload(list.map((m) => m.id));
     } catch (e) {
       downloading = false;
       message = errorText(e);
     }
   }
+
+  // "huggingface.co/org/repo@rev path" -> "huggingface.co"
+  const host = (source: string) => source.split('/')[0];
 
   async function finish() {
     finishing = true;
@@ -121,6 +127,7 @@
           cur.ok = true;
           cur.pct = 100;
           cur.text = 'Ready (all files verified)';
+          loadModels();
         } else {
           cur.error = e.done.Err;
         }
@@ -198,16 +205,18 @@
 <section>
   <h2>3. Voice models</h2>
   <p class="muted">
-    Speech to text and text to speech run on this Mac. The models are downloaded once from Hugging Face (with a
-    fallback mirror) and every file is checked against its SHA-256.
+    Speech to text and text to speech run on this Mac. The models are downloaded once, from the source named under
+    each one, and every file is checked against its pinned SHA-256.
   </p>
   <table class="models">
     <tbody>
-      {#each models.filter((m) => m.in_use) as m (m.id)}
+      {#each inUse as m (m.id)}
         <tr>
           <td>
             <strong>{m.display}</strong>
-            <div class="muted small">{m.license} · {formatBytes(m.size)}</div>
+            <div class="muted small">
+              {m.license} · {formatBytes(m.size)} · from {host(m.source)}{m.fallback ? ', with a fallback mirror' : ''}
+            </div>
             {#if progress[m.id]}
               <div class="bar"><div style={`width:${progress[m.id].pct}%`}></div></div>
               <div class="small" class:bad={!!progress[m.id].error}>{progress[m.id].error ?? progress[m.id].text}</div>
@@ -230,16 +239,18 @@
         {#each missing as m (m.id)}
           <div class="license">
             <p><strong>{m.display}</strong>: {m.license} (<code>{m.license_url}</code>)</p>
-            <p class="small">{m.license_text}</p>
+            <pre class="license-text">{m.license_text}</pre>
             <p class="small muted">From <code>{m.source}</code>{m.fallback ? `; fallback: ${m.fallback}` : ''}</p>
           </div>
         {/each}
-        <button class="primary" onclick={download}>Accept and download {formatBytes(missingSize)}</button>
+        <button class="primary" onclick={() => download(missing)}>Accept and download {formatBytes(missingSize)}</button>
         <button onclick={() => (licensesOpen = false)}>Not now</button>
       </div>
     {/if}
-  {:else if models.length > 0}
-    <p class="ok">Both models are downloaded and verified.</p>
+  {:else if inUse.length > 0}
+    <p class="ok">The voice models are downloaded.</p>
+    <button onclick={() => download(inUse)}>Check files</button>
+    <span class="muted small">Re-checks every file's SHA-256 and downloads a damaged file again.</span>
   {/if}
 </section>
 

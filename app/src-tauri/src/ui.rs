@@ -41,7 +41,9 @@ pub struct Ui {
     pub model: Option<String>,
     /// The settings as saved (environment overrides not applied).
     settings: Mutex<Settings>,
-    load_note: String,
+    /// How the settings file loaded (first start, migrated, unreadable);
+    /// cleared once a save succeeds.
+    load_note: Mutex<String>,
     server_error: Mutex<Option<String>>,
     voice: Mutex<Option<Arc<VoiceApp>>>,
     /// Why hold-to-talk is off, when it is.
@@ -60,7 +62,7 @@ impl Ui {
             force_voice,
             model,
             settings: Mutex::new(settings),
-            load_note,
+            load_note: Mutex::new(load_note),
             server_error: Mutex::new(None),
             voice: Mutex::new(None),
             voice_note: Mutex::new(None),
@@ -108,19 +110,50 @@ pub fn open_main(app: &AppHandle, view: &str, focus: bool) -> tauri::Result<()> 
         w.show()?;
         if focus {
             w.set_focus()?;
+        } else {
+            front_without_focus(app);
         }
         return Ok(());
     }
     let capturable = app.state::<Ui>().capturable;
-    WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App(format!("index.html#{view}").into()))
+    let w = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App(format!("index.html#{view}").into()))
         .title("Deskhand")
         .inner_size(820.0, 640.0)
         .min_inner_size(640.0, 460.0)
+        .center()
         .focused(focus)
         // Deskhand's own windows stay out of Claude's screenshots.
         .content_protected(!capturable)
         .build()?;
+    if let (Ok(p), Ok(z), Ok(scale)) = (w.outer_position(), w.outer_size(), w.scale_factor()) {
+        let (p, z) = (p.to_logical::<f64>(scale), z.to_logical::<f64>(scale));
+        println!("window {MAIN} ({view}) at ({:.0}, {:.0}) size {:.0}x{:.0} pt", p.x, p.y, z.width, z.height);
+    }
+    if !focus {
+        front_without_focus(app);
+    }
     Ok(())
+}
+
+/// Show the main window above other apps' windows without taking the
+/// keyboard from the app the user is in.
+fn front_without_focus(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        let h = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Some(w) = h.get_webview_window(MAIN)
+                && let Ok(ns) = w.ns_window()
+            {
+                use deskhand_core::platform::macos::window::{order_front_without_focus, window_number};
+                // SAFETY: Tauri's live NSWindow, on the main thread.
+                unsafe { order_front_without_focus(ns) };
+                println!("window {MAIN}: in front without focus (window id {})", unsafe { window_number(ns) });
+            }
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
 }
 
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -365,7 +398,7 @@ pub fn app_info(app: AppHandle) -> AppInfo {
         os: if cfg!(target_os = "macos") { "macos" } else { "windows" },
         data_dir: deskhand_core::paths::data_dir().ok().map(|p| p.display().to_string()),
         settings_path: Settings::path().ok().map(|p| p.display().to_string()),
-        load_note: ui.load_note.clone(),
+        load_note: ui.load_note.lock().unwrap().clone(),
         server_url: app.try_state::<RunningServer>().map(|s| s.mcp_url()),
         server_error: ui.server_error.lock().unwrap().clone(),
         voice,
@@ -438,11 +471,12 @@ pub fn settings_save(app: AppHandle, settings: Settings) -> Result<SaveResult, V
     settings.validate()?;
     let ui = app.state::<Ui>();
     let old = ui.settings();
-    // The UI never changes these two; keep what is saved.
+    // The settings screen never changes this one; keep what is saved.
     let mut new = settings;
     new.onboarding_done = old.onboarding_done;
     new.save().map_err(|e| vec![format!("Saving: {e:#}")])?;
     *ui.settings.lock().unwrap() = new.clone();
+    ui.load_note.lock().unwrap().clear();
     let mut notes = Vec::new();
     if new.port != old.port {
         notes.push(format!(

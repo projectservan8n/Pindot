@@ -1224,8 +1224,8 @@ impl DesktopServer {
     async fn click(&self, Parameters(args): Parameters<ClickArgs>) -> Result<CallToolResult, ErrorData> {
         let a = match &args.element {
             Some(r) => format!("ref={r}"),
-            None => format!("x={:?} y={:?}", args.x, args.y),
-        } + &format!(" {:?} x{}", args.button.unwrap_or(MouseButton::Left), args.count.unwrap_or(1));
+            None => xy(args.x, args.y),
+        } + &format!(" {} x{}", format!("{:?}", args.button.unwrap_or(MouseButton::Left)).to_lowercase(), args.count.unwrap_or(1));
         let out = self.do_click(args).await;
         self.finish("click", a, out)
     }
@@ -1252,7 +1252,7 @@ impl DesktopServer {
     async fn scroll(&self, Parameters(args): Parameters<ScrollArgs>) -> Result<CallToolResult, ErrorData> {
         let a = format!(
             "{} {:?} {}",
-            args.element.clone().unwrap_or_else(|| format!("{:?},{:?}", args.x, args.y)),
+            args.element.clone().unwrap_or_else(|| xy(args.x, args.y)),
             args.direction,
             args.amount.unwrap_or(5)
         );
@@ -1264,8 +1264,8 @@ impl DesktopServer {
     async fn drag(&self, Parameters(args): Parameters<DragArgs>) -> Result<CallToolResult, ErrorData> {
         let a = format!(
             "{} -> {}",
-            args.from_ref.clone().unwrap_or_else(|| format!("{:?},{:?}", args.from_x, args.from_y)),
-            args.to_ref.clone().unwrap_or_else(|| format!("{:?},{:?}", args.to_x, args.to_y))
+            args.from_ref.clone().unwrap_or_else(|| xy(args.from_x, args.from_y)),
+            args.to_ref.clone().unwrap_or_else(|| xy(args.to_x, args.to_y))
         );
         let out = self.do_drag(args).await;
         self.finish("drag", a, out)
@@ -1280,10 +1280,16 @@ impl DesktopServer {
 
     #[tool(description = "Show the user something: move the AI cursor to an element (ref) or x,y without clicking, with an optional short label.")]
     async fn point(&self, Parameters(args): Parameters<PointArgs>) -> Result<CallToolResult, ErrorData> {
-        let a = args.element.clone().unwrap_or_else(|| format!("{:?},{:?}", args.x, args.y));
+        let a = args.element.clone().unwrap_or_else(|| xy(args.x, args.y));
         let out = self.do_point(args).await;
         self.finish("point", a, out)
     }
+}
+
+/// "x,y" for the activity log, with "?" for a missing coordinate.
+fn xy(x: Option<f64>, y: Option<f64>) -> String {
+    let f = |v: Option<f64>| v.map_or_else(|| "?".to_string(), |v| format!("{v:.0}"));
+    format!("{},{}", f(x), f(y))
 }
 
 pub const INSTRUCTIONS: &str = "Deskhand lets you see and operate the user's desktop apps.\n\
@@ -1306,5 +1312,16 @@ impl ServerHandler for DesktopServer {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("deskhand", env!("CARGO_PKG_VERSION")))
             .with_instructions(INSTRUCTIONS)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::xy;
+
+    #[test]
+    fn activity_coordinates_are_plain() {
+        assert_eq!(xy(Some(12.0), Some(30.4)), "12,30");
+        assert_eq!(xy(None, Some(5.0)), "?,5");
     }
 }

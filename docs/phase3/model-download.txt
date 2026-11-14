@@ -1,0 +1,52 @@
+Deskhand Phase 3: real model download evidence (14 Nov 2026, Mac mini, debug build)
+Model dir: empty temp dir /tmp/dh-p3-models (DESKHAND_MODELS_DIR), data dir /tmp/dh-p3-data.
+
+== 1. First-run download from the Setup screen (license shown, then 'Accept and download 230.5 MB') ==
+voice: hold-to-talk is off (finish Setup first; the speech-to-text model is not downloaded; the text-to-speech model is not downloaded; Microphone permission is missing)
+2026-11-14T03:22:31.316089Z  INFO downloading https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/<rev>/model/small-streaming-en/quantized_26_07_30/frontend.ort (30984520 bytes)
+2026-11-14T03:22:33.535824Z  INFO downloading https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/<rev>/model/small-streaming-en/quantized_26_07_30/encoder.ort (44148576 bytes)
+2026-11-14T03:22:36.085424Z  INFO downloading https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/<rev>/model/small-streaming-en/quantized_26_07_30/adapter.ort (2870368 bytes)
+2026-11-14T03:22:37.253209Z  INFO downloading https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/<rev>/model/small-streaming-en/quantized_26_07_30/cross_kv.ort (5356536 bytes)
+2026-11-14T03:22:37.891142Z  INFO downloading https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/<rev>/model/small-streaming-en/quantized_26_07_30/decoder_kv.ort (81878600 bytes)
+2026-11-14T03:22:42.543502Z  INFO downloading https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/<rev>/model/small-streaming-en/quantized_26_07_30/tokenizer.bin (249974 bytes)
+2026-11-14T03:22:42.927919Z  INFO downloading https://huggingface.co/moonshine-ai/moonshine-voice-assets/resolve/<rev>/model/small-streaming-en/quantized_26_07_30/streaming_config.json (512 bytes)
+models: moonshine-small-streaming-en ready in /tmp/dh-p3-models/moonshine-small-streaming-en
+2026-11-14T03:22:43.314465Z  INFO downloading https://huggingface.co/gradium/phonon-31m-en/resolve/<rev>/config.json (4634 bytes)
+2026-11-14T03:22:43.855366Z  INFO downloading https://huggingface.co/gradium/phonon-31m-en/resolve/<rev>/model.q8.gguf (64512352 bytes)
+2026-11-14T03:22:48.100110Z  INFO downloading https://huggingface.co/gradium/phonon-31m-en/resolve/<rev>/tokenizer.json (277967 bytes)
+2026-11-14T03:22:48.523617Z  INFO downloading https://huggingface.co/gradium/phonon-31m-en/resolve/<rev>/default-voice.safetensors (256136 bytes)
+models: phonon-31m-en ready in /tmp/dh-p3-models/phonon-31m-en
+voice: hold-to-talk is off (finish Setup first; Microphone permission is missing)
+
+== 2. Independent check: shasum -a 256 of every downloaded file, each found in the pinned list in voice/models.rs ==
+c665f742364febad597cc9ac1e0b341ffbee0e24a1466e2f3bde95e6e4771762 2870368 moonshine-small-streaming-en/adapter.ort
+e2d3417144e9514055ebfefe8dcc4c0a55a55adcb8530435844c75c53e352bf6 5356536 moonshine-small-streaming-en/cross_kv.ort
+1a05465b1dd955858dfcbee039c0020fb5dd982b0f5094c34e61735d518d771b 81878600 moonshine-small-streaming-en/decoder_kv.ort
+2d4d973e91e8aca08c51e7e7efa28a46ab265b63d809d5294d18b86bcd85b993 44148576 moonshine-small-streaming-en/encoder.ort
+d1be8145bc9ef3e8625bb7bcb7a5b2930eeb828c91d6c1897bc215d7de6f2b93 30984520 moonshine-small-streaming-en/frontend.ort
+26f02b6afb22d60871a5efd85c3d38e569cc0ddb6c5eb6e93d3260152ae8a47a 512 moonshine-small-streaming-en/streaming_config.json
+6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d 249974 moonshine-small-streaming-en/tokenizer.bin
+b5d0f88353638370d94035b7d73d7d6577c0554d78f8d7ecfd40490aae39ae85 4634 phonon-31m-en/config.json
+dc537478eaadc1a5257fcda2e3501ab81e14c111a5d95a5838f350db2afd0f1a 256136 phonon-31m-en/default-voice.safetensors
+a7d9aad2cd6dc66473f24a08bc6d2939030ef4d751ef82349361fbef3272dbae 64512352 phonon-31m-en/model.q8.gguf
+691a00068fa7b989f2f3e5ae5daa2d1a5bb319f2d5360deafcfb19a8bb6e7936 277967 phonon-31m-en/tokenizer.json
+pinned matches: 11 of 11
+
+== 3. Corrupted file: one byte flipped at offset 1000000 of phonon-31m-en/model.q8.gguf (size unchanged) ==
+sha256 after the flip: e7eb2cbfbf617c68542adec8f3c7ae56dbe5ada615e329e02759c92524446d1d (pinned: a7d9aad2...)
+Then 'Check files' on the Setup screen:
+models: moonshine-small-streaming-en ready in /tmp/dh-p3-models/moonshine-small-streaming-en
+2026-11-14T03:24:53.189677Z  WARN /tmp/dh-p3-models/phonon-31m-en/model.q8.gguf failed its checksum; downloading it again
+2026-11-14T03:24:53.831232Z  INFO downloading https://huggingface.co/gradium/phonon-31m-en/resolve/<rev>/model.q8.gguf (64512352 bytes)
+models: phonon-31m-en ready in /tmp/dh-p3-models/phonon-31m-en
+sha256 after the repair: a7d9aad2cd6dc66473f24a08bc6d2939030ef4d751ef82349361fbef3272dbae (matches the pin)
+
+== 4. Resume: model.q8.gguf deleted, download stopped (SIGTERM) at 23021011 bytes of .part, then run again ==
+(voice_check models: the same models::ensure_with the UI calls; the UI's Cancel sets the same cancel flag)
+2026-11-14T03:26:04.100441Z  INFO resuming model.q8.gguf from 23021011 bytes
+Resumed { file: "model.q8.gguf", from: 23021011 }
+2026-11-14T03:26:04.101023Z  INFO downloading https://huggingface.co/gradium/phonon-31m-en/resolve/<rev>/model.q8.gguf (64512352 bytes)
+downloaded model.q8.gguf: 64512352 bytes
+Verified { file: "model.q8.gguf" }
+verified in 9.451729959s
+sha256 after the resume: a7d9aad2cd6dc66473f24a08bc6d2939030ef4d751ef82349361fbef3272dbae (matches the pin)
