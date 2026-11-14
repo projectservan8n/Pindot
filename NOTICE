@@ -1,0 +1,76 @@
+Deskhand
+Copyright (c) 2026 Tony Herrera
+Licensed under the MIT License (see LICENSE).
+
+Deskhand works with Claude Code. It is not made by, endorsed by or
+affiliated with Anthropic. "Claude" and "Claude Code" are names of
+Anthropic's products. Deskhand does not include or redistribute Claude Code;
+it runs the copy the user installed, on the user's own sign-in.
+
+------------------------------------------------------------------------
+Models (downloaded at first run, never shipped in this repository or the
+app bundle; the user sees the license and accepts it before download)
+------------------------------------------------------------------------
+
+Moonshine v2 Small streaming, English (speech to text)
+  Copyright (c) 2025 Useful Sensors, Inc. (dba Moonshine AI)
+  License: MIT (Section 1 of https://github.com/moonshine-ai/moonshine/blob/main/LICENSE,
+  which covers the English and all streaming models)
+  Source: https://huggingface.co/moonshine-ai/moonshine-voice-assets
+          commit e318117203f245fda2ca0142db6b8c057d86671c,
+          model/small-streaming-en/quantized_26_07_30/ (7 files, 165.5 MB)
+  Fallback mirror: https://blob.handy.computer/moonshine-small-streaming-en.tar.gz
+          (Handy's mirror: an older build of the same model, MIT)
+  Note: the moonshine-voice-assets repository holds files under different
+  licenses. Some non-English Base and Tiny speech-to-text models (Arabic,
+  Japanese, Korean, Mandarin, Spanish, Ukrainian, Vietnamese) are under the
+  Moonshine Community License, a non-commercial license, and its
+  text-to-speech and grapheme-to-phoneme files carry their own terms.
+  Deskhand only downloads the English streaming model named above. Check
+  Moonshine's LICENSE before adding any other Moonshine file.
+  Full text shown in the app: crates/deskhand-core/licenses/moonshine-MIT.txt
+
+Phonon 31m, English (text to speech), by Gradium
+  License: Apache License 2.0 (weights, tokenizer and default voice)
+  Source: https://huggingface.co/gradium/phonon-31m-en
+          commit 92741c5b07d085ff840e26fea8ce43110b87852f (4 files, 65.1 MB)
+  Full text shown in the app: crates/deskhand-core/licenses/apache-2.0.txt
+
+------------------------------------------------------------------------
+Software included in the app binary
+------------------------------------------------------------------------
+
+The Rust dependencies (about 700 crates) are under permissive licenses:
+mostly MIT and/or Apache-2.0, plus Zlib, ISC, BSD-2-Clause, BSD-3-Clause,
+Unicode-3.0, Unlicense, CC0-1.0, 0BSD, BSL-1.0 and CDLA-Permissive-2.0
+(webpki-roots). A few crates used by Tauri's HTML tooling are under
+MPL-2.0 (cssparser, cssparser-macros, selectors, dtoa-short, option-ext);
+their source is available unchanged from crates.io. To list every crate and
+its license: `cargo metadata --format-version 1` or `cargo about`.
+
+Main components:
+  Tauri 2 (tauri, tauri-build, tauri-nspanel)   MIT OR Apache-2.0
+  rmcp (Model Context Protocol SDK)             Apache-2.0
+  transcribe-rs                                 MIT
+  ptts                                          MIT OR Apache-2.0
+  ort (ONNX Runtime bindings)                   MIT OR Apache-2.0
+  ONNX Runtime (Microsoft, linked through ort)  MIT
+  portable-pty                                  MIT
+  cpal                                          Apache-2.0
+  hound                                         Apache-2.0
+  axum, tokio                                   MIT
+  objc2 family                                  MIT
+  image, reqwest, ureq, serde, sha2             MIT OR Apache-2.0
+
+Frontend (bundled into the app):
+  Svelte                                        MIT
+  @tauri-apps/api                               Apache-2.0 OR MIT
+
+------------------------------------------------------------------------
+References
+------------------------------------------------------------------------
+
+Handy (https://github.com/cjpais/Handy, MIT) and Clicky
+(https://github.com/farzaa/clicky) were studied as references for the
+hold-to-talk key, model downloads and the pointing cursor. No code was
+copied from them.

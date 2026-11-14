@@ -90,6 +90,10 @@ live in `voice-settings.json` in the data dir (`stt_model`, `tts_model`,
 
 ## Test path (off by default, logged loudly)
 
+Since Phase 3 these switches exist only in a test build:
+`cargo build --release -p deskhand --features test-switches`. A normal or
+release build ignores them with a warning.
+
 `deskhand --test-voice WAV [--test-voice-esc] [--model haiku]
 [--turn-timeout S] [--keep-running]` replaces the microphone with the WAV
 and presses Fn synthetically (through the real tap; if the tap doesn't see

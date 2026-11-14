@@ -1,16 +1,25 @@
 # Windows test checklist
 
-Phases 0 and 1 were built and tested on macOS only. On Windows today:
+Phases 0 to 3 were built and tested on macOS only. **Nothing has been run on
+Windows**: there is no Windows machine here. On Windows today:
 
 - `deskhand-core` type-checks for `x86_64-pc-windows-msvc`. Command:
   `cargo check -p deskhand-core --all-targets --target x86_64-pc-windows-msvc`
-  (run on the Mac, 14 Nov 2026).
+  (run on the Mac, 14 Nov 2026; re-run it after Phase 3 changes before
+  relying on it).
 - The platform traits have Windows stubs that return
   `PlatformError::Unsupported`: `Capture`, `Input`, `Hotkey`, `StopKey` (the
   global Esc) and `Accessibility` (window list, element tree, element
   actions, frontmost app, launch, secure-field check). The server, the
-  approval gate, the session lock, the activity log and the tree text are
-  plain Rust and are covered by `cargo test` on any OS.
+  approval gate, the session lock, the activity log, the tree text, the
+  settings file, the hotkey binding parser (including `Ctrl+Win` and the
+  "Fn never reaches Windows" check), the model downloader and the voice
+  state machine are plain Rust and are covered by `cargo test` on any OS.
+- The permission report on Windows lists only the microphone, as
+  "unknown": the privacy switch is not read yet. Its button opens
+  `ms-settings:privacy-microphone`.
+- The token and config files are written with Unix mode 600 on macOS. On
+  Windows no ACL is set yet: they rely on `%APPDATA%` being per-user.
 - The app's Windows overlay path is written but has never been compiled:
   `overlay.rs`, `#[cfg(not(target_os = "macos"))]`. It is a transparent,
   always-on-top, undecorated webview window per monitor with
@@ -114,6 +123,71 @@ Only click and type in windows you opened for the test.
       screenshot of each display lands on the right spot.
 - [ ] The activity view (`deskhand --activity`) lists calls live, and
       `%APPDATA%\Deskhand\activity.jsonl` is readable by the user only.
-- [ ] Done-when on Windows: `deskhand --test-turn "...Notepad..." --model
+- [ ] Done-when on Windows: build with `cargo build -p deskhand --features
+      test-switches`, then `deskhand --test-turn "...Notepad..." --model
       haiku --permission-mode default` with `DESKHAND_TEST_AUTO_APPROVE=Notepad`
       completes with at most one screenshot.
+
+## (f) Phase 2: the voice loop
+
+- [ ] `voice_check` (`cargo run --release -p deskhand-core --bin
+      voice_check`) lists the audio devices (cpal on WASAPI), downloads
+      and verifies both models into `%APPDATA%\Deskhand\models\`, and
+      runs STT on `docs/phase2/test-utterance.wav` and TTS with a play at
+      low volume.
+- [ ] ONNX Runtime: `ort` downloads its Windows binaries at build time;
+      check the app starts on a clean machine without a separate install
+      (or that the needed DLL is bundled).
+- [ ] Test build (`--features test-switches`): `deskhand --test-voice
+      docs/phase2/test-utterance.wav --model haiku` with
+      `DESKHAND_TEST_AUTO_APPROVE=Notepad` prints `RESULT PASS`.
+- [ ] Real use: hold Ctrl+Win, say "Open Notepad and type hello", let go.
+      Expect Listening, Thinking, Working, the approval window, the text in
+      Notepad and a spoken reply. The Start menu must not open.
+- [ ] Barge-in: hold Ctrl+Win while it speaks: speech stops and it listens.
+- [ ] Esc during a turn: the action stops, speech stops, the turn is
+      interrupted (Esc is written to the ConPTY), and the next request
+      works in the same session.
+- [ ] The persistent `claude.exe` under ConPTY survives 10 minutes idle and
+      the next request starts a fresh session; quitting Deskhand leaves no
+      `claude.exe`, `node.exe` or `conhost.exe` behind.
+
+## (g) Phase 3: app, settings, setup, release
+
+- [ ] Tray icon in the notification area with Setup, Settings, Activity,
+      the hold-to-talk switch and Quit. Quit leaves no process.
+- [ ] First start opens Setup without stealing focus from the app in front.
+- [ ] Setup: the `claude` check finds Claude Code and reads `claude auth
+      status --json`; signed out shows "run `claude login`". Known gap:
+      `find_claude` looks only for `claude.exe` on PATH (the native
+      installer); an npm install provides `claude.cmd`, which is not found
+      yet, and a `.cmd` cannot be spawned in a PTY directly (use `cmd /c`).
+- [ ] Setup > Permissions shows the microphone row; "Open Settings" opens
+      the microphone privacy page. Wire the real privacy-switch check (it
+      is "unknown" today).
+- [ ] Setup > Voice models: licenses shown before download, progress,
+      cancel and resume (HTTP 206), and "Check files" repairs a file with
+      one changed byte. The Moonshine fallback (blob.handy.computer) works
+      when huggingface.co is blocked (hosts file).
+- [ ] Settings: presets list `Ctrl+Win` (default), `Right Alt`,
+      `Right Ctrl`, ...; Record captures a held chord inside the window;
+      typing `Fn` is refused with the Windows message; Save writes
+      `settings.json` and the new chord works without a restart.
+- [ ] Settings > Regenerate token: the old token gets 401 and the new one
+      200; check the file ACL with `icacls "%APPDATA%\Deskhand\mcp-token"`
+      (only the current user should have access; today nothing sets it).
+- [ ] Settings > Port: a port in use shows the error banner; a new port
+      applies after a restart.
+- [ ] "Connect to Claude Code" runs `claude mcp add --transport http
+      --scope user desktop http://127.0.0.1:<port>/mcp --header
+      "Authorization: Bearer <token>"` through `claude.cmd` correctly
+      (quoting of the header on Windows), then shows "connected";
+      Disconnect removes it. Only on a test account: it changes the user's
+      Claude Code config.
+- [ ] Activity: filter by session and tool; Clear asks first and empties
+      `activity.jsonl`.
+- [ ] Release: `npx tauri build --bundles nsis,msi` (see
+      `docs/release.md`); install on a clean Windows 11, launch, check
+      Setup, `curl -H "Authorization: Bearer <token>"
+      http://127.0.0.1:47823/health` answers `ok`, and uninstall leaves
+      only `%APPDATA%\Deskhand\`.

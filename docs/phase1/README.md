@@ -93,7 +93,9 @@ verified by run D:
 
 ## Manual tests for Tony
 
-Build first: `cd ~/deskhand && cargo build`. Only one Deskhand can run at a
+Build first: `cd ~/deskhand && cargo build` (since Phase 3, step 2 needs a
+test build: `cargo build -p deskhand --features test-switches`, because
+`DESKHAND_TEST_AUTO_APPROVE` is ignored without it). Only one Deskhand can run at a
 time (it binds 127.0.0.1:47823).
 
 1. **Approval Allow and Deny (needs a human click).**

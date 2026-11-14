@@ -5,9 +5,11 @@ own Claude Code CLI eyes and hands on the desktop through MCP tools, and the
 user drives it by voice. The product name must never contain "Claude".
 
 The spec is the build brief, kept outside this repo. This file records the
-decisions and conventions that came out of building it. Phase 0 (spikes) and
-Phase 1 (the tool set, the accessibility tree and the guardrails, macOS only)
-are done; the evidence is in `docs/phase0/` and `docs/phase1/`.
+decisions and conventions that came out of building it. Phases 0 to 3 are
+done on macOS (spikes; tools, accessibility tree and guardrails; the voice
+loop; the app with setup, settings, downloader, activity viewer and the
+release build). The evidence is in `docs/phase0/` to `docs/phase3/`.
+Windows is stubs plus `docs/windows-test-checklist.md`.
 
 ## Hard rules
 
@@ -61,14 +63,24 @@ are done; the evidence is in `docs/phase0/` and `docs/phase1/`.
     catalog, download and SHA-256 check, `speaker.rs` the speech queue.
     `src/bin/voice_check.rs` checks devices, models, STT and TTS by hand.
   - `coords.rs`: maps screenshot pixels to global points. `paths.rs`: the data
-    dir, the token and its constant-time compare.
+    dir, the token (create, regenerate, 0600) and its constant-time compare.
+  - `settings.rs`: `settings.json` (versioned, migration, env overrides,
+    validation). `connect.rs`: the `claude mcp add/remove` arguments and the
+    read-only connection status. `platform/hotkey.rs`: the hold-to-talk
+    binding (parse, labels, the pure chord tracker). `platform/macos/
+    permissions.rs`: read-only permission checks and the button-only
+    requests. `platform/macos/window.rs`: show a window without focus.
   - `src/bin/spike_*.rs`: Phase 0 spikes.
 - `app/src-tauri`: the Tauri 2 app: `overlay.rs` (NSPanel AI cursor and
   "controlling input" banner), `approval.rs` (the approval window, answered
-  by a human), `test_turn.rs` (`--test-turn`, one real `claude` turn for the
-  done-when check), `voice.rs` (`--voice` and the `--test-voice` path) and
-  `lib.rs`. `app/ui`: overlay (with the voice pill), approval and activity
-  pages (plain HTML/JS).
+  by a human), `ui.rs` (tray, the main window and every command it calls),
+  `test_turn.rs` (`--test-turn`, one real `claude` turn for the done-when
+  check), `voice.rs` (the voice loop and the `--test-voice` path) and
+  `lib.rs`. `app/src`: the main window in Svelte 5 + TypeScript (views
+  Setup, Settings, Activity by URL hash; `lib/format.ts` is unit-tested
+  with vitest). `app/public`: the overlay (with the voice pill) and approval
+  pages, plain HTML/JS. Vite builds both into `app/dist`, which Tauri embeds
+  at compile time: rebuild the frontend before `cargo build -p deskhand`.
 - `spikes/test-target`: a Swift test window for the Phase 0 spikes.
   `spikes/mcp-call.py` is the Phase 0 one-shot MCP client;
   `scripts/mcp_call.py` keeps one MCP session across calls (`init`, `call
@@ -113,9 +125,8 @@ are done; the evidence is in `docs/phase0/` and `docs/phase1/`.
   0x3F, `MaskSecondaryFn`. It returns NULL to swallow Fn so the Globe action
   never fires. If the tap is disabled by timeout or user input, it re-enables
   itself. Synthetic test events carry the user-data marker 0x0DE5_0F11.
-- **Overlay UI is plain HTML/JS** for now. The brief's Svelte + TypeScript UI
-  starts with the tray and settings windows (Phase 3); the overlay page has no
-  framework need.
+- **Overlay UI is plain HTML/JS**; the main window (Phase 3) is Svelte +
+  TypeScript. The overlay page has no framework need.
 
 - **Tools (Phase 1)**: `desktop_context`, `request_access`, `open_app`,
   `focus_window`, `read_window`, `find`, `screenshot`, `zoom`, `click`,
@@ -233,6 +244,72 @@ are done; the evidence is in `docs/phase0/` and `docs/phase1/`.
   loop, tap, audio and `claude` closed, server stopped); a 15 s watchdog
   forces the exit if that hangs.
 
+### Phase 3: app, settings, setup, release (see `docs/phase3/README.md`)
+
+- **One main window** (`main`, Svelte) with Setup, Settings and Activity,
+  opened from the tray menu (Setup…, Settings…, Activity…, a hold-to-talk
+  switch, Quit). It opens by itself, without taking focus
+  (`orderFrontRegardless`), when Setup is needed: `claude` missing or
+  signed out, the server down, or Setup never finished.
+- **Settings file**: `settings.json` (0600), `version: 1`. Phase 2's
+  `voice-settings.json` is folded in on first load and renamed
+  `voice-settings.migrated.json`; unknown fields are kept; an unreadable
+  file is kept as a backup and the defaults are used; `DESKHAND_*`
+  environment variables override but are never saved. A port change
+  applies after a restart; hotkey, model and speak-mode changes restart the
+  voice loop at once.
+- **Hotkey binding**: one to four modifier keys, matched exactly; any other
+  key or an extra modifier cancels the hold (the user is typing a
+  shortcut). Defaults: `Fn` on macOS, `Ctrl+Win` on Windows. The macOS tap
+  reads left and right from the flagsChanged device bits. Only Fn is
+  swallowed (so Globe never fires); other modifiers pass through to apps,
+  because swallowing Cmd or Ctrl would break every shortcut. Fn is refused
+  on Windows, Shift alone is refused, and a lone side-less Ctrl/Option/Cmd
+  gets a caution. Record in Settings captures the chord inside our window.
+- **Connect / Disconnect** run `claude mcp add --transport http --scope user
+  desktop http://127.0.0.1:<port>/mcp --header "Authorization: Bearer
+  <token>"` and `claude mcp remove --scope user desktop`, only when the
+  user presses the button. Built and unit-tested (argument list, quoting,
+  token masking, status parsing); never run on the dev machine because they
+  change the shared user config. The status is read from `~/.claude.json`
+  without writing; the `mcpServers` shape it expects is assumed from the
+  docs, not seen from a real `claude mcp add`.
+- **Token regenerate**: a new token is written 0600, the running server
+  swaps it at once (`SharedToken`), the config files are rewritten, and
+  the voice brain restarts with the new one. The old token gets 401.
+- **Model downloader**: per-file pins (size + SHA-256), `.part` files
+  resumed with HTTP Range (206); a checksum mismatch deletes the `.part`
+  and retries from zero (never resumes onto bad bytes), with backoff; when
+  the retries run out, the fallback. Moonshine's fallback is Handy's
+  archive on blob.handy.computer: a different (older) build with its own
+  pins, unpacked into the same folder. Phonon has no mirror. The license
+  text is shown before the download. "Check files" re-hashes everything
+  and repairs a damaged file. The status line uses sizes only (fast); every
+  load and "Check files" hash in full.
+- **Permissions**: the Setup screen only reads (`AXIsProcessTrusted`,
+  `CGPreflightListenEventAccess`, `CGPreflightScreenCaptureAccess`,
+  `authorizationStatusForMediaType`). The request calls run only from
+  "Ask macOS". The voice loop does not start while Microphone,
+  Accessibility or Input Monitoring is missing, because creating a tap or
+  opening the mic without a grant can itself show a prompt. "Open System
+  Settings" opens `x-apple.systempreferences:com.apple.preference.security?Privacy_<Pane>`.
+- **Test-only switches are compile-time gated** (Tony's rule): the
+  `test-switches` cargo feature (app feature `test-switches` enables
+  `deskhand-core/test-switches`). Without it, `DESKHAND_TEST_AUTO_APPROVE`
+  is ignored with a warning, and `--test-turn`, `--test-voice`,
+  `--test-voice-esc`, `--test-esc-after`, `--accept-trust`,
+  `--permission-mode`, `--turn-timeout` and `--keep-running` print
+  "WARNING: ... ignored: this build has no test switches". `npx tauri
+  build` and plain `cargo build` never enable it. A test build prints
+  "!!! TEST BUILD" at start and shows a banner in the main window. The
+  settings UI has no control for any of them. `--capturable` and `--demo`
+  are not test switches (they weaken nothing) but log a NOTE line.
+- **Kept from earlier phases** (Nico's brief): the interactive brain on the
+  user's `claude login`; `--setting-sources project,local`, our own session
+  folder and `--permission-mode default`; `--restricted` not adopted (open
+  question in the README); human approvals; the shared session for clients
+  without our header is stated in the README guardrails.
+
 ## Known risks (open)
 
 - **Settings isolation is partial.** User and plugin skills still show in
@@ -260,7 +337,16 @@ are done; the evidence is in `docs/phase0/` and `docs/phase1/`.
   `UserPromptSubmit` hook has not come in 6 s. `exit` sends Ctrl+C before
   `/exit` so it can never be appended to an unsent prompt.
 - Screenshots in a debug build take about 1.5 s (mask + resize); one run
-  saw 10-36 s spikes that did not come back. Measure in release.
+  saw 10-36 s spikes that did not come back. Release numbers are in
+  `docs/phase3/README.md`.
+- **Unsigned builds lose permission grants on every rebuild**: macOS ties
+  them to the code signature. Signing is documented in `docs/release.md`,
+  not set up.
+- **macOS 26 menu bar**: status items are drawn by Control Center, not by
+  our process, and move when the frontmost app changes. Tests must re-read
+  the tray position and confirm our menu window is open before clicking.
+- **Windows**: `find_claude` looks only for `claude.exe`; an npm install
+  gives `claude.cmd` (see the checklist).
 - The Windows app crate is not compiled yet. `cargo check` for
   `x86_64-pc-windows-msvc` passes for `deskhand-core`, but `tauri-build` needs
   `llvm-rc` (or a Windows host) to embed the icon resource. See
