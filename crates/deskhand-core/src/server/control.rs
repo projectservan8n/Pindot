@@ -7,6 +7,9 @@
 //! - **Burst:** while actions run (and for `idle` after the last one) the
 //!   global Esc tap is armed and the "Claude is controlling input"
 //!   indicator is on. If the tap cannot start, no action runs at all.
+//! - **Voice:** the voice loop also holds the Esc tap (not the indicator)
+//!   for a whole spoken interaction, from hotkey down until it is idle
+//!   again, so Esc can stop listening, speech and the Claude turn.
 //! - **Emergency stop:** a real Esc press cancels the action in flight,
 //!   refuses further actions until the user's next prompt (or a fallback
 //!   timeout), and broadcasts `ControlEvent::EmergencyStop` so the voice loop
@@ -47,6 +50,10 @@ struct Burst {
     handle: Option<ListenerHandle>,
     /// Bumped on every action start, so an older idle timer does nothing.
     generation: u64,
+    /// The voice loop holds the tap (`arm_for_voice`).
+    voice: bool,
+    /// The "controlling input" indicator is on (actions only, not voice).
+    banner: bool,
 }
 
 pub struct Control {
@@ -81,7 +88,7 @@ impl Control {
             halted: Mutex::new(None),
             cancel_gen: AtomicU64::new(0),
             cancel_notify: Notify::new(),
-            burst: Mutex::new(Burst { handle: None, generation: 0 }),
+            burst: Mutex::new(Burst { handle: None, generation: 0, voice: false, banner: false }),
             active: AtomicUsize::new(0),
             approval_pending: AtomicBool::new(false),
             events: broadcast::channel(32).0,
@@ -134,30 +141,55 @@ impl Control {
         }
         {
             let mut b = self.burst.lock().unwrap();
-            if b.handle.is_none() {
-                let me = self.me.clone();
-                let on_press: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
-                    if let Some(c) = me.upgrade() {
-                        c.emergency_stop();
-                    }
-                });
-                match self.stop_key.start(on_press) {
-                    Ok(h) => {
-                        b.handle = Some(h);
-                        self.overlay.set_acting(true);
-                        let _ = self.events.send(ControlEvent::Acting { on: true });
-                    }
-                    Err(e) => {
-                        return Err(format!(
-                            "The Esc emergency stop could not start ({e}), so Deskhand will not take control of input."
-                        ));
-                    }
-                }
+            if let Err(e) = self.ensure_tap(&mut b) {
+                return Err(format!(
+                    "The Esc emergency stop could not start ({e}), so Deskhand will not take control of input."
+                ));
+            }
+            if !b.banner {
+                b.banner = true;
+                self.overlay.set_acting(true);
+                let _ = self.events.send(ControlEvent::Acting { on: true });
             }
             b.generation += 1;
             self.active.fetch_add(1, Ordering::SeqCst);
         }
         Ok(ActionGuard { control: self.me.upgrade().expect("control alive"), generation: self.cancel_gen.load(Ordering::SeqCst) })
+    }
+
+    fn ensure_tap(&self, b: &mut Burst) -> crate::platform::Result<()> {
+        if b.handle.is_none() {
+            let me = self.me.clone();
+            let on_press: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+                if let Some(c) = me.upgrade() {
+                    c.emergency_stop();
+                }
+            });
+            b.handle = Some(self.stop_key.start(on_press)?);
+        }
+        Ok(())
+    }
+
+    /// The voice loop is busy (listening, thinking, acting or speaking):
+    /// hold the Esc tap until `disarm_for_voice`. No indicator.
+    pub fn arm_for_voice(&self) -> Result<(), String> {
+        let mut b = self.burst.lock().unwrap();
+        self.ensure_tap(&mut b).map_err(|e| format!("The Esc stop key could not start ({e})."))?;
+        b.voice = true;
+        Ok(())
+    }
+
+    /// The voice loop is idle again: release the tap unless actions hold it.
+    pub fn disarm_for_voice(&self) {
+        let handle = {
+            let mut b = self.burst.lock().unwrap();
+            b.voice = false;
+            if b.banner || self.active.load(Ordering::SeqCst) != 0 {
+                return;
+            }
+            b.handle.take()
+        };
+        drop(handle);
     }
 
     /// The user pressed Esc. Runs on the tap thread: must not block or drop
@@ -170,10 +202,16 @@ impl Control {
         let holder = self.lock_holder().unwrap_or_else(|| "-".into());
         self.activity.record(&holder, "stop", "Esc", "user pressed Esc: cancelled the action in flight and halted", true);
         tracing::warn!("emergency stop (Esc)");
-        let handle = self.burst.lock().unwrap().handle.take();
-        if handle.is_some() {
+        let (handle, banner) = {
+            let mut b = self.burst.lock().unwrap();
+            b.voice = false;
+            (b.handle.take(), std::mem::take(&mut b.banner))
+        };
+        if banner {
             self.overlay.set_acting(false);
             let _ = self.events.send(ControlEvent::Acting { on: false });
+        }
+        if handle.is_some() {
             // Dropping the handle joins the tap thread we may be on.
             std::thread::spawn(move || drop(handle));
         }
@@ -242,24 +280,30 @@ impl Control {
     }
 
     fn end_burst_if(&self, generation: u64) {
-        let handle = {
+        let (handle, banner) = {
             let mut b = self.burst.lock().unwrap();
             if b.generation != generation || self.active.load(Ordering::SeqCst) != 0 {
                 return;
             }
-            b.handle.take()
+            // The voice loop may still need the tap; the indicator goes either way.
+            let handle = if b.voice { None } else { b.handle.take() };
+            (handle, std::mem::take(&mut b.banner))
         };
-        if handle.is_some() {
+        if banner {
             self.overlay.set_acting(false);
             let _ = self.events.send(ControlEvent::Acting { on: false });
-            drop(handle);
         }
+        drop(handle);
     }
 
     /// Disarm now (app shutdown).
     pub fn shutdown(&self) {
-        let handle = self.burst.lock().unwrap().handle.take();
-        if handle.is_some() {
+        let (handle, banner) = {
+            let mut b = self.burst.lock().unwrap();
+            b.voice = false;
+            (b.handle.take(), std::mem::take(&mut b.banner))
+        };
+        if banner {
             self.overlay.set_acting(false);
         }
         drop(handle);
@@ -382,6 +426,36 @@ mod tests {
         });
         let r = tokio::time::timeout(Duration::from_secs(2), g.cancelled()).await;
         assert!(r.is_ok(), "cancelled() should resolve on Esc");
+    }
+
+    #[test]
+    fn voice_holds_the_tap_without_the_indicator() {
+        let (c, sk, ov) = control(30);
+        c.arm_for_voice().unwrap();
+        assert!(sk.is_armed());
+        assert!(ov.acting.lock().unwrap().is_empty(), "voice alone shows no indicator");
+        // An action during the voice interaction shows the indicator; when the
+        // burst ends the indicator goes but the tap stays for the voice loop.
+        drop(c.begin_action("s").unwrap());
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(*ov.acting.lock().unwrap(), vec![true, false]);
+        assert!(sk.is_armed());
+        c.disarm_for_voice();
+        assert!(!sk.is_armed());
+        // Esc during voice clears the voice hold too.
+        c.arm_for_voice().unwrap();
+        assert!(sk.press());
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(!c.is_armed());
+        c.turn_ended();
+        // Voice released while an action runs: the action keeps the tap.
+        c.arm_for_voice().unwrap();
+        let g = c.begin_action("s").unwrap();
+        c.disarm_for_voice();
+        assert!(sk.is_armed());
+        drop(g);
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(!sk.is_armed());
     }
 
     struct FailingStopKey;

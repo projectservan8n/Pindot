@@ -24,6 +24,14 @@ claude-settings.json
 *.gguf
 *.ggml
 *.onnx
+*.ort
+*.safetensors
+/.models/
+
+# Audio: only the synthetic test phrase under docs/phase2/ may be committed
+*.wav
+*.aiff
+!docs/phase2/test-utterance.wav
 
 # Local test artefacts
 spikes/test-target/test-target

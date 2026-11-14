@@ -13,7 +13,9 @@
 //! `last_assistant_message` (primary) and the session transcript (check).
 
 pub mod config;
+pub mod persistent;
 pub mod pty;
+pub mod tailer;
 pub mod transcript;
 pub mod turn;
 
@@ -71,4 +73,58 @@ pub fn find_claude() -> Option<PathBuf> {
 pub fn claude_version(bin: &Path) -> Option<String> {
     let out = Command::new(bin).arg("--version").env("ANTHROPIC_API_KEY", "").output().ok()?;
     Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AuthState {
+    /// Signed in; `method` as Claude Code reports it (e.g. `claude.ai`).
+    SignedIn { method: String },
+    SignedOut,
+    /// The check itself failed (old CLI without `auth status`, bad output).
+    Unknown(String),
+}
+
+/// The message Deskhand shows when `claude` is not signed in. Deskhand never
+/// handles the login itself.
+pub const SIGN_IN_HINT: &str = "Claude Code is not signed in. Open a terminal, run `claude login`, then try again.";
+
+/// Ask the CLI whether it is signed in (`claude auth status --json`), with
+/// `ANTHROPIC_API_KEY` blanked like every child we start. Only `loggedIn`
+/// and `authMethod` are read; the rest (account details) is ignored.
+pub fn auth_status(bin: &Path) -> AuthState {
+    let mut cmd = Command::new(bin);
+    cmd.args(["auth", "status", "--json"]).env("ANTHROPIC_API_KEY", "");
+    for k in pty::PARENT_SESSION_VARS {
+        cmd.env_remove(k);
+    }
+    match cmd.output() {
+        Ok(out) => parse_auth_status(&String::from_utf8_lossy(&out.stdout)),
+        Err(e) => AuthState::Unknown(format!("could not run {} auth status: {e}", bin.display())),
+    }
+}
+
+pub fn parse_auth_status(stdout: &str) -> AuthState {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(stdout.trim()) else {
+        return AuthState::Unknown("unexpected `claude auth status` output".into());
+    };
+    match v.get("loggedIn").and_then(serde_json::Value::as_bool) {
+        Some(true) => AuthState::SignedIn {
+            method: v.get("authMethod").and_then(serde_json::Value::as_str).unwrap_or("unknown").to_string(),
+        },
+        Some(false) => AuthState::SignedOut,
+        None => AuthState::Unknown("`claude auth status` has no loggedIn field".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auth_status_reads_only_logged_in_and_method() {
+        let s = parse_auth_status(r#"{"loggedIn":true,"authMethod":"claude.ai","email":"x@y.z","orgName":"Org"}"#);
+        assert_eq!(s, AuthState::SignedIn { method: "claude.ai".into() });
+        assert_eq!(parse_auth_status(r#"{"loggedIn":false}"#), AuthState::SignedOut);
+        assert!(matches!(parse_auth_status("Not logged in"), AuthState::Unknown(_)));
+    }
 }

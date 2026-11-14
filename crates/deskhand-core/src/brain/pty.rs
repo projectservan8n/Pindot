@@ -21,7 +21,7 @@ pub const ECHO_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Env vars that identify a *parent* Claude Code session. If Deskhand itself
 /// was started from inside Claude Code, these must not leak into the child.
-const PARENT_SESSION_VARS: &[&str] = &[
+pub(crate) const PARENT_SESSION_VARS: &[&str] = &[
     "CLAUDECODE",
     "CLAUDE_PID",
     "CLAUDE_CODE_ENTRYPOINT",
@@ -50,11 +50,22 @@ const AUTH_FAILURE_MARKERS: &[&str] = &[
 
 const TRUST_MARKERS: &[&str] = &["doyoutrustthefiles", "trustthisfolder", "yes,itrustthisfolder", "yes,proceed"];
 
+/// Settings sources for every `claude` Deskhand starts: project and local
+/// only, never the user's (see CLAUDE.md, "Settings isolation").
+pub const DEFAULT_SETTING_SOURCES: &str = "project,local";
+
 #[derive(Debug, Clone)]
 pub struct SpawnOptions {
     pub claude_bin: PathBuf,
     pub cwd: PathBuf,
     pub session_id: Uuid,
+    /// Continue `session_id` (`--resume`) instead of starting it (`--session-id`).
+    pub resume: bool,
+    /// `--setting-sources`. Default `project,local`: the user's own
+    /// `~/.claude/settings.json` (hooks, permissions, model, effort...) must
+    /// not shape Deskhand sessions. `claude login` still works (it is not a
+    /// settings file), and our `--settings` file still applies.
+    pub setting_sources: Option<String>,
     pub mcp_config: Option<PathBuf>,
     pub settings: Option<PathBuf>,
     pub allowed_tools: Vec<String>,
@@ -72,6 +83,8 @@ impl SpawnOptions {
             claude_bin,
             cwd,
             session_id: Uuid::new_v4(),
+            resume: false,
+            setting_sources: Some(DEFAULT_SETTING_SOURCES.into()),
             mcp_config: None,
             settings: None,
             allowed_tools: vec![],
@@ -84,7 +97,12 @@ impl SpawnOptions {
     }
 
     pub fn args(&self) -> Vec<String> {
-        let mut a = vec!["--session-id".to_string(), self.session_id.to_string()];
+        let flag = if self.resume { "--resume" } else { "--session-id" };
+        let mut a = vec![flag.to_string(), self.session_id.to_string()];
+        if let Some(s) = &self.setting_sources {
+            a.push("--setting-sources".into());
+            a.push(s.clone());
+        }
         if let Some(p) = &self.mcp_config {
             a.push("--mcp-config".into());
             a.push(p.display().to_string());
@@ -277,6 +295,11 @@ impl ClaudeSession {
         strip_ansi(&o.bytes[from..])
     }
 
+    /// Screen checks from now on ignore everything printed so far.
+    pub fn mark_seen(&mut self) {
+        self.scan_from = self.out.lock().unwrap().total;
+    }
+
     /// The last `n` characters of output, escapes stripped (for errors/logs).
     pub fn tail(&self, n: usize) -> String {
         let t = self.screen_text();
@@ -457,5 +480,13 @@ mod tests {
         assert!(!a.iter().any(|x| x == "-p" || x == "--print"));
         assert_eq!(a.last().unwrap(), "mcp__desktop");
         assert!(a.contains(&"--strict-mcp-config".to_string()));
+        // User settings are left out; a resume reuses the session id.
+        let i = a.iter().position(|x| x == "--setting-sources").unwrap();
+        assert_eq!(a[i + 1], "project,local");
+        assert_eq!(a[0], "--session-id");
+        o.resume = true;
+        let a = o.args();
+        assert_eq!(a[0], "--resume");
+        assert_eq!(a[1], o.session_id.to_string());
     }
 }

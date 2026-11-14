@@ -1,0 +1,35 @@
+# voice_check, release build, Mac mini (arm64, macOS 26.5), 2026-11-14T01:55Z
+
+$ voice_check devices
+default input:  USB PnP Audio Device
+default output: Mac mini Speakers
+input:  USB PnP Audio Device
+input:  BlackHole 16ch
+input:  BlackHole 2ch
+input:  Microsoft Teams Audio
+output: 15B1
+output: USB PnP Audio Device
+output: BlackHole 16ch
+output: BlackHole 2ch
+output: Mac mini Speakers
+output: Microsoft Teams Audio
+
+$ voice_check models   (second run: verify only, no download)
+stt: ~/Library/Application Support/Deskhand/models/moonshine-small-streaming-en
+tts: ~/Library/Application Support/Deskhand/models/phonon-31m-en
+
+$ voice_check stt docs/phase2/test-utterance.wav
+audio 1.82 s, load 527.947ms, transcribe 157.238208ms
+text: Open text edit n type hello
+
+$ voice_check tts "I opened TextEdit and typed hello." /tmp/dh-tts-check.wav
+load 137.260334ms, first audio 36.168875ms, total 202.876625ms, 2.64 s of audio at 24000 Hz, rms 0.0583, peak 0.468
+transcribed back: I opened text edit and typed hello.
+
+$ afinfo /tmp/dh-tts-check.wav
+Data format:     1 ch,  24000 Hz, Int16
+estimated duration: 2.640000 sec
+
+$ voice_check play /tmp/dh-tts-check.wav 0.2   (played once on Mac mini Speakers at 20% volume, earlier run)
+first audio handed to the device after 80.302334ms
+played 2.64 s at volume 0.2 in 3.050087667s

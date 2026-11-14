@@ -44,6 +44,10 @@ pub fn hook_settings_json(stop_hook_url: &str, token: &str) -> serde_json::Value
         }])
     };
     json!({
+        // Ask before any tool that is not ours (with `--allowedTools` for
+        // ours). Set here as well as on the command line, so a project or
+        // local settings file can't change the mode.
+        "permissions": { "defaultMode": "default" },
         "hooks": {
             "Stop": hook(stop_hook_url),
             "UserPromptSubmit": hook(&prompt_hook_url),
