@@ -211,6 +211,11 @@ impl Control {
         self.approval_pending.load(Ordering::SeqCst)
     }
 
+    /// True while at least one input action is running.
+    pub fn in_flight(&self) -> bool {
+        self.active.load(Ordering::SeqCst) > 0
+    }
+
     pub fn is_armed(&self) -> bool {
         self.burst.lock().unwrap().handle.is_some()
     }

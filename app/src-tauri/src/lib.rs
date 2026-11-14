@@ -9,8 +9,9 @@
 //! `--activity` opens the activity view. `--capturable` lets screenshots see
 //! Deskhand's own windows (tests and evidence only). `--test-turn` runs one
 //! real turn of interactive `claude` against this app and quits.
-//! `--test-esc-after` posts one synthetic Esc MS after the next action starts
-//! (only while the stop key is armed) and checks no app received it.
+//! `--test-esc-after MS` (with `DESKHAND_TEST_AUTO_APPROVE`) posts one
+//! synthetic Esc once an action has run for MS with a test app in front, and
+//! checks that no app received it.
 
 mod approval;
 mod overlay;
@@ -262,22 +263,33 @@ fn forward_events(app: &AppHandle, state: &Arc<ServerState>) {
     });
 }
 
-/// Self-test of the stop key: once an action has armed the Esc tap, wait
-/// `ms`, post one unmarked Esc, and check that no app received it.
+/// Self-test of the stop key. Once an action has been in flight for `ms`
+/// while a test-approved app (one the test opened) is frontmost, post one
+/// unmarked Esc and check that no app received it. Never posts otherwise, so
+/// a missed Esc could only reach the test's own window.
 fn spawn_esc_self_test(state: Arc<ServerState>, ms: u64) {
     std::thread::spawn(move || {
+        let ax = deskhand_core::platform::native().accessibility;
+        let front_is_test_app = || {
+            let Some(pid) = ax.frontmost_pid().ok().flatten() else { return false };
+            let Some(app) = ax.app_info(pid) else { return false };
+            state.auto_approve.iter().any(|n| n.eq_ignore_ascii_case(&app.name))
+        };
         let t0 = std::time::Instant::now();
-        while !state.control.is_armed() {
-            if t0.elapsed() > Duration::from_secs(300) {
-                println!("esc-test: no action armed the stop key within 300 s; not posting");
+        let mut since: Option<std::time::Instant> = None;
+        loop {
+            if t0.elapsed() > Duration::from_secs(600) {
+                println!("esc-test: condition never met within 600 s; not posting");
                 return;
             }
+            let ready = state.control.in_flight() && state.control.is_armed() && front_is_test_app();
+            match (ready, since) {
+                (true, None) => since = Some(std::time::Instant::now()),
+                (true, Some(s)) if s.elapsed() >= Duration::from_millis(ms) => break,
+                (false, _) => since = None,
+                _ => {}
+            }
             std::thread::sleep(Duration::from_millis(20));
-        }
-        std::thread::sleep(Duration::from_millis(ms));
-        if !state.control.is_armed() {
-            println!("esc-test: stop key no longer armed; not posting (would reach the front app)");
-            return;
         }
         #[cfg(target_os = "macos")]
         {
@@ -288,7 +300,7 @@ fn spawn_esc_self_test(state: Arc<ServerState>, ms: u64) {
                 println!("esc-test: watcher tap failed ({e}); posting anyway");
             }
             std::thread::sleep(Duration::from_millis(100));
-            println!("esc-test: posting one synthetic (unmarked) Esc");
+            println!("esc-test: posting one synthetic (unmarked) Esc while an action is in flight");
             if let Err(e) = post_test_escape() {
                 println!("esc-test: post failed: {e}");
             }
@@ -300,7 +312,12 @@ fn spawn_esc_self_test(state: Arc<ServerState>, ms: u64) {
                 seen.len(),
                 if seen.is_empty() { "consumed: PASS" } else { "NOT consumed: FAIL" }
             );
-            println!("esc-test: halted after Esc: {}", state.control.is_halted());
+            println!(
+                "esc-test: halted {}, stop key armed {}, action in flight {}",
+                state.control.is_halted(),
+                state.control.is_armed(),
+                state.control.in_flight()
+            );
         }
     });
 }

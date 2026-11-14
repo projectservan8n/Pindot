@@ -200,8 +200,9 @@ pub fn is_menu_bar_layer(layer: i32) -> bool {
 }
 
 /// Where a click at global `p` would land, and whether it may. `windows` is
-/// front to back. `menu_hit` is asked only for the menu bar; it returns the
-/// pid and name of the element under the point.
+/// front to back. `menu_hit` returns the pid and name of the accessibility
+/// element under the point; it is asked only for the menu bar and for
+/// full-display system windows (the Dock).
 pub fn hit_test(
     windows: &[WindowInfo],
     displays: &[crate::platform::DisplayInfo],
@@ -222,6 +223,17 @@ pub fn hit_test(
         }
         if is_approved(w.pid) {
             return Ok(w.pid);
+        }
+        if SYSTEM_OWNERS.contains(&w.app.as_str()) && !is_menu_bar_layer(w.layer) && is_overlay(w, displays) {
+            // A mostly transparent system window over a whole display (on
+            // macOS 26 the Dock's window spans the screen). Ask the
+            // accessibility hit test what is really under the point.
+            match menu_hit() {
+                Some((pid, _)) if pid == w.pid => {
+                    return Err(format!("That point is on the {}, which Claude may not use.", w.app));
+                }
+                _ => continue,
+            }
         }
         if is_menu_bar_layer(w.layer) {
             return match menu_hit() {
@@ -310,6 +322,26 @@ mod tests {
         assert!(hit_test(&ws, &d, Point::new(850.0, 200.0), own, &approved, &no_menu).unwrap_err().contains("Chrome"));
         // Desktop.
         assert!(hit_test(&ws, &d, Point::new(1000.0, 800.0), own, &approved, &no_menu).unwrap_err().contains("desktop"));
+    }
+
+    #[test]
+    fn a_full_screen_dock_window_is_looked_through() {
+        let own = 99;
+        let approved = |pid: i32| pid == 10;
+        let ws = vec![
+            win(8, 433, "Dock", Rect::new(0.0, 0.0, 1440.0, 900.0), 20),
+            win(4, 10, "TextEdit", Rect::new(0.0, 0.0, 900.0, 700.0), 0),
+        ];
+        let d = displays();
+        // AX says the point is a TextEdit button: the click goes through.
+        let on_textedit = || Some((10, "New Document".into()));
+        assert_eq!(hit_test(&ws, &d, Point::new(100.0, 400.0), own, &approved, &on_textedit), Ok(10));
+        // AX says it is a Dock icon: refused.
+        let on_dock = || Some((433, "Finder".into()));
+        assert!(hit_test(&ws, &d, Point::new(100.0, 880.0), own, &approved, &on_dock).unwrap_err().contains("Dock"));
+        // A Dock window that is not full-screen still blocks like any window.
+        let ws2 = vec![win(8, 433, "Dock", Rect::new(0.0, 820.0, 1440.0, 80.0), 20)];
+        assert!(hit_test(&ws2, &d, Point::new(100.0, 850.0), own, &approved, &on_textedit).unwrap_err().contains("Dock"));
     }
 
     #[test]

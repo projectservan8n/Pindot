@@ -729,7 +729,8 @@ impl DesktopServer {
                 let ax = self.state.accessibility.clone();
                 let w2 = window.clone();
                 let limits = TreeLimits { menu_depth: if include_menus { 3 } else { 1 }, ..TreeLimits::default() };
-                let t = blocking(move || ax.window_tree(&w2, &limits)).await?.map_err(perr)?;
+                let mut t = blocking(move || ax.window_tree(&w2, &limits)).await?.map_err(perr)?;
+                tree::tidy(&mut t.nodes);
                 let picked = tree::select(&t.nodes, filter);
                 let mut refs = self.session.refs.lock().unwrap();
                 let items: Vec<(String, crate::platform::AxNode)> = picked
@@ -832,13 +833,14 @@ impl DesktopServer {
             // Menus once per app.
             let menu_depth = if menus_done.insert(w.pid) { 3 } else { 0 };
             let limits = TreeLimits { menu_depth, ..TreeLimits::default() };
-            let t = match blocking(move || ax.window_tree(&w2, &limits)).await? {
+            let mut t = match blocking(move || ax.window_tree(&w2, &limits)).await? {
                 Ok(t) => t,
                 Err(e) => {
                     tracing::warn!(window = w.id, "find: tree failed: {e}");
                     continue;
                 }
             };
+            tree::tidy(&mut t.nodes);
             for n in &t.nodes {
                 if let Some(sc) = tree::score(n, &args.query) {
                     let root = n.menu_root.and_then(|ri| t.nodes.get(ri)).map(|r| r.handle.clone());

@@ -68,6 +68,45 @@ fn zero_size(node: &AxNode) -> bool {
     node.menu_path.is_none() && node.bounds.is_some_and(|b| b.width <= 0.0 || b.height <= 0.0)
 }
 
+/// Roles that often have no name of their own but hold their label as a
+/// child text (sidebar rows, table cells, some buttons).
+const NAMED_BY_CHILD: &[&str] = &["AXRow", "AXCell", "AXOutlineRow", "AXButton", "AXRadioButton", "AXCheckBox"];
+/// How far into a node's subtree a derived name is looked for.
+const NAME_LOOKAHEAD: usize = 24;
+
+/// Clean a raw tree in place before it is listed:
+/// - a nameless row, cell or button takes the first text found in its
+///   subtree as its name (a Finder sidebar row is just a row with a text);
+/// - only the last node that says it is focused keeps the flag (some apps,
+///   like the Open panel's sidebar, report AXFocused on every cell).
+pub fn tidy(nodes: &mut [AxNode]) {
+    for i in 0..nodes.len() {
+        if !nodes[i].name.is_empty() || !NAMED_BY_CHILD.contains(&nodes[i].role.as_str()) {
+            continue;
+        }
+        let depth = nodes[i].depth;
+        let derived = nodes[i + 1..]
+            .iter()
+            .take(NAME_LOOKAHEAD)
+            .take_while(|n| n.depth > depth)
+            .find_map(|n| match n.role.as_str() {
+                "AXStaticText" | "AXTextField" => {
+                    let t = if n.name.is_empty() { n.value.as_deref().unwrap_or("") } else { n.name.as_str() };
+                    (!t.trim().is_empty()).then(|| t.trim().to_string())
+                }
+                _ => None,
+            });
+        if let Some(name) = derived {
+            nodes[i].name = name;
+        }
+    }
+    if let Some(last) = nodes.iter().rposition(|n| n.focused) {
+        for n in &mut nodes[..last] {
+            n.focused = false;
+        }
+    }
+}
+
 /// Which nodes a listing shows, as indexes into `nodes`.
 pub fn select(nodes: &[AxNode], filter: Filter) -> Vec<usize> {
     nodes
@@ -280,6 +319,58 @@ mod tests {
         item.menu_path = Some("File > New".into());
         assert!(score(&item, "file new").is_some());
         assert!(score(&item, "file open").is_none());
+    }
+
+    #[test]
+    fn nameless_rows_take_their_child_text() {
+        let b = Some(Rect::new(0.0, 0.0, 80.0, 20.0));
+        let mut row = node("AXRow", "", b);
+        row.depth = 3;
+        let mut cell = node("AXCell", "", b);
+        cell.depth = 4;
+        let mut text = node("AXStaticText", "Desktop", b);
+        text.depth = 5;
+        let mut row2 = node("AXRow", "", b);
+        row2.depth = 3; // a sibling: its text must not leak into the row above
+        let mut text2 = node("AXStaticText", "Downloads", b);
+        text2.depth = 4;
+        let mut empty_row = node("AXRow", "", b);
+        empty_row.depth = 3;
+        let mut nodes = vec![row, cell, text, row2, text2, empty_row];
+        tidy(&mut nodes);
+        assert_eq!(nodes[0].name, "Desktop");
+        assert_eq!(nodes[1].name, "Desktop");
+        assert_eq!(nodes[3].name, "Downloads");
+        assert_eq!(nodes[5].name, "", "no text in the subtree, no name");
+        // Named nodes keep their own name.
+        let mut btn = node("AXButton", "OK", b);
+        btn.depth = 1;
+        let mut t = node("AXStaticText", "Other", b);
+        t.depth = 2;
+        let mut nodes = vec![btn, t];
+        tidy(&mut nodes);
+        assert_eq!(nodes[0].name, "OK");
+    }
+
+    #[test]
+    fn only_the_last_focused_node_stays_focused() {
+        let b = Some(Rect::new(0.0, 0.0, 80.0, 20.0));
+        let mut nodes: Vec<AxNode> = (0..4)
+            .map(|_| {
+                let mut c = node("AXCell", "", b);
+                c.focused = true;
+                c
+            })
+            .collect();
+        let mut list = node("AXList", "", b);
+        list.focused = true;
+        nodes.push(list);
+        nodes.push(node("AXButton", "Open", b));
+        tidy(&mut nodes);
+        let focused: Vec<usize> = nodes.iter().enumerate().filter(|(_, n)| n.focused).map(|(i, _)| i).collect();
+        assert_eq!(focused, vec![4]);
+        // Unfocused cells drop out of the interactive listing.
+        assert_eq!(select(&nodes, Filter::Interactive), vec![4, 5]);
     }
 
     #[test]

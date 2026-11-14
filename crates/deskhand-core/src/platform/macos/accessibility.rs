@@ -383,22 +383,34 @@ fn ax_window(window: &WindowInfo) -> Result<CFRetained<AXUIElement>> {
     let app = unsafe { AXUIElement::new_application(window.pid) };
     let wins = attr(&app, "AXWindows")?.map(|v| as_elements(&v)).unwrap_or_default();
     let mut fallback = None;
-    for w in wins {
+    let same = |f: Option<Rect>| {
+        f.is_some_and(|f| {
+            (f.x - window.bounds.x).abs() < 2.0
+                && (f.y - window.bounds.y).abs() < 2.0
+                && (f.width - window.bounds.width).abs() < 2.0
+                && (f.height - window.bounds.height).abs() < 2.0
+        })
+    };
+    for w in wins.iter().cloned() {
         let mut id: u32 = 0;
         if unsafe { _AXUIElementGetWindow(&w, &mut id) } == AXError::Success && id as u64 == window.id {
             return Ok(w);
         }
         let title = attr_opt(&w, "AXTitle").and_then(|v| as_string(&v)).unwrap_or_default();
         let frame = frame_of(attr_opt(&w, "AXPosition").as_deref(), attr_opt(&w, "AXSize").as_deref());
-        let same_frame = frame.is_some_and(|f| {
-            (f.x - window.bounds.x).abs() < 2.0
-                && (f.y - window.bounds.y).abs() < 2.0
-                && (f.width - window.bounds.width).abs() < 2.0
-                && (f.height - window.bounds.height).abs() < 2.0
-        });
-        if same_frame && (title == window.title || fallback.is_none()) {
+        if same(frame) && (title == window.title || fallback.is_none()) {
             fallback = Some(w);
         }
+    }
+    if fallback.is_none() {
+        // A sheet (a Save sheet, say) has its own CGWindowID but no AX
+        // window: it is a child of its document window, so read that.
+        fallback = wins.into_iter().find(|w| {
+            attr_opt(w, "AXChildren").map(|v| as_elements(&v)).unwrap_or_default().iter().any(|c| {
+                attr_opt(c, "AXRole").and_then(|v| as_string(&v)).as_deref() == Some("AXSheet")
+                    && same(frame_of(attr_opt(c, "AXPosition").as_deref(), attr_opt(c, "AXSize").as_deref()))
+            })
+        });
     }
     fallback.ok_or_else(|| {
         PlatformError::Other(format!(

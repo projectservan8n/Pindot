@@ -40,6 +40,18 @@ fn px_rect(display: &DisplayInfo, r: &Rect, img_w: u32, img_h: u32) -> Option<(u
     (x1 > x0 && y1 > y0).then(|| (x0, y0, x1 - x0, y1 - y0))
 }
 
+/// A mostly transparent system window over a whole display (on macOS 26
+/// the Dock's window spans the screen). Copying it would un-grey every
+/// window behind it, so the mask looks through it.
+fn is_system_backdrop(win: &WindowInfo, display: &DisplayInfo) -> bool {
+    crate::server::session::SYSTEM_OWNERS.contains(&win.app.as_str())
+        && win.layer != 24
+        && win.layer != 25
+        && win.bounds.intersect(&display.bounds).is_some_and(|r| {
+            (r.width - display.bounds.width).abs() < 1.0 && (r.height - display.bounds.height).abs() < 1.0
+        })
+}
+
 /// Paint the frame back to front: windows `allowed` shows keep their
 /// pixels, every other window (and the bare desktop) turns grey. Returns
 /// the masked image and the names of the masked apps. `windows` is front to
@@ -54,7 +66,7 @@ pub fn mask_frame(
     let mut out = RgbaImage::from_pixel(w, h, MASK);
     let mut masked: Vec<String> = vec![];
     for win in windows.iter().rev() {
-        if win.pid == own_pid || win.alpha < 0.05 {
+        if win.pid == own_pid || win.alpha < 0.05 || is_system_backdrop(win, &frame.display) {
             continue;
         }
         let Some((x, y, rw, rh)) = px_rect(&frame.display, &win.bounds, w, h) else { continue };
@@ -123,10 +135,19 @@ pub fn take(
     };
     let display = displays.get(idx).cloned().ok_or("no display")?;
     let geometry = ShotGeometry::new(display.clone(), idx, region, MAX_LONG_EDGE);
+    let t0 = std::time::Instant::now();
     let frame = capture.capture_display(display.id).map_err(|e| e.to_string())?;
+    let t_cap = t0.elapsed();
     let (masked_img, masked) = mask_frame(&frame, windows, own_pid, allowed);
+    let t_mask = t0.elapsed();
     let cropped = crop(&masked_img, &frame.display, &geometry.region);
     let small = imageops::resize(&cropped, geometry.image_width, geometry.image_height, imageops::FilterType::Triangle);
+    tracing::debug!(
+        capture_ms = t_cap.as_millis() as u64,
+        mask_ms = (t_mask - t_cap).as_millis() as u64,
+        resize_ms = (t0.elapsed() - t_mask).as_millis() as u64,
+        "screenshot timing"
+    );
     // Only report apps that are actually inside the picture.
     let masked = masked
         .into_iter()
@@ -190,6 +211,30 @@ mod tests {
         assert_eq!(*img.get_pixel(600, 400), MASK, "Chrome over TextEdit is masked");
         assert_eq!(*img.get_pixel(2000, 1600), MASK, "desktop is masked");
         assert_eq!(masked, vec!["Chrome".to_string()]);
+    }
+
+    #[test]
+    fn a_full_screen_dock_window_does_not_unmask_what_is_behind_it() {
+        let cap = MockCapture::default();
+        let frame = cap.capture_display(1).unwrap();
+        let original = *frame.image.get_pixel(0, 0);
+        let mut dock = win(8, 433, "Dock", Rect::new(0.0, 0.0, 1440.0, 900.0));
+        dock.layer = 20;
+        let mut dock_strip = win(9, 433, "Dock", Rect::new(0.0, 820.0, 1440.0, 80.0));
+        dock_strip.layer = 20;
+        let windows = vec![
+            dock,
+            win(1, 10, "TextEdit", Rect::new(0.0, 0.0, 400.0, 300.0)),
+            win(2, 20, "Chrome", Rect::new(0.0, 0.0, 1440.0, 800.0)),
+        ];
+        let allowed = |w: &WindowInfo| w.pid == 10 || w.app == "Dock";
+        let (img, masked) = mask_frame(&frame, &windows, 99, &allowed);
+        assert_eq!(*img.get_pixel(100, 100), original, "approved window visible");
+        assert_eq!(*img.get_pixel(1600, 1000), MASK, "Chrome stays masked under the Dock's full-screen window");
+        assert_eq!(masked, vec!["Chrome".to_string()]);
+        // A normal-sized Dock window is still shown as it is.
+        let (img, _) = mask_frame(&frame, &[dock_strip], 99, &allowed);
+        assert_eq!(*img.get_pixel(100, 1700), original);
     }
 
     #[test]
