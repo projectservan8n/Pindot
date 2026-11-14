@@ -15,6 +15,9 @@ use uuid::Uuid;
 pub const SPLASH_SILENCE: Duration = Duration::from_millis(1800);
 /// Pause between pasting the prompt text and pressing Enter.
 pub const SUBMIT_DELAY: Duration = Duration::from_millis(120);
+/// The input box must be this quiet before Enter (see `type_prompt`).
+pub const ECHO_QUIET: Duration = Duration::from_millis(400);
+pub const ECHO_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Env vars that identify a *parent* Claude Code session. If Deskhand itself
 /// was started from inside Claude Code, these must not leak into the child.
@@ -353,11 +356,34 @@ impl ClaudeSession {
     }
 
     /// Type a one-line prompt and press Enter.
+    ///
+    /// Claude Code takes a burst of input as a paste, and an Enter that
+    /// arrives while it is still taking the paste in is lost (a ~550-char
+    /// prompt sat unsent for 5 minutes this way). So wait until the end of
+    /// the prompt is echoed (or a paste placeholder shows) and the screen
+    /// has been quiet for `ECHO_QUIET`, at most `ECHO_TIMEOUT`, then press
+    /// Enter. `drive_turn` checks the turn really started.
     pub fn type_prompt(&mut self, prompt: &str) -> Result<()> {
         let one_line: String = prompt.chars().map(|c| if c == '\n' || c == '\r' { ' ' } else { c }).collect();
         self.scan_from = self.out.lock().unwrap().total;
         self.write_raw(one_line.as_bytes())?;
         thread::sleep(SUBMIT_DELAY);
+        let tail: String = squash(&one_line).chars().rev().take(24).collect::<Vec<_>>().into_iter().rev().collect();
+        let start = Instant::now();
+        while start.elapsed() < ECHO_TIMEOUT {
+            let screen = squash(&self.screen_text());
+            let echoed = screen.contains(&tail) || screen.contains("pastedtext");
+            let quiet = self.out.lock().unwrap().last.map(|l| l.elapsed() >= ECHO_QUIET).unwrap_or(true);
+            if echoed && quiet {
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        self.press_enter()
+    }
+
+    /// Press Enter (submits what is in the input box).
+    pub fn press_enter(&mut self) -> Result<()> {
         self.write_raw(b"\r")
     }
 
@@ -372,8 +398,13 @@ impl ClaudeSession {
             .map_err(|e| anyhow!("{e}"))
     }
 
-    /// `/exit`, then kill if it hasn't gone within `grace`.
+    /// Ctrl+C (clears anything left in the input box, or stops a running
+    /// turn), then `/exit`, then kill if it hasn't gone within `grace`.
+    /// Without the Ctrl+C, `/exit` was once appended to an unsent prompt and
+    /// Enter submitted the lot as a new turn.
     pub fn exit(mut self, grace: Duration) -> Result<()> {
+        let _ = self.write_raw(b"\x03");
+        thread::sleep(Duration::from_millis(400));
         let _ = self.write_raw(b"/exit");
         thread::sleep(SUBMIT_DELAY);
         let _ = self.write_raw(b"\r");

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use deskhand_core::brain::config::{ALLOWED_TOOLS_RULE, write_hook_settings, write_mcp_config};
+use deskhand_core::brain::config::{ALLOWED_TOOLS_RULE, write_brain_mcp_config, write_hook_settings};
 use deskhand_core::brain::transcript::{find_transcript, wait_for_last_turn};
 use deskhand_core::brain::turn::{TurnEnd, drive_turn};
 use deskhand_core::brain::{ClaudeSession, SpawnOptions, claude_version, find_claude};
@@ -40,7 +40,10 @@ pub fn run(state: Arc<ServerState>, urls: ServerUrls, args: TurnArgs) -> Result<
 
     let mut opts = SpawnOptions::new(bin, cwd);
     opts.settings = Some(write_hook_settings(&urls.stop_hook, &urls.token)?);
-    opts.mcp_config = Some(write_mcp_config(&urls.mcp, &urls.token)?);
+    // The session header keys approvals and refs to this claude (its tool
+    // calls arrive as stateless MCP 2026-07-28 requests).
+    let session_key = opts.session_id.to_string();
+    opts.mcp_config = Some(write_brain_mcp_config(&urls.mcp, &urls.token, &session_key)?);
     opts.allowed_tools = vec![ALLOWED_TOOLS_RULE.into()];
     opts.model = args.model;
     opts.permission_mode = args.permission_mode;
@@ -96,6 +99,7 @@ pub fn run(state: Arc<ServerState>, urls: ServerUrls, args: TurnArgs) -> Result<
         std::process::Command::new("kill").args(["-0", &p.to_string()]).status().map(|s| s.success()).unwrap_or(false)
     });
     println!("test-turn: child claude still running after /exit: {alive:?}");
+    state.end_session(&session_key);
     Ok(ok)
 }
 

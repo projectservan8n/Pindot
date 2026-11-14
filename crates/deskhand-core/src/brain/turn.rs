@@ -15,6 +15,8 @@ use crate::server::{ServerState, StopHookEvent};
 /// Squashed lowercase phrases of a tool-permission prompt. We pass
 /// `--allowedTools`, so seeing one means the allow rule did not match.
 pub const PERMISSION_PROMPT_MARKERS: &[&str] = &["doyouwanttoproceed", "doyouwanttoallow"];
+/// How long after Enter the `UserPromptSubmit` hook must have arrived.
+pub const SUBMIT_CHECK: Duration = Duration::from_secs(6);
 
 #[derive(Debug)]
 pub enum TurnEnd {
@@ -42,9 +44,14 @@ pub fn drive_turn(
     let mut stop_rx = state.stop_events.subscribe();
     let mut act_rx = state.activity.subscribe();
     let mut ctl_rx = state.control.subscribe();
+    let mut prompt_rx = state.prompt_events.subscribe();
     session.type_prompt(prompt)?;
     let t0 = Instant::now();
     let want = session.session_id.to_string();
+    // The UserPromptSubmit hook proves the turn started. If it hasn't come
+    // after `SUBMIT_CHECK`, Enter was lost: press it once more.
+    let mut started = false;
+    let mut retried = false;
     let mut drain = |rx: &mut tokio::sync::broadcast::Receiver<ActivityEntry>| loop {
         match rx.try_recv() {
             Ok(e) => on_activity(&e),
@@ -54,6 +61,14 @@ pub fn drive_turn(
     };
     loop {
         drain(&mut act_rx);
+        while let Ok(id) = prompt_rx.try_recv() {
+            started |= id == want;
+        }
+        if !started && !retried && t0.elapsed() > SUBMIT_CHECK {
+            tracing::warn!("no UserPromptSubmit hook {SUBMIT_CHECK:?} after Enter; pressing Enter again");
+            session.press_enter()?;
+            retried = true;
+        }
         match stop_rx.try_recv() {
             Ok(ev) if ev.session_id == want => {
                 drain(&mut act_rx);

@@ -9,6 +9,15 @@
 //! Every request must carry `Authorization: Bearer <token>` and must NOT
 //! carry an `Origin` header (browsers always send one, so this blocks web
 //! pages from reaching the server). The Host must be loopback.
+//!
+//! "Session" (approvals, refs, the latest screenshot, the input lock) means
+//! one Claude session, not one MCP connection: MCP 2026-07-28 removed
+//! transport sessions, and Claude Code 2.1.3xx sends each tool call as its
+//! own stateless request. So a `claude` that Deskhand starts gets a
+//! `X-Deskhand-Session` header in its MCP config, and the server keys its
+//! session state on that (see `ServerState::session_for` and
+//! `tools::session_key`). Legacy clients that keep an `Mcp-Session-Id` keep
+//! one session per connection.
 
 pub mod activity;
 pub mod approval;
@@ -18,8 +27,9 @@ pub mod shot;
 pub mod tools;
 pub mod tree;
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -109,6 +119,11 @@ pub struct ServerState {
     pub auto_approve: Vec<String>,
     pub own_pid: i32,
     pub stop_events: broadcast::Sender<StopHookEvent>,
+    /// Session ids from the `UserPromptSubmit` hook (a turn really started).
+    pub prompt_events: broadcast::Sender<String>,
+    /// Sessions keyed by `X-Deskhand-Session` (or the shared key for
+    /// stateless clients without it). Removed by `end_session`.
+    sessions: Mutex<HashMap<String, Arc<session::Session>>>,
 }
 
 impl ServerState {
@@ -125,7 +140,31 @@ impl ServerState {
             auto_approve: deps.test_auto_approve,
             own_pid: deps.own_pid,
             stop_events: broadcast::channel(64).0,
+            prompt_events: broadcast::channel(64).0,
+            sessions: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// The session for `key`, created on first use. Its id (shown in the
+    /// activity log) is the first 8 characters of the key.
+    pub fn session_for(&self, key: &str) -> Arc<session::Session> {
+        let mut map = self.sessions.lock().unwrap();
+        map.entry(key.to_string())
+            .or_insert_with(|| {
+                let id: String = key.chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect();
+                tracing::info!(session = %id, "new Claude session");
+                session::Session::with_id(self.control.clone(), if id.is_empty() { "shared".into() } else { id })
+            })
+            .clone()
+    }
+
+    /// Forget a keyed session (its `claude` exited): its approvals end and
+    /// it releases the input lock once no call is using it.
+    pub fn end_session(&self, key: &str) {
+        let gone = self.sessions.lock().unwrap().remove(key);
+        if let Some(s) = gone {
+            tracing::info!(session = %s.id, "Claude session ended");
+        }
     }
 }
 
@@ -165,10 +204,12 @@ async fn stop_hook(State(state): State<Arc<ServerState>>, Json(ev): Json<StopHoo
     StatusCode::OK
 }
 
-async fn prompt_hook(State(state): State<Arc<ServerState>>, Json(_ev): Json<serde_json::Value>) -> StatusCode {
+async fn prompt_hook(State(state): State<Arc<ServerState>>, Json(ev): Json<serde_json::Value>) -> StatusCode {
     // A new user turn: an Esc halt from the previous turn no longer applies.
-    tracing::info!("UserPromptSubmit hook received");
+    let session = ev.get("session_id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    tracing::info!(session = %session, "UserPromptSubmit hook received");
     state.control.turn_ended();
+    let _ = state.prompt_events.send(session);
     StatusCode::OK
 }
 

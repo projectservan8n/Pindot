@@ -14,6 +14,7 @@ app/src-tauri/gen/schemas/
 mcp-token
 *.token
 claude-mcp.json
+claude-mcp-brain.json
 claude-settings.json
 .env
 .env.*

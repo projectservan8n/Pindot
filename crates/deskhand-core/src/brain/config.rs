@@ -57,6 +57,22 @@ pub fn write_mcp_config(mcp_url: &str, token: &str) -> Result<PathBuf> {
     Ok(p)
 }
 
+/// The MCP config for one `claude` that Deskhand starts: as
+/// `mcp_config_json`, plus the `X-Deskhand-Session` header naming its
+/// session, so approvals and refs survive Claude Code's stateless
+/// (MCP 2026-07-28) tool calls.
+pub fn brain_mcp_config_json(mcp_url: &str, token: &str, session_key: &str) -> serde_json::Value {
+    let mut v = mcp_config_json(mcp_url, token);
+    v["mcpServers"][MCP_SERVER_NAME]["headers"]["X-Deskhand-Session"] = json!(session_key);
+    v
+}
+
+pub fn write_brain_mcp_config(mcp_url: &str, token: &str, session_key: &str) -> Result<PathBuf> {
+    let p = data_dir()?.join("claude-mcp-brain.json");
+    write_private(&p, serde_json::to_string_pretty(&brain_mcp_config_json(mcp_url, token, session_key))?.as_bytes())?;
+    Ok(p)
+}
+
 pub fn write_hook_settings(stop_hook_url: &str, token: &str) -> Result<PathBuf> {
     let p = data_dir()?.join("claude-settings.json");
     write_private(&p, serde_json::to_string_pretty(&hook_settings_json(stop_hook_url, token))?.as_bytes())?;

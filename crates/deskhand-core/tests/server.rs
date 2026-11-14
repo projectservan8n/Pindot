@@ -526,6 +526,92 @@ async fn one_session_holds_the_input_lock() {
     assert_ne!(h.state.control.lock_holder(), Some(holder));
 }
 
+/// A tool call the way Claude Code 2.1.3xx sends it: MCP 2026-07-28, no
+/// initialize and no `Mcp-Session-Id`, protocol data in `_meta`.
+async fn stateless_call(app: &axum::Router, key: Option<&str>, name: &str, args: Value) -> (bool, String) {
+    let mut b = req("POST", "/mcp")
+        .header("authorization", format!("Bearer {TOKEN}"))
+        .header("content-type", "application/json")
+        .header("accept", "application/json, text/event-stream")
+        .header("mcp-protocol-version", "2026-07-28")
+        .header("mcp-method", "tools/call")
+        .header("mcp-name", name);
+    if let Some(k) = key {
+        b = b.header("x-deskhand-session", k);
+    }
+    let body = json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
+        "name": name, "arguments": args,
+        "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": {"name": "test", "version": "0"},
+            "io.modelcontextprotocol/clientCapabilities": {}
+        }}});
+    let resp = app.clone().oneshot(b.body(Body::from(body.to_string())).unwrap()).await.unwrap();
+    let status = resp.status();
+    let v = rpc_body(&to_bytes(resp.into_body(), 16 * 1024 * 1024).await.unwrap());
+    let r = v.get("result").cloned().unwrap_or_else(|| panic!("{name}: HTTP {status}, no result: {v}"));
+    let err = r.get("isError").and_then(Value::as_bool).unwrap_or(false);
+    let text = r
+        .get("content")
+        .and_then(Value::as_array)
+        .map(|c| c.iter().filter_map(|b| b.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n"))
+        .unwrap_or_default();
+    (err, text)
+}
+
+#[tokio::test]
+async fn stateless_calls_share_the_claude_session_named_by_the_header() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    let a = Some("616b631e-9490-4585-86e2-b1f10e68a1c8");
+    let b = Some("7b2c0000-0000-0000-0000-000000000000");
+
+    // Each call is a separate HTTP request with no MCP session, yet the
+    // approval, the screenshot geometry and the refs carry over.
+    let (err, t) = stateless_call(&h.app, a, "request_access", json!({"apps": ["TextEdit"], "reason": "t"})).await;
+    assert!(!err, "{t}");
+    let (err, listing) = stateless_call(&h.app, a, "read_window", json!({})).await;
+    assert!(!err, "approval must survive between stateless calls: {listing}");
+    let (err, t) = stateless_call(&h.app, a, "screenshot", json!({})).await;
+    assert!(!err, "{t}");
+    let (err, t) = stateless_call(&h.app, a, "click", json!({"x": 356, "y": 356})).await;
+    assert!(!err, "{t}");
+    assert_eq!(h.state.control.lock_holder().as_deref(), Some("616b631e"));
+
+    // Another Claude session: its own approvals, and the lock is A's.
+    let (err, t) = stateless_call(&h.app, b, "read_window", json!({})).await;
+    assert!(err && t.contains("request_access"), "{t}");
+    stateless_call(&h.app, b, "request_access", json!({"apps": ["TextEdit"], "reason": "t"})).await;
+    stateless_call(&h.app, b, "screenshot", json!({})).await;
+    let (err, t) = stateless_call(&h.app, b, "click", json!({"x": 356, "y": 356})).await;
+    assert!(err && t.contains("Another Claude session (616b631e)"), "{t}");
+
+    // A's claude exits: its session (approvals, lock) ends.
+    h.state.end_session(a.unwrap());
+    assert_eq!(h.state.control.lock_holder(), None);
+    let (err, t) = stateless_call(&h.app, b, "click", json!({"x": 356, "y": 356})).await;
+    assert!(!err, "{t}");
+    let (err, t) = stateless_call(&h.app, a, "read_window", json!({})).await;
+    assert!(err && t.contains("request_access"), "a new session starts with no approvals: {t}");
+
+    // Stateless calls without the header share one session.
+    stateless_call(&h.app, None, "request_access", json!({"apps": ["TextEdit"], "reason": "t"})).await;
+    let (err, t) = stateless_call(&h.app, None, "read_window", json!({})).await;
+    assert!(!err, "{t}");
+}
+
+#[test]
+fn session_key_prefers_our_header_then_the_mcp_connection() {
+    use axum::http::HeaderMap;
+    use deskhand_core::server::tools::{SessionKey, session_key};
+    assert_eq!(session_key(None), SessionKey::Connection);
+    let mut h = HeaderMap::new();
+    assert_eq!(session_key(Some(&h)), SessionKey::Keyed("shared".into()));
+    h.insert("mcp-session-id", "abc".parse().unwrap());
+    assert_eq!(session_key(Some(&h)), SessionKey::Connection);
+    h.insert("x-deskhand-session", " k1 ".parse().unwrap());
+    assert_eq!(session_key(Some(&h)), SessionKey::Keyed("k1".into()));
+}
+
 #[tokio::test]
 async fn esc_cancels_the_action_and_halts_until_the_next_prompt() {
     let h = harness_with(fixture(), &["TextEdit"]);

@@ -107,7 +107,10 @@ pub struct Session {
 
 impl Session {
     pub fn new(control: Arc<Control>) -> Arc<Self> {
-        let id = uuid::Uuid::new_v4().simple().to_string()[..8].to_string();
+        Self::with_id(control, uuid::Uuid::new_v4().simple().to_string()[..8].to_string())
+    }
+
+    pub fn with_id(control: Arc<Control>, id: String) -> Arc<Self> {
         Arc::new(Self {
             id,
             control,
