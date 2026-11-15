@@ -1,6 +1,5 @@
 //! Windows, the apps behind them, opening an app and bringing a window to
-//! the front. The element tree (UI Automation) is not here yet: `read_window`
-//! and `find` answer "not supported", so Claude works from screenshots.
+//! the front. What is inside a window (the element tree) is in `uia`.
 //!
 //! The window list comes from `EnumWindows`, which walks the top-level
 //! windows front to back. What each window is to Pindot is decided in
@@ -27,7 +26,7 @@ use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT};
 use windows_sys::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
-use windows_sys::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromWindow};
+use windows_sys::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromPoint, MonitorFromWindow};
 use windows_sys::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW};
 use windows_sys::Win32::Storage::Packaging::Appx::GetApplicationUserModelId;
 use windows_sys::Win32::System::Threading::{
@@ -41,6 +40,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use super::capture::{Monitor, dpi_aware, monitor_scale, monitors};
+use super::uia;
 use crate::platform::windows_logic::{
     RawWindow, StartApp, WindowKind, app_matches, classify_window, find_start_app, parse_start_apps, start_name_for,
     to_physical,
@@ -50,7 +50,7 @@ use crate::platform::{
     Result, TreeLimits, WindowInfo,
 };
 
-const NO_TREE: &str = "reading a window's elements on Windows (use screenshot and click at x,y)";
+const NO_ACTION: &str = "that accessibility action on Windows (only a press)";
 /// How long the Start menu's app list is kept.
 const START_TTL: Duration = Duration::from_secs(600);
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -435,20 +435,40 @@ impl Accessibility for WinAccessibility {
             .map_err(|e| PlatformError::Other(format!("could not open {}: {e}", app.name)))
     }
 
-    fn window_tree(&self, _window: &WindowInfo, _limits: &TreeLimits) -> Result<AxTree> {
-        Err(PlatformError::Unsupported(NO_TREE))
+    fn window_tree(&self, window: &WindowInfo, limits: &TreeLimits) -> Result<AxTree> {
+        let h = window.id as usize as HWND;
+        // SAFETY: plain queries.
+        if unsafe { IsWindow(h) } == 0 {
+            return Err(PlatformError::Stale);
+        }
+        let scale = monitor_scale(unsafe { MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST) });
+        uia::window_tree(window.id as usize, scale, limits)
     }
 
-    fn element_frame(&self, _el: &ElementHandle) -> Result<Option<Rect>> {
-        Err(PlatformError::Unsupported(NO_TREE))
+    fn element_frame(&self, el: &ElementHandle) -> Result<Option<Rect>> {
+        // In physical pixels first: the scale is that of the monitor it is on.
+        let Some(px) = uia::element_frame(el, 1.0)? else { return Ok(None) };
+        let c = px.center();
+        // SAFETY: a plain query.
+        let s = monitor_scale(unsafe { MonitorFromPoint(POINT { x: c.x as i32, y: c.y as i32 }, MONITOR_DEFAULTTONEAREST) });
+        Ok(Some(Rect::new(px.x / s, px.y / s, px.width / s, px.height / s)))
     }
 
-    fn press(&self, _el: &ElementHandle) -> Result<()> {
-        Err(PlatformError::Unsupported(NO_TREE))
+    fn press(&self, el: &ElementHandle) -> Result<()> {
+        uia::press(el)
     }
 
-    fn can_press(&self, _el: &ElementHandle) -> Result<bool> {
-        Ok(false)
+    fn can_press(&self, el: &ElementHandle) -> Result<bool> {
+        uia::can_press(el)
+    }
+
+    fn has_action(&self, el: &ElementHandle, action: &str) -> Result<bool> {
+        // UI Automation has a press; a context menu is a real right-click.
+        Ok(action == "AXPress" && uia::can_press(el)?)
+    }
+
+    fn perform(&self, el: &ElementHandle, action: &str) -> Result<()> {
+        if action == "AXPress" { uia::press(el) } else { Err(PlatformError::Unsupported(NO_ACTION)) }
     }
 
     fn element_at(&self, at: Point) -> Result<Option<HitElement>> {
@@ -477,10 +497,13 @@ impl Accessibility for WinAccessibility {
         Ok(())
     }
 
-    /// True for a classic password box (an Edit control with `ES_PASSWORD`).
-    /// Password fields of browsers and modern apps need UI Automation, which
-    /// is not wired yet: they are NOT detected.
+    /// Two checks, either is enough: UI Automation's `IsPassword` on the
+    /// focused element (browsers, modern apps, classic ones), and a classic
+    /// Edit control with `ES_PASSWORD` in case UI Automation fails.
     fn focused_is_secure(&self) -> Result<bool> {
+        if uia::focused_is_password().unwrap_or(false) {
+            return Ok(true);
+        }
         // SAFETY: a zeroed GUITHREADINFO with its size is what the call wants.
         unsafe {
             let mut info: GUITHREADINFO = std::mem::zeroed();

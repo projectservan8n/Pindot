@@ -3820,6 +3820,7 @@ dependencies = [
  "transcribe-rs",
  "ureq",
  "uuid",
+ "windows 0.62.2",
  "windows-sys 0.61.2",
  "xcap",
 ]

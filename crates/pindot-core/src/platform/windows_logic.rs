@@ -152,6 +152,64 @@ pub fn start_name_for(exe: &str, aumid: Option<&str>, apps: &[StartApp]) -> Opti
     fits.next().is_none().then(|| first.name.clone())
 }
 
+// ------------------------------------------------------------- the element tree
+
+/// UI Automation control type ids (`UIA_*ControlTypeId`).
+pub const UIA_EDIT: i32 = 50004;
+pub const UIA_MENU_BAR: i32 = 50010;
+pub const UIA_MENU_ITEM: i32 = 50011;
+
+/// The role and subrole Pindot's tree uses for a UI Automation control
+/// type. They are the macOS accessibility names, because `server::tree`
+/// (what counts as interactive, how a role is shown) is written in them.
+pub fn uia_role(control_type: i32, is_password: bool, in_menu_bar: bool) -> (&'static str, Option<&'static str>) {
+    let role = match control_type {
+        50000 => "AXButton",
+        50002 => "AXCheckBox",
+        50003 => "AXComboBox",
+        UIA_EDIT => "AXTextField",
+        50005 => "AXLink",
+        50006 => "AXImage",
+        // List items, tree items and data items are the rows one clicks.
+        50007 | 50024 | 50029 => "AXRow",
+        50008 => "AXList",
+        50009 => "AXMenu",
+        UIA_MENU_BAR => "AXMenuBar",
+        UIA_MENU_ITEM if in_menu_bar => "AXMenuBarItem",
+        UIA_MENU_ITEM => "AXMenuItem",
+        50012 => "AXProgressIndicator",
+        50013 => "AXRadioButton",
+        50014 => "AXScrollBar",
+        50015 => "AXSlider",
+        50016 => "AXIncrementor",
+        50018 => "AXTabGroup",
+        50019 => "AXTab",
+        50020 => "AXStaticText",
+        50021 | 50040 => "AXToolbar",
+        50022 => "AXHelpTag",
+        50023 => "AXOutline",
+        50027 => "AXValueIndicator",
+        50028 | 50036 => "AXTable",
+        50030 => "AXTextArea",
+        50031 => "AXMenuButton",
+        50032 => "AXWindow",
+        50035 => "AXButton",
+        50038 => "AXSplitter",
+        // Calendar, status bar, custom, group, pane, header, title bar, semantic zoom.
+        50001 | 50017 | 50025 | 50026 | 50033 | 50034 | 50037 | 50039 => "AXGroup",
+        _ => "AXUnknown",
+    };
+    let subrole = (control_type == UIA_EDIT && is_password).then_some("AXSecureTextField");
+    (role, subrole)
+}
+
+/// Is this element's value worth reading (what a field holds, what a combo
+/// box shows)? Never a password's.
+pub fn uia_has_value(control_type: i32, is_password: bool) -> bool {
+    // Edit, combo box, slider, spinner. Not a document: it can be huge.
+    !is_password && matches!(control_type, UIA_EDIT | 50003 | 50015 | 50016)
+}
+
 // ------------------------------------------------------------- input
 
 /// The virtual key of a named key and whether it is an "extended" key
@@ -560,6 +618,74 @@ mod tests {
         // "notepad.exe" must not match "notepad++.exe" or "mynotepad.exe".
         let apps = start_ids(&[("Notepad++", r"C:\P\notepad++.exe"), ("My Notepad", r"C:\P\mynotepad.exe")]);
         assert_eq!(start_name_for("notepad.exe", None, &apps), None);
+    }
+
+    #[test]
+    fn control_types_map_to_the_trees_roles() {
+        assert_eq!(uia_role(50000, false, false), ("AXButton", None));
+        assert_eq!(uia_role(50002, false, false), ("AXCheckBox", None));
+        assert_eq!(uia_role(50003, false, false), ("AXComboBox", None));
+        assert_eq!(uia_role(UIA_EDIT, false, false), ("AXTextField", None));
+        assert_eq!(uia_role(50005, false, false), ("AXLink", None));
+        assert_eq!(uia_role(50007, false, false), ("AXRow", None));
+        assert_eq!(uia_role(50013, false, false), ("AXRadioButton", None));
+        assert_eq!(uia_role(50019, false, false), ("AXTab", None));
+        assert_eq!(uia_role(50020, false, false), ("AXStaticText", None));
+        assert_eq!(uia_role(50024, false, false), ("AXRow", None));
+        assert_eq!(uia_role(50030, false, false), ("AXTextArea", None));
+        assert_eq!(uia_role(50032, false, false), ("AXWindow", None));
+        assert_eq!(uia_role(50033, false, false), ("AXGroup", None));
+        assert_eq!(uia_role(99999, false, false), ("AXUnknown", None));
+    }
+
+    #[test]
+    fn a_password_field_is_a_secure_text_field() {
+        assert_eq!(uia_role(UIA_EDIT, true, false), ("AXTextField", Some("AXSecureTextField")));
+        assert!(!uia_has_value(UIA_EDIT, true), "a password's value is never read");
+        assert!(uia_has_value(UIA_EDIT, false));
+        assert!(uia_has_value(50003, false), "a combo box shows its choice");
+        assert!(!uia_has_value(50000, false));
+        assert!(!uia_has_value(50030, false), "a document can be huge");
+    }
+
+    #[test]
+    fn a_menu_item_on_the_menu_bar_is_a_menu_bar_item() {
+        assert_eq!(uia_role(UIA_MENU_ITEM, false, true), ("AXMenuBarItem", None));
+        assert_eq!(uia_role(UIA_MENU_ITEM, false, false), ("AXMenuItem", None));
+        assert_eq!(uia_role(UIA_MENU_BAR, false, false), ("AXMenuBar", None));
+    }
+
+    #[test]
+    fn the_tree_lists_the_mapped_controls_as_interactive() {
+        use crate::platform::AxNode;
+        use crate::server::tree::is_interactive;
+        let node = |ct: i32, pw: bool| {
+            let (role, subrole) = uia_role(ct, pw, false);
+            AxNode {
+                handle: std::sync::Arc::new(()),
+                depth: 0,
+                role: role.into(),
+                subrole: subrole.map(String::from),
+                name: String::new(),
+                value: None,
+                bounds: None,
+                enabled: true,
+                focused: false,
+                shortcut: None,
+                menu_path: None,
+                menu_root: None,
+            }
+        };
+        // Button, check box, combo box, edit, link, list item, menu item,
+        // radio, slider, tab item, tree item, document, split button.
+        for ct in [50000, 50002, 50003, 50004, 50005, 50007, 50011, 50013, 50015, 50019, 50024, 50030, 50031] {
+            assert!(is_interactive(&node(ct, false)), "control type {ct}");
+        }
+        assert!(is_interactive(&node(UIA_EDIT, true)), "a password box is listed (as securetextfield)");
+        // Text, pane, group, window, image.
+        for ct in [50020, 50033, 50026, 50032, 50006] {
+            assert!(!is_interactive(&node(ct, false)), "control type {ct}");
+        }
     }
 
     #[test]

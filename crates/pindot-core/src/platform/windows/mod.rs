@@ -8,11 +8,11 @@
 //!   `keyhook::INPUT_MARKER`.
 //! - `apps`: the window list, the apps behind it, opening an app and
 //!   bringing a window to the front.
+//! - `uia`: the element tree through UI Automation (`read_window`, `find`,
+//!   pressing an element without the pointer, password fields).
 //!
-//! Not built yet: the element tree (UI Automation: TreeWalker over
-//! ControlView, the Invoke pattern for press, ElementFromPoint for hit
-//! tests, IsPassword for secure fields). Until then `read_window` and `find`
-//! answer "not supported" and Claude works from screenshots.
+//! A click at x,y is always a real click on Windows: `actionable_at` (find
+//! the control under a point and press it instead) is not built.
 //!
 //! The decisions that need no Windows API live in
 //! `platform::windows_logic`, where they are tested on every OS.
@@ -22,6 +22,7 @@ pub mod capture;
 pub mod input;
 pub mod keyhook;
 pub mod permissions;
+pub mod uia;
 
 pub use apps::WinAccessibility;
 pub use capture::WinCapture;
