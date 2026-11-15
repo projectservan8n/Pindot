@@ -16,7 +16,7 @@
 //! quit cleanly.
 //!
 //! TEST BUILDS ONLY (`--features test-switches`, never in a release build):
-//!   [--test-turn PROMPT [--permission-mode MODE] [--turn-timeout S] [--accept-trust]]
+//!   [--test-turn PROMPT [--permission-mode MODE] [--turn-timeout S] [--accept-trust] [--cwd DIR]]
 //!   [--test-esc-after MS]
 //!   [--test-voice WAV [--test-voice-esc] [--turn-timeout S] [--keep-running]]
 //! `--test-turn` runs one real turn of interactive `claude` against this app
@@ -70,6 +70,8 @@ struct TestArgs {
     permission_mode: Option<String>,
     turn_timeout: u64,
     accept_trust: bool,
+    /// The folder the test turn's `claude` runs in (default `~/pindot/.spike-cwd`).
+    cwd: Option<String>,
     test_esc_after: Option<u64>,
     test_voice: Option<String>,
     keep_running: bool,
@@ -87,6 +89,7 @@ const TEST_FLAGS: &[&str] = &[
     "--permission-mode",
     "--turn-timeout",
     "--accept-trust",
+    "--cwd",
     "--test-esc-after",
     "--test-voice",
     "--keep-running",
@@ -103,6 +106,7 @@ fn parse_args() -> Args {
             permission_mode: opt("--permission-mode"),
             turn_timeout: opt("--turn-timeout").and_then(|s| s.parse().ok()).unwrap_or(240),
             accept_trust: flag("--accept-trust"),
+            cwd: opt("--cwd"),
             test_esc_after: opt("--test-esc-after").and_then(|s| s.parse().ok()),
             test_voice: opt("--test-voice"),
             keep_running: flag("--keep-running"),
@@ -395,7 +399,7 @@ fn run_test_paths(
             permission_mode: t.permission_mode.clone(),
             timeout: Duration::from_secs(t.turn_timeout),
             accept_trust: t.accept_trust,
-            cwd: None,
+            cwd: t.cwd.clone().map(Into::into),
         };
         let st = state.clone();
         let handle = app.clone();

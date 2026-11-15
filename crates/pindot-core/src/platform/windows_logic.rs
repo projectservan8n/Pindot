@@ -5,7 +5,215 @@
 //! `platform/windows` reads the registry and runs the hook; it only passes
 //! the raw values in here.
 
-use super::{ChordTracker, HeldMods, HotkeyBinding, HotkeyEvent, ModKey, PermissionState, Side};
+use super::keys::Modifiers;
+use super::{ChordTracker, DisplayInfo, HeldMods, HotkeyBinding, HotkeyEvent, KeyName, ModKey, PermissionState, Point, Side};
+
+// ------------------------------------------------------------- windows and apps
+
+pub const WS_EX_TRANSPARENT: u32 = 0x20;
+pub const WS_EX_LAYERED: u32 = 0x8_0000;
+
+/// What `EnumWindows` knows about one visible top-level window.
+#[derive(Debug, Clone, Copy)]
+pub struct RawWindow<'a> {
+    pub class: &'a str,
+    pub ex_style: u32,
+    /// DWM hides it (a suspended store app, another virtual desktop).
+    pub cloaked: bool,
+    pub minimised: bool,
+    pub width: i32,
+    pub height: i32,
+}
+
+/// What a top-level window is to Pindot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowKind {
+    /// Not listed: the desktop itself, or nothing to see.
+    Skip,
+    /// On screen, but never something Claude may control.
+    Taskbar,
+    /// Clicks pass through it: another program's overlay, or ours.
+    ClickThrough,
+    Normal,
+}
+
+pub fn classify_window(w: &RawWindow) -> WindowKind {
+    if w.cloaked || w.minimised || w.width <= 0 || w.height <= 0 {
+        return WindowKind::Skip;
+    }
+    match w.class {
+        // The desktop (wallpaper and icons).
+        "Progman" | "WorkerW" => WindowKind::Skip,
+        "Shell_TrayWnd" | "Shell_SecondaryTrayWnd" => WindowKind::Taskbar,
+        _ if w.ex_style & WS_EX_TRANSPARENT != 0 && w.ex_style & WS_EX_LAYERED != 0 => WindowKind::ClickThrough,
+        _ => WindowKind::Normal,
+    }
+}
+
+fn exe_stem(exe: &str) -> &str {
+    let lower_len = exe.len().saturating_sub(4);
+    if exe.len() > 4 && exe[lower_len..].eq_ignore_ascii_case(".exe") { &exe[..lower_len] } else { exe }
+}
+
+/// Does `query` (what Claude or the user called an app) mean the program
+/// with this display `name` and executable file name `exe`?
+pub fn app_matches(query: &str, name: &str, exe: &str) -> bool {
+    let q = exe_stem(query.trim());
+    !q.is_empty() && (q.eq_ignore_ascii_case(name) || q.eq_ignore_ascii_case(exe_stem(exe)))
+}
+
+/// One entry of the Start menu's app list (`Get-StartApps`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartApp {
+    pub name: String,
+    /// What `shell:AppsFolder\<id>` opens.
+    pub app_id: String,
+}
+
+/// Parse `Get-StartApps | ConvertTo-Json`: an array, or a single object
+/// when there is one app. Uninstallers and documents are left out.
+pub fn parse_start_apps(json: &str) -> Vec<StartApp> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else { return vec![] };
+    let items = match value {
+        serde_json::Value::Array(a) => a,
+        one @ serde_json::Value::Object(_) => vec![one],
+        _ => return vec![],
+    };
+    const NOT_APPS: [&str; 6] = [".url", ".chm", ".txt", ".htm", ".html", ".pdf"];
+    items
+        .iter()
+        .filter_map(|v| {
+            let name = v.get("Name")?.as_str()?.trim();
+            let app_id = v.get("AppID")?.as_str()?.trim();
+            let id = app_id.to_ascii_lowercase();
+            let skip = name.is_empty()
+                || app_id.is_empty()
+                || name.to_ascii_lowercase().starts_with("uninstall")
+                || NOT_APPS.iter().any(|ext| id.ends_with(ext));
+            (!skip).then(|| StartApp { name: name.to_string(), app_id: app_id.to_string() })
+        })
+        .collect()
+}
+
+/// The Start-menu app `query` means: its exact name, else the only app
+/// whose name contains the query as whole words ("Chrome" for "Google
+/// Chrome"). `None` when nothing or more than one app fits.
+pub fn find_start_app<'a>(apps: &'a [StartApp], query: &str) -> Option<&'a StartApp> {
+    let q = exe_stem(query.trim()).to_lowercase();
+    if q.is_empty() {
+        return None;
+    }
+    if let Some(exact) = apps.iter().find(|a| a.name.to_lowercase() == q) {
+        return Some(exact);
+    }
+    let words = |s: &str| -> Vec<String> {
+        s.to_lowercase().split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(String::from).collect()
+    };
+    let want = words(&q);
+    if want.is_empty() {
+        return None;
+    }
+    let mut fits = apps.iter().filter(|a| {
+        let have = words(&a.name);
+        have.windows(want.len()).any(|w| w == want.as_slice())
+    });
+    let first = fits.next()?;
+    fits.next().is_none().then_some(first)
+}
+
+/// The Start-menu name of a running program, so an app has one name
+/// whether Claude asked for it before or after it started ("Word", not the
+/// executable's "Microsoft Word"). `aumid` is the process's application
+/// user model id (store and other packaged apps have one); otherwise the
+/// Start entry whose id names this executable. `None` if nothing, or more
+/// than one entry, fits.
+pub fn start_name_for(exe: &str, aumid: Option<&str>, apps: &[StartApp]) -> Option<String> {
+    if let Some(id) = aumid
+        && let Some(a) = apps.iter().find(|a| a.app_id.eq_ignore_ascii_case(id))
+    {
+        return Some(a.name.clone());
+    }
+    let exe = exe.to_lowercase();
+    if exe.is_empty() {
+        return None;
+    }
+    // The id names this executable: as a whole file name, not as the tail
+    // of a longer one ("notepad.exe" is not "mynotepad.exe").
+    let names_exe = |id: &str| {
+        let id = id.to_lowercase();
+        id.match_indices(&exe).any(|(i, m)| {
+            let before = id[..i].chars().next_back();
+            let after = id[i + m.len()..].chars().next();
+            before.is_none_or(|c| !c.is_alphanumeric()) && after.is_none_or(|c| !c.is_alphanumeric())
+        })
+    };
+    let mut fits = apps.iter().filter(|a| names_exe(&a.app_id));
+    let first = fits.next()?;
+    fits.next().is_none().then(|| first.name.clone())
+}
+
+// ------------------------------------------------------------- input
+
+/// The virtual key of a named key and whether it is an "extended" key
+/// (arrows and the navigation block, as opposed to the number pad).
+/// `None` for a character: the keyboard layout decides.
+pub fn vk_for_key(k: KeyName) -> Option<(u16, bool)> {
+    Some(match k {
+        KeyName::Char(_) => return None,
+        KeyName::Backspace => (0x08, false),
+        KeyName::Tab => (0x09, false),
+        KeyName::Return => (0x0D, false),
+        KeyName::Escape => (0x1B, false),
+        KeyName::Space => (0x20, false),
+        KeyName::PageUp => (0x21, true),
+        KeyName::PageDown => (0x22, true),
+        KeyName::End => (0x23, true),
+        KeyName::Home => (0x24, true),
+        KeyName::Left => (0x25, true),
+        KeyName::Up => (0x26, true),
+        KeyName::Right => (0x27, true),
+        KeyName::Down => (0x28, true),
+        KeyName::ForwardDelete => (0x2E, true),
+        KeyName::F(n) => (0x70 + u16::from(n.clamp(1, 24)) - 1, false),
+    })
+}
+
+/// The modifier virtual keys to hold for a combo, in press order. `cmd` is
+/// Ctrl on Windows (what a Mac shortcut such as cmd+s means there); `win`
+/// is the Windows key.
+pub fn modifier_vks(m: Modifiers) -> Vec<u16> {
+    [(m.ctrl || m.cmd, VK_CONTROL), (m.alt, VK_MENU), (m.shift, VK_SHIFT), (m.win, VK_LWIN)]
+        .into_iter()
+        .filter_map(|(on, vk)| on.then_some(vk as u16))
+        .collect()
+}
+
+/// `SendInput` absolute mouse coordinates (0..=65535 across the virtual
+/// desktop) for a physical pixel. `virt` is the virtual desktop: left, top,
+/// width, height.
+pub fn mouse_abs(x: i32, y: i32, virt: (i32, i32, i32, i32)) -> (i32, i32) {
+    let (left, top, width, height) = virt;
+    let norm = |v: i32, origin: i32, size: i32| -> i32 {
+        let span = f64::from((size - 1).max(1));
+        (f64::from(v - origin) * 65535.0 / span).round().clamp(0.0, 65535.0) as i32
+    };
+    (norm(x, left, width), norm(y, top, height))
+}
+
+/// A global logical point to a physical pixel: times the scale of the
+/// display it is on (the nearest display if it is on none).
+pub fn to_physical(displays: &[DisplayInfo], p: Point) -> (i32, i32) {
+    let scale = displays
+        .iter()
+        .find(|d| d.bounds.contains(p))
+        .or_else(|| {
+            displays.iter().min_by(|a, b| {
+                a.bounds.center().distance(p).partial_cmp(&b.bounds.center().distance(p)).unwrap_or(std::cmp::Ordering::Equal)
+            })
+        })
+        .map_or(1.0, |d| d.scale_factor);
+    ((p.x * scale).round() as i32, (p.y * scale).round() as i32)
+}
 
 // ------------------------------------------------------------- microphone
 
@@ -228,6 +436,193 @@ impl EscFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn raw(class: &str, ex_style: u32) -> RawWindow<'_> {
+        RawWindow { class, ex_style, cloaked: false, minimised: false, width: 800, height: 600 }
+    }
+
+    #[test]
+    fn an_ordinary_window_is_listed() {
+        assert_eq!(classify_window(&raw("Notepad", 0)), WindowKind::Normal);
+        assert_eq!(classify_window(&raw("Chrome_WidgetWin_1", 0x100)), WindowKind::Normal);
+    }
+
+    #[test]
+    fn hidden_minimised_and_empty_windows_are_skipped() {
+        assert_eq!(classify_window(&RawWindow { cloaked: true, ..raw("ApplicationFrameWindow", 0) }), WindowKind::Skip);
+        assert_eq!(classify_window(&RawWindow { minimised: true, ..raw("Notepad", 0) }), WindowKind::Skip);
+        assert_eq!(classify_window(&RawWindow { width: 0, ..raw("Notepad", 0) }), WindowKind::Skip);
+        assert_eq!(classify_window(&RawWindow { height: 0, ..raw("Notepad", 0) }), WindowKind::Skip);
+    }
+
+    #[test]
+    fn the_desktop_is_skipped_and_the_taskbar_is_furniture() {
+        assert_eq!(classify_window(&raw("Progman", 0)), WindowKind::Skip);
+        assert_eq!(classify_window(&raw("WorkerW", 0)), WindowKind::Skip);
+        assert_eq!(classify_window(&raw("Shell_TrayWnd", 0x88)), WindowKind::Taskbar);
+        assert_eq!(classify_window(&raw("Shell_SecondaryTrayWnd", 0x88)), WindowKind::Taskbar);
+    }
+
+    #[test]
+    fn a_click_through_overlay_is_not_a_click_target() {
+        // Pindot's own overlay, and e.g. a game or recording overlay.
+        let overlay = raw("Tauri Window", WS_EX_TRANSPARENT | WS_EX_LAYERED | 0x8);
+        assert_eq!(classify_window(&overlay), WindowKind::ClickThrough);
+        // Layered alone is an ordinary (maybe translucent) window.
+        assert_eq!(classify_window(&raw("Whatever", WS_EX_LAYERED)), WindowKind::Normal);
+    }
+
+    #[test]
+    fn an_app_is_matched_by_its_name_or_its_executable() {
+        assert!(app_matches("Notepad", "Notepad", "Notepad.exe"));
+        assert!(app_matches("notepad", "Notepad", "Notepad.exe"));
+        assert!(app_matches(" notepad.exe ", "Notepad", "Notepad.exe"));
+        assert!(app_matches("chrome", "Google Chrome", "chrome.exe"));
+        assert!(app_matches("Google Chrome", "Google Chrome", "chrome.exe"));
+        assert!(app_matches("Code", "Visual Studio Code", "Code.exe"));
+        assert!(!app_matches("Chrom", "Google Chrome", "chrome.exe"));
+        assert!(!app_matches("", "Google Chrome", "chrome.exe"));
+    }
+
+    #[test]
+    fn parses_the_start_menu_list() {
+        let json = r#"[
+            {"Name":"Notepad","AppID":"Microsoft.WindowsNotepad_8wekyb3d8bbwe!App"},
+            {"Name":"Google Chrome","AppID":"Chrome"},
+            {"Name":"Uninstall Foo","AppID":"C:\\Program Files\\Foo\\unins000.exe"},
+            {"Name":"Foo Help","AppID":"C:\\Program Files\\Foo\\help.chm"},
+            {"Name":"Foo on the Web","AppID":"C:\\Program Files\\Foo\\foo.url"}
+        ]"#;
+        let apps = parse_start_apps(json);
+        assert_eq!(apps.len(), 2);
+        assert_eq!(apps[0], StartApp { name: "Notepad".into(), app_id: "Microsoft.WindowsNotepad_8wekyb3d8bbwe!App".into() });
+        assert_eq!(apps[1].name, "Google Chrome");
+    }
+
+    #[test]
+    fn parses_a_single_start_app_and_survives_garbage() {
+        let one = parse_start_apps(r#"{"Name":"Calculator","AppID":"Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"}"#);
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].name, "Calculator");
+        assert!(parse_start_apps("").is_empty());
+        assert!(parse_start_apps("not json").is_empty());
+    }
+
+    fn start(names: &[&str]) -> Vec<StartApp> {
+        names.iter().map(|n| StartApp { name: n.to_string(), app_id: format!("id:{n}") }).collect()
+    }
+
+    #[test]
+    fn finds_a_start_app_by_exact_name_first() {
+        let apps = start(&["Notepad", "Notepad++", "Google Chrome"]);
+        assert_eq!(find_start_app(&apps, "notepad").map(|a| a.name.as_str()), Some("Notepad"));
+        assert_eq!(find_start_app(&apps, "Notepad++").map(|a| a.name.as_str()), Some("Notepad++"));
+    }
+
+    #[test]
+    fn finds_a_start_app_by_whole_words_when_only_one_fits() {
+        let apps = start(&["Google Chrome", "Visual Studio Code", "Microsoft Edge", "Visual Studio 2022"]);
+        assert_eq!(find_start_app(&apps, "Chrome").map(|a| a.name.as_str()), Some("Google Chrome"));
+        assert_eq!(find_start_app(&apps, "edge").map(|a| a.name.as_str()), Some("Microsoft Edge"));
+        assert_eq!(find_start_app(&apps, "Visual Studio"), None, "two apps fit");
+        assert_eq!(find_start_app(&apps, "Chrom"), None, "not a whole word");
+        assert_eq!(find_start_app(&apps, "Firefox"), None);
+        assert_eq!(find_start_app(&apps, ""), None);
+    }
+
+    fn start_ids(apps: &[(&str, &str)]) -> Vec<StartApp> {
+        apps.iter().map(|(n, id)| StartApp { name: n.to_string(), app_id: id.to_string() }).collect()
+    }
+
+    #[test]
+    fn a_running_program_gets_its_start_menu_name() {
+        let apps = start_ids(&[
+            ("Notepad", "Microsoft.WindowsNotepad_8wekyb3d8bbwe!App"),
+            ("Word", "Microsoft.Office.WINWORD.EXE.15"),
+            ("Notepad++", r"{6D809377-6AF0-444B-8957-A3773F02200E}\Notepad++\notepad++.exe"),
+            ("Google Chrome", "Chrome"),
+        ]);
+        // A packaged app: by its application id.
+        let aumid = Some("microsoft.windowsnotepad_8wekyb3d8bbwe!App");
+        assert_eq!(start_name_for("Notepad.exe", aumid, &apps).as_deref(), Some("Notepad"));
+        // Office: the id names the executable.
+        assert_eq!(start_name_for("WINWORD.EXE", None, &apps).as_deref(), Some("Word"));
+        // A shortcut: the id is the path of the executable.
+        assert_eq!(start_name_for("notepad++.exe", None, &apps).as_deref(), Some("Notepad++"));
+        // Nothing names chrome.exe; the caller falls back to the file's description.
+        assert_eq!(start_name_for("chrome.exe", None, &apps), None);
+    }
+
+    #[test]
+    fn an_executable_named_by_two_start_entries_gets_no_start_name() {
+        let apps = start_ids(&[("Foo", r"C:\Foo\foo.exe"), ("Foo (Safe Mode)", r"C:\Foo\foo.exe")]);
+        assert_eq!(start_name_for("foo.exe", None, &apps), None);
+        // "notepad.exe" must not match "notepad++.exe" or "mynotepad.exe".
+        let apps = start_ids(&[("Notepad++", r"C:\P\notepad++.exe"), ("My Notepad", r"C:\P\mynotepad.exe")]);
+        assert_eq!(start_name_for("notepad.exe", None, &apps), None);
+    }
+
+    #[test]
+    fn named_keys_map_to_virtual_keys() {
+        assert_eq!(vk_for_key(KeyName::Return), Some((0x0D, false)));
+        assert_eq!(vk_for_key(KeyName::Tab), Some((0x09, false)));
+        assert_eq!(vk_for_key(KeyName::Space), Some((0x20, false)));
+        assert_eq!(vk_for_key(KeyName::Backspace), Some((0x08, false)));
+        assert_eq!(vk_for_key(KeyName::Escape), Some((0x1B, false)));
+        assert_eq!(vk_for_key(KeyName::F(1)), Some((0x70, false)));
+        assert_eq!(vk_for_key(KeyName::F(12)), Some((0x7B, false)));
+        assert_eq!(vk_for_key(KeyName::Char('a')), None);
+    }
+
+    #[test]
+    fn navigation_keys_are_extended_keys() {
+        // Without the flag Windows takes them for the number pad's.
+        assert_eq!(vk_for_key(KeyName::Left), Some((0x25, true)));
+        assert_eq!(vk_for_key(KeyName::Up), Some((0x26, true)));
+        assert_eq!(vk_for_key(KeyName::Right), Some((0x27, true)));
+        assert_eq!(vk_for_key(KeyName::Down), Some((0x28, true)));
+        assert_eq!(vk_for_key(KeyName::Home), Some((0x24, true)));
+        assert_eq!(vk_for_key(KeyName::End), Some((0x23, true)));
+        assert_eq!(vk_for_key(KeyName::PageUp), Some((0x21, true)));
+        assert_eq!(vk_for_key(KeyName::PageDown), Some((0x22, true)));
+        assert_eq!(vk_for_key(KeyName::ForwardDelete), Some((0x2E, true)));
+    }
+
+    #[test]
+    fn cmd_is_pressed_as_ctrl_and_win_as_the_windows_key() {
+        let m = |cmd, ctrl, alt, shift, win| Modifiers { cmd, ctrl, alt, shift, win };
+        assert_eq!(modifier_vks(m(true, false, false, false, false)), vec![0x11]);
+        assert_eq!(modifier_vks(m(true, true, false, false, false)), vec![0x11], "not Ctrl twice");
+        assert_eq!(modifier_vks(m(true, false, false, true, false)), vec![0x11, 0x10]);
+        assert_eq!(modifier_vks(m(false, false, true, false, false)), vec![0x12]);
+        assert_eq!(modifier_vks(m(false, false, false, false, true)), vec![0x5B]);
+        assert_eq!(modifier_vks(m(false, false, false, false, false)), Vec::<u16>::new());
+    }
+
+    #[test]
+    fn mouse_coordinates_span_the_virtual_desktop() {
+        // Two 1920x1080 monitors, the second to the left of the primary.
+        let virt = (-1920, 0, 3840, 1080);
+        assert_eq!(mouse_abs(-1920, 0, virt), (0, 0));
+        assert_eq!(mouse_abs(1919, 1079, virt), (65535, 65535));
+        let (x, y) = mouse_abs(0, 540, virt);
+        assert_eq!(x, (1920.0_f64 * 65535.0 / 3839.0).round() as i32);
+        assert_eq!(y, (540.0_f64 * 65535.0 / 1079.0).round() as i32);
+    }
+
+    fn display(x: f64, y: f64, w: f64, h: f64, scale: f64) -> DisplayInfo {
+        DisplayInfo { id: 1, name: String::new(), bounds: super::super::Rect::new(x, y, w, h), scale_factor: scale, is_primary: x == 0.0 }
+    }
+
+    #[test]
+    fn a_logical_point_becomes_physical_with_its_displays_scale() {
+        // Primary at 150% (2880x1620 px = 1920x1080 pt), a 100% one to its left.
+        let displays = [display(0.0, 0.0, 1920.0, 1080.0, 1.5), display(-1920.0, 0.0, 1920.0, 1080.0, 1.0)];
+        assert_eq!(to_physical(&displays, Point::new(100.0, 200.0)), (150, 300));
+        assert_eq!(to_physical(&displays, Point::new(-100.0, 200.0)), (-100, 200));
+        // Off every display: the nearest one's scale.
+        assert_eq!(to_physical(&displays, Point::new(-5000.0, 10.0)), (-5000, 10));
+    }
 
     fn switches(device: Consent, user: Consent, desktop_apps: Consent) -> MicSwitches {
         MicSwitches { device, user, desktop_apps }

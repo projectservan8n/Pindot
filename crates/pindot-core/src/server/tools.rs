@@ -478,7 +478,14 @@ impl DesktopServer {
         let displays = self.state.capture.displays().map_err(perr)?;
         let all = self.windows().await?;
         let ok = self.approved_pids(&all);
-        let mut s = String::from("Displays:\n");
+        let mut s = String::new();
+        if cfg!(windows) {
+            // What differs from the tool descriptions, which use Mac examples.
+            s.push_str(
+                "This computer runs Windows. Shortcuts use ctrl (\"cmd\" is pressed as ctrl) and \"win\" is the Windows key, e.g. \"ctrl+s\", \"alt+f4\", \"win+r\". read_window and find are not available on Windows yet: take a screenshot (zoom for small text), then click at x,y. Name apps as the Start menu does.\n\n",
+            );
+        }
+        s.push_str("Displays:\n");
         for (i, d) in displays.iter().enumerate() {
             let g = ShotGeometry::full_display(d.clone(), i);
             s.push_str(&format!(

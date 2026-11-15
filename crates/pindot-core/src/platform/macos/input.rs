@@ -205,7 +205,8 @@ pub fn pointer_location() -> Option<Point> {
 fn press_combo(combo: &KeyCombo) -> Result<()> {
     let mut e = enigo()?;
     let m = combo.mods;
-    let mods: Vec<Key> = [(m.cmd, Key::Meta), (m.ctrl, Key::Control), (m.alt, Key::Alt), (m.shift, Key::Shift)]
+    // "win" (the Windows key) is Command on a Mac.
+    let mods: Vec<Key> = [(m.cmd || m.win, Key::Meta), (m.ctrl, Key::Control), (m.alt, Key::Alt), (m.shift, Key::Shift)]
         .into_iter()
         .filter_map(|(on, k)| on.then_some(k))
         .collect();

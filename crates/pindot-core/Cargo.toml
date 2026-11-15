@@ -56,14 +56,17 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 # The main dispatch queue: macOS asserts that keyboard-layout lookups run there.
 dispatch2 = "0.3.1"
 
-# Windows: the microphone privacy switches (registry), the low-level keyboard
-# hook (hold-to-talk and the Esc stop key) and the pointer position. Capture,
-# input and accessibility are still stubs; they add xcap and enigo here (see
-# docs/windows-test-checklist.md).
+# Windows, all through the raw Win32 API: the microphone privacy switches
+# (registry), the low-level keyboard hook (hold-to-talk and the Esc stop
+# key), screen capture (GDI), the window and app list, and synthetic mouse
+# and keyboard input (SendInput). See docs/windows-test-checklist.md.
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
+    "Win32_Storage_FileSystem",
+    "Win32_Storage_Packaging_Appx",
     "Win32_System_LibraryLoader",
     "Win32_System_Registry",
     "Win32_System_Threading",

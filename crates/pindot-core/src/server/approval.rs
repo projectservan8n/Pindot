@@ -61,15 +61,24 @@ pub fn warning_for(name: &str, bundle_id: Option<&str>) -> Option<String> {
         "visual studio code", "code", "vscode", "cursor", "windsurf", "xcode", "zed", "intellij idea", "pycharm",
         "webstorm", "clion", "goland", "rider", "rustrover", "android studio", "sublime text", "nova", "bbedit",
         "script editor", "automator", "shortcuts", "utm", "docker", "docker desktop",
+        // Windows (names as in the Start menu, and executables).
+        "windows powershell", "powershell", "pwsh", "command prompt", "cmd.exe", "windows terminal", "git bash",
+        "mintty", "visual studio", "wsl", "ubuntu", "windows subsystem for linux",
     ];
-    const FILES: &[&str] = &["finder", "path finder", "forklift", "commander one", "transmit", "cyberduck"];
+    const FILES: &[&str] = &[
+        "finder", "path finder", "forklift", "commander one", "transmit", "cyberduck",
+        "file explorer", "windows explorer", "explorer.exe", "total commander", "winscp", "filezilla",
+    ];
     const SETTINGS: &[&str] = &[
         "system settings", "system preferences", "disk utility", "activity monitor", "console", "migration assistant",
         "boot camp assistant", "directory utility", "systempreferences",
+        "settings", "systemsettings", "control panel", "registry editor", "regedit", "task manager", "taskmgr",
+        "device manager", "computer management", "services", "event viewer", "disk management", "windows security",
+        "group policy", "mmc.exe",
     ];
     const PASSWORDS: &[&str] = &[
         "passwords", "keychain access", "1password", "1password 7", "bitwarden", "dashlane", "lastpass", "keepassxc",
-        "enpass", "proton pass", "nordpass", "roboform", "keeper", "keychain",
+        "enpass", "proton pass", "nordpass", "roboform", "keeper", "keychain", "credential manager", "keepass",
     ];
     if any(PASSWORDS) {
         Some("Password manager: Claude could read or change your saved passwords.".into())
@@ -140,6 +149,25 @@ mod tests {
         assert!(warning_for("Passwords", Some("com.apple.Passwords")).unwrap().contains("passwords"));
         assert_eq!(warning_for("TextEdit", Some("com.apple.TextEdit")), None);
         assert_eq!(warning_for("Calculator", None), None);
+    }
+
+    #[test]
+    fn warnings_for_windows_apps() {
+        // Names as the Start menu shows them; the id is the executable.
+        assert!(warning_for("Windows PowerShell", Some("powershell.exe")).unwrap().contains("shell"));
+        assert!(warning_for("PowerShell 7 (x64)", Some("pwsh.exe")).unwrap().contains("shell"));
+        assert!(warning_for("Command Prompt", Some("cmd.exe")).unwrap().contains("shell"));
+        assert!(warning_for("Terminal", Some("windowsterminal.exe")).unwrap().contains("shell"));
+        assert!(warning_for("Git Bash", Some("mintty.exe")).unwrap().contains("shell"));
+        assert!(warning_for("File Explorer", Some("explorer.exe")).unwrap().contains("files"));
+        assert!(warning_for("Settings", Some("systemsettings.exe")).unwrap().contains("set up"));
+        assert!(warning_for("Control Panel", None).unwrap().contains("set up"));
+        assert!(warning_for("Registry Editor", Some("regedit.exe")).unwrap().contains("set up"));
+        assert!(warning_for("Task Manager", Some("taskmgr.exe")).unwrap().contains("set up"));
+        assert!(warning_for("Credential Manager", None).unwrap().contains("passwords"));
+        assert_eq!(warning_for("Notepad", Some("notepad.exe")), None);
+        assert_eq!(warning_for("Google Chrome", Some("chrome.exe")), None);
+        assert_eq!(warning_for("Paint", Some("mspaint.exe")), None);
     }
 
     #[test]

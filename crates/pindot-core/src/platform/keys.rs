@@ -30,10 +30,14 @@ pub enum KeyName {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Modifiers {
+    /// Command on macOS. On Windows it is pressed as Ctrl, which is what a
+    /// Mac shortcut such as cmd+s means there.
     pub cmd: bool,
     pub ctrl: bool,
     pub alt: bool,
     pub shift: bool,
+    /// The Windows key ("win+r"). On macOS it is Command.
+    pub win: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,10 +68,13 @@ impl KeyCombo {
         for m in parts {
             match m.to_lowercase().as_str() {
                 "cmd" | "command" | "meta" | "super" | "⌘" => mods.cmd = true,
+                "win" | "windows" => mods.win = true,
                 "ctrl" | "control" | "⌃" => mods.ctrl = true,
                 "alt" | "option" | "opt" | "⌥" => mods.alt = true,
                 "shift" | "⇧" => mods.shift = true,
-                other => return Err(format!("unknown modifier {other:?} in {s:?} (use cmd, ctrl, alt/option, shift)")),
+                other => {
+                    return Err(format!("unknown modifier {other:?} in {s:?} (use cmd, ctrl, alt/option, shift, win)"));
+                }
             }
         }
         let key = parse_key(last).ok_or_else(|| format!("unknown key {last:?} in {s:?}"))?;
@@ -121,9 +128,13 @@ impl KeyCombo {
     pub fn caps(&self) -> Vec<String> {
         let mac = cfg!(target_os = "macos");
         let m = self.mods;
-        let mods = [(m.ctrl, "⌃", "Ctrl"), (m.alt, "⌥", "Alt"), (m.shift, "⇧", "Shift"), (m.cmd, "⌘", "Win")];
-        let mut caps: Vec<String> =
-            mods.into_iter().filter(|(on, ..)| *on).map(|(_, a, w)| (if mac { a } else { w }).to_string()).collect();
+        let mods = if mac {
+            [(m.ctrl, "⌃"), (m.alt, "⌥"), (m.shift, "⇧"), (m.cmd || m.win, "⌘")]
+        } else {
+            // Windows presses `cmd` as Ctrl (see `windows_logic::modifier_vks`).
+            [(m.ctrl || m.cmd, "Ctrl"), (m.alt, "Alt"), (m.shift, "Shift"), (m.win, "Win")]
+        };
+        let mut caps: Vec<String> = mods.into_iter().filter(|(on, _)| *on).map(|(_, cap)| cap.to_string()).collect();
         caps.push(key_cap(self.key, mac));
         caps
     }
@@ -154,7 +165,7 @@ fn key_cap(k: KeyName, mac: bool) -> String {
 impl fmt::Display for KeyCombo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let m = self.mods;
-        for (on, name) in [(m.cmd, "cmd"), (m.ctrl, "ctrl"), (m.alt, "alt"), (m.shift, "shift")] {
+        for (on, name) in [(m.cmd, "cmd"), (m.ctrl, "ctrl"), (m.alt, "alt"), (m.shift, "shift"), (m.win, "win")] {
             if on {
                 write!(f, "{name}+")?;
             }
@@ -184,6 +195,25 @@ mod tests {
         assert_eq!(caps("f12"), ["F12"]);
         assert_eq!(caps("space"), ["Space"]);
         assert_eq!(caps("cmd++"), ["⌘", "+"]);
+    }
+
+    #[test]
+    fn parses_the_windows_key() {
+        let c = KeyCombo::parse("win+r").unwrap();
+        assert!(c.mods.win && !c.mods.cmd && !c.mods.ctrl);
+        assert_eq!(c.key, KeyName::Char('r'));
+        assert!(KeyCombo::parse("Windows+d").unwrap().mods.win);
+        assert_eq!(KeyCombo::parse(&c.to_string()).unwrap(), c);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn key_caps_on_windows_show_cmd_as_ctrl() {
+        let caps = |s: &str| KeyCombo::parse(s).unwrap().caps();
+        assert_eq!(caps("cmd+shift+s"), ["Ctrl", "Shift", "S"]);
+        assert_eq!(caps("cmd+ctrl+c"), ["Ctrl", "C"]);
+        assert_eq!(caps("win+r"), ["Win", "R"]);
+        assert_eq!(caps("alt+f4"), ["Alt", "F4"]);
     }
 
     #[test]
