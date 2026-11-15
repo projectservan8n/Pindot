@@ -3,10 +3,12 @@
 Phases 0 to 3 were built and tested on macOS only. **Nothing has been run on
 Windows**: there is no Windows machine here. On Windows today:
 
-- `deskhand-core` type-checks for `x86_64-pc-windows-msvc`. Command:
-  `cargo check -p deskhand-core --all-targets --target x86_64-pc-windows-msvc`
-  (run on the Mac, 14 Nov 2026; re-run it after Phase 3 changes before
-  relying on it).
+- `deskhand-core` and the app crate type-check for `x86_64-pc-windows-msvc`
+  with no errors or warnings (run on the Mac, 15 Nov 2026, with and without
+  `test-switches`). Command: `scripts/check-windows.sh`. It only proves the
+  Rust compiles: `ring`'s C code and the icon resource need Windows headers
+  and tools, so the script puts stand-ins that write empty files in their
+  place, and nothing it builds can be linked or run.
 - The platform traits have Windows stubs that return
   `PlatformError::Unsupported`: `Capture`, `Input`, `Hotkey`, `StopKey` (the
   global Esc) and `Accessibility` (window list, element tree, element
@@ -20,12 +22,11 @@ Windows**: there is no Windows machine here. On Windows today:
   `ms-settings:privacy-microphone`.
 - The token and config files are written with Unix mode 600 on macOS. On
   Windows no ACL is set yet: they rely on `%APPDATA%` being per-user.
-- The app's Windows overlay path is written but has never been compiled:
-  `overlay.rs`, `#[cfg(not(target_os = "macos"))]`. It is a transparent,
-  always-on-top, undecorated webview window per monitor with
-  `set_ignore_cursor_events(true)` and `content_protected`. Cross-checking the
-  app crate from macOS fails in `tauri-build`, which needs `llvm-rc` to embed
-  `icons/icon.ico`. Build it on Windows.
+- The app's Windows overlay path type-checks but has never been built or
+  run: `overlay.rs`, `#[cfg(not(target_os = "macos"))]`. It is a
+  transparent, always-on-top, undecorated webview window per monitor with
+  `set_ignore_cursor_events(true)` and `content_protected`. Build it on
+  Windows.
 
 Run these on a real Windows 11 machine, with at least two monitors and one of
 them scaled to 150%.

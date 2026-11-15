@@ -440,9 +440,11 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   the tray position and confirm our menu window is open before clicking.
 - **Windows**: `find_claude` looks only for `claude.exe`; an npm install
   gives `claude.cmd` (see the checklist).
-- The Windows app crate is not compiled yet. `cargo check` for
-  `x86_64-pc-windows-msvc` passes for `deskhand-core`, but `tauri-build` needs
-  `llvm-rc` (or a Windows host) to embed the icon resource. See
+- Nothing has been built or run on Windows. `scripts/check-windows.sh`
+  type-checks `deskhand-core` and the app for `x86_64-pc-windows-msvc` from
+  the Mac, with stand-ins for the C compiler, archiver and `llvm-rc` (ring and
+  the icon resource need Windows headers), so it proves only that the Rust
+  compiles. Re-run it after changes to Windows paths. See
   `docs/windows-test-checklist.md`.
 
 ## Conventions
