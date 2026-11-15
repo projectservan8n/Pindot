@@ -271,14 +271,23 @@ The bundle lands in `target/release/bundle/macos/Pindot.app` and
 embedded at compile time, so rebuild it first). The first build downloads
 ONNX Runtime (about 148 MB) through the `ort` crate.
 
-### Windows (voice works; desktop control is not built yet)
+### Windows (works from screenshots; the element tree is not built yet)
 
 First built and run on 15 Nov 2026, on one Windows 11 PC. The app, Setup,
 Settings, Activity, the overlay, hold-to-talk (`Ctrl+Win`), the Esc stop key,
-speech and the Claude Code session work, so you can hold the key, ask, and
-hear the answer. The input, capture and accessibility parts are still stubs
-that return "not supported on this OS yet", so Claude cannot see or control
-the desktop on Windows: "open Notepad" gets a spoken refusal.
+speech and the Claude Code session work, and Claude can see and control the
+desktop: screenshots, the window and app list, app approval, opening apps,
+clicking, typing, shortcuts, scrolling and dragging. What is missing is the
+element tree (`read_window`, `find`, clicking by ref), so on Windows Claude
+looks through screenshots and clicks at coordinates, which is slower than on
+macOS. Two limits to know:
+
+- Password boxes in browsers and modern apps are **not** detected yet (only
+  classic Windows password boxes are), so do not ask Pindot to work on a
+  sign-in page.
+- Windows drops input sent to an administrator's window; Pindot cannot
+  control those.
+
 `docs/windows-test-checklist.md` lists what was seen and what is left.
 
 Install Rust (MSVC toolchain), Node.js, the Visual Studio 2022 C++ build

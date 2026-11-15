@@ -7,17 +7,20 @@ was seen on that PC; a note after a box says how far an unticked one got.
 
 On Windows today:
 
-- **Works**: the build (see "Build"), `cargo test --workspace` (145 + 24 + 3
+- **Works**: the build (see "Build"), `cargo test --workspace` (168 + 24 + 3
   tests), the app with Setup, Settings and Activity, the MCP server and its
   guards, the overlay on both monitors, the microphone check, hold-to-talk
-  (`Hotkey`), the Esc stop key (`StopKey`), speech to text, text to speech,
-  the brain in ConPTY, and the whole voice loop with a WAV in place of the
-  microphone (`--test-voice`, RESULT PASS).
-- **Still stubs** that return `PlatformError::Unsupported`: `Capture`,
-  `Input` and `Accessibility` (window list, element tree, element actions,
-  frontmost app, launch, secure-field check). So every desktop tool answers
-  "not supported on this OS yet", `request_access` knows no app, and Claude
-  can talk but cannot see or control the desktop.
+  (`Hotkey`, self-healing), the Esc stop key (`StopKey`), speech to text,
+  text to speech, the brain in ConPTY, the whole voice loop with a WAV in
+  place of the microphone (`--test-voice`, RESULT PASS) and with the real
+  microphone and keys, screenshots (`Capture`), mouse and keyboard
+  (`Input`), and the window list, apps, approval gate, opening apps and
+  bringing a window forward (`Accessibility`). A real turn typed and
+  clicked in a test window (`--test-turn`, TURN COMPLETED).
+- **Still missing**: the element tree (UI Automation). `read_window`, `find`
+  and clicks by ref answer "not supported on this OS yet", so Claude works
+  from screenshots and x,y. Password boxes of browsers and modern apps are
+  not detected (only a classic Edit control with `ES_PASSWORD` is).
 - The permission report lists only the microphone, read from the three
   privacy switches in the registry. Its button opens
   `ms-settings:privacy-microphone`. There is no "Ask" button: Windows has
@@ -87,13 +90,26 @@ pass, and the items left unticked.
 
 ## (c) MCP tools
 
-- [ ] Implement `Capture` (xcap) and `Input` (enigo); add both crates under
-      `[target.'cfg(windows)'.dependencies]`.
-- [ ] `python3 scripts/mcp_call.py init; python3 scripts/mcp_call.py call screenshot '{}'` returns a JPEG with a long
-      edge of at most 1280 px.
+- [x] Implement `Capture` and `Input`. Done with the raw Win32 API
+      (`windows-sys`): GDI `BitBlt` and `SendInput`, no xcap or enigo.
+- [x] `python3 scripts/mcp_call.py init; python3 scripts/mcp_call.py call screenshot '{}'` returns a JPEG with a long
+      edge of at most 1280 px. (1280x720 for a 1920x1080 display. Set
+      `PINDOT_DATA_DIR`: the script's default folder is the Mac one. With no
+      app approved the image is solid grey.)
+- [x] By hand, against a test window (`spike_mcp` built with
+      `--features test-switches` and `PINDOT_TEST_AUTO_APPROVE=<its name>`):
+      click, double-click, `type_text` (line break, accents, CJK, emoji),
+      `key` (`cmd+a` pressed as Ctrl+A, `end`, `return`, `shift+left` x3,
+      `backspace`, `ctrl+x`), scroll, drag (selected text), zoom, point,
+      `focus_window`, `open_app`. The pointer was put back after each.
 - [ ] From a normal `claude` session with `--mcp-config`, "take a screenshot
       and click X" clicks the right spot on each monitor and at each scale.
+      (A real turn clicked and typed correctly on the primary monitor at
+      100%: `pindot --test-turn ... --cwd %APPDATA%\Pindot\session`, haiku,
+      14.6 s, two screenshots. The second monitor and other scales are not
+      tried.)
 - [ ] Clicking into an elevated window fails with a clear error, not silently.
+      (Not built: Windows drops the input and `SendInput` reports success.)
 
 ## (d) Brain in ConPTY
 
@@ -127,13 +143,16 @@ Implement the Windows side of each trait, then repeat the macOS checks in
 `docs/phase1/README.md` in Notepad (the Windows stand-in for TextEdit).
 Only click and type in windows you opened for the test.
 
+- [x] `Accessibility`, the part without UI Automation: `windows()` from
+      `EnumWindows` front to back, with pid, owner app, title and bounds;
+      running apps, the frontmost app, resolving and opening an app from the
+      Start menu, and `raise_window()` (`AttachThreadInput`, then an Alt
+      tap).
 - [ ] `Accessibility` with UI Automation (`uiautomation` or `windows` crate):
-      `windows()` from `EnumWindows` front to back, with pid, owner app,
-      title, bounds and a layer/topmost hint; `window_tree()` maps UIA
-      control types to our roles (Button -> AXButton and so on) and fills
-      name, value, bounds, enabled and focused; `press()` uses the Invoke
-      pattern, `set_focus()` and `raise_window()` use `SetForegroundWindow`
-      rules (it may refuse; report that clearly).
+      `window_tree()` maps UIA control types to our roles (Button ->
+      AXButton and so on) and fills name, value, bounds, enabled and
+      focused; `press()` uses the Invoke pattern; `focused_is_secure()` uses
+      `IsPassword`.
 - [ ] `read_window` on Notepad lists the menu bar (File, Edit, ...) and the
       edit area with refs; `find("Save as")` finds the menu item.
 - [ ] Secure fields: a password box (UIA `IsPassword`) is reported as
@@ -146,9 +165,11 @@ Only click and type in windows you opened for the test.
       and "Allow for this session" both work by mouse, Esc denies, and a
       120 s timeout denies. Extra warning shows for Terminal/PowerShell,
       Explorer, Settings/Control Panel, password managers.
-- [ ] The gate: `click` on a point over a window of a non-approved app is
+- [x] The gate: `click` on a point over a window of a non-approved app is
       refused before any input; screenshots grey out windows of
-      non-approved apps.
+      non-approved apps. (A click on Chrome and one on the taskbar were
+      refused; the screenshot showed only the approved test window.
+      `type_text` into a classic password box was refused.)
 - [ ] The banner "Claude is controlling input" shows while an action runs
       and is not in our own screenshots (`WDA_EXCLUDEFROMCAPTURE`).
 - [ ] Coordinates on a 150% monitor and a 100% monitor: `click(x,y)` from a

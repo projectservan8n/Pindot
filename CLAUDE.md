@@ -10,10 +10,11 @@ done on macOS (spikes; tools, accessibility tree and guardrails; the voice
 loop; the app with setup, settings, downloader, activity viewer and the
 release build). The evidence is in `docs/phase0/` to `docs/phase3/`.
 Windows was first built and run on 15 Nov 2026: the app, the server, the
-overlay and the voice loop (hold-to-talk, speech, the brain) work there;
-capture, input and accessibility are still stubs, so Claude cannot see or
-control the desktop on Windows yet. See "Windows: first build and run" below
-and `docs/windows-test-checklist.md`.
+overlay, the voice loop (hold-to-talk, speech, the brain) and desktop control
+(screenshots, windows, apps, approval, mouse and keyboard) work there. The
+element tree does not yet, so on Windows Claude works from screenshots and
+x,y. See "Windows: first build and run" below and
+`docs/windows-test-checklist.md`.
 
 Pindot was called **Deskhand** until 15 Nov 2026. The captured run outputs
 (`docs/phase*/*.log`, `*.txt`) and the screenshots keep the old name, as
@@ -51,12 +52,14 @@ recorded; everything else was renamed (crates, bundle id `dev.pindot.app`,
 - `crates/pindot-core`: everything testable without a UI.
   - `platform/`: OS traits `Capture`, `Input`, `Hotkey`, `StopKey` (global
     Esc), `Accessibility` and `Overlay`. Each has a macOS implementation
-    (`platform/macos`), a Windows one (`platform/windows`: `Hotkey` and
-    `StopKey` are real, `Capture`, `Input` and `Accessibility` return
-    `Unsupported`) and mocks (`platform/mock.rs`).
-    `platform/windows_logic.rs` holds the Windows decisions that need no
-    Windows API (what the microphone switches mean, what the key hook does
-    with each key), so they are unit-tested on every OS.
+    (`platform/macos`), a Windows one (`platform/windows`: `keyhook`,
+    `permissions`, `capture`, `input` and `apps`; only the element tree of
+    `Accessibility` still returns `Unsupported`) and mocks
+    (`platform/mock.rs`). `platform/windows_logic.rs` holds the Windows
+    decisions that need no Windows API (what the microphone switches mean,
+    what the key hook does with each key, what a window is, how an app is
+    named and found, which keys a shortcut presses), so they are unit-tested
+    on every OS.
   - `server/`: the rmcp streamable-HTTP MCP server named `desktop` and the
     hook receivers (`/hooks/stop`, `/hooks/prompt`). `tools.rs` holds the 15
     tools; `session.rs` the per-session approvals, refs and hit test;
@@ -472,6 +475,59 @@ then 2.1.325). What was run and seen is in
   `dwExtraInfo` and are ignored by both; the Windows `Input` must stamp its
   keys with it. A hook in a normal process does not see keys typed into an
   elevated window.
+- **The hook heals itself**: Windows removes a low-level hook it finds
+  slow, with no notice, and one voice loop came up with a hook that was
+  never called (its thread used no CPU cycles while keys were pressed). A
+  single 1.5 s stall does not get a hook removed on this build; what did
+  was not found. Every 500 ms the hook thread now corrects the tracked
+  modifiers from `GetAsyncKeyState` (`WinChord::resync`) and takes the hook
+  out and puts it back, unless a hold is in progress or a key was pressed
+  in the last 150 ms. It logs when Windows had removed the hook, and each
+  hold-to-talk Down/Up/Cancel is logged. A missed key-up (lock screen, UAC
+  prompt, an administrator's window) no longer leaves a modifier "held".
+- **Desktop control** (`capture`, `apps`, `input`; all raw Win32 through
+  `windows-sys`, no xcap or enigo):
+  - A logical point is a physical pixel divided by the scale of the
+    monitor it is on, the rule the overlay uses to place each monitor.
+    Only 100% monitors were tried.
+  - Screenshots are one GDI `BitBlt` per monitor; our own windows are left
+    out by the compositor (`WDA_EXCLUDEFROMCAPTURE`).
+  - The window list is `EnumWindows`, front to back. The desktop
+    (`Progman`, `WorkerW`) is skipped. The taskbar is listed as "Taskbar"
+    with pid -1 and layer 20: no app owns it, so it can never be approved,
+    even when File Explorer (the same process) is. Click-through windows
+    (`WS_EX_TRANSPARENT | WS_EX_LAYERED`: our overlay, a game's, a
+    recorder's) get alpha 0, so the hit test and the mask look through
+    them. Before that rule every click would have been refused as "on a
+    window of" whichever overlay is on top. A store app's frame
+    (`ApplicationFrameWindow`) is traced to the process that owns its
+    `Windows.UI.Core.CoreWindow`.
+  - **One name per app**, running or not, so one approval covers both: the
+    Start menu's name when a Start entry names the executable or the
+    process's application id (`start_name_for`), else the executable's
+    file description, else its file name. `bundle_id` is the executable's
+    name in lower case. Pindot's own process is always "Pindot". Names
+    containing "pindot" in the executable can never be approved
+    (`is_pindot`), which a test window called `pindot-test-target` found.
+  - The Start menu's list is `Get-StartApps` through a hidden PowerShell
+    (about a second, read once, kept ten minutes, read again when a name
+    is not found). An app opens with `explorer.exe shell:AppsFolder\<id>`;
+    one that is running is brought forward instead. A name matches exactly,
+    or as whole words when only one app fits ("Chrome").
+  - Bringing a window forward: `AttachThreadInput` to the foreground
+    thread, then `SetForegroundWindow`; if Windows still refuses, one Alt
+    tap and again.
+  - Input is `SendInput` with `INPUT_MARKER` on every event. Text goes as
+    Unicode (accents, CJK and emoji arrive intact). In a shortcut **`cmd`
+    is pressed as Ctrl** (a Mac shortcut such as cmd+s means ctrl+s here)
+    and the new `win` modifier is the Windows key; the tool descriptions
+    keep their Mac examples and `desktop_context` says how Windows differs.
+  - **Password fields are only half covered**: `focused_is_secure` sees a
+    classic Edit control with `ES_PASSWORD`. Password boxes in browsers
+    and modern apps need UI Automation (`IsPassword`) and are not detected.
+  - Seen: every tool by hand against a test window, and one real turn
+    (`--test-turn`, haiku) that typed "hello" and pressed a button in
+    14.6 s with two screenshots.
 - **The pseudo-console asks a question first**: portable-pty 0.9 opens
   ConPTY with `PSEUDOCONSOLE_INHERIT_CURSOR`, so the first thing it sends
   is `ESC[6n` (where is the cursor?), and it passes on nothing `claude`
@@ -545,14 +601,19 @@ then 2.1.325). What was run and seen is in
   the tray position and confirm our menu window is open before clicking.
 - **Windows**: `find_claude` looks only for `claude.exe`; an npm install
   gives `claude.cmd` (see the checklist).
-- **Windows cannot see or control the desktop yet**: `Capture`, `Input` and
-  `Accessibility` are stubs, so every desktop tool answers "not supported
-  on this OS yet" and `request_access` knows no app. Voice works; "open
-  Notepad" gets a spoken refusal. The token and config files get no ACL
-  (they rely on `%APPDATA%` being per-user). Not checked on Windows: the
-  tray menu, a real Esc press against the stop hook, real speech into the
-  microphone, mixed DPI, sleep and wake, an elevated window in front, and
-  the installer.
+- **Windows has no element tree yet**: `read_window`, `find` and clicks by
+  ref answer "not supported on this OS yet", so Claude takes a screenshot
+  for every look (slower, more tokens) and every click is a real pointer
+  move. UI Automation is the next piece; it also closes the password-field
+  gap (browser and modern password boxes are not detected today, so
+  `type_text` would type into them).
+- **Windows, not checked**: the approval window answered by a human, the
+  tray menu, a real Esc press against the stop hook, a monitor above 100%,
+  sleep and wake, an elevated window in front (input sent to it is dropped
+  while `SendInput` reports success, and nothing says so), a window that is
+  invisible but not click-through (it would block clicks under it), and
+  the installer. The token and config files get no ACL (they rely on
+  `%APPDATA%` being per-user).
 - `scripts/check-windows.sh` type-checks `pindot-core` and the app for
   `x86_64-pc-windows-msvc` from the Mac, with stand-ins for the C compiler,
   archiver and `llvm-rc` (ring and the icon resource need Windows headers),
