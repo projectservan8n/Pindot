@@ -37,3 +37,6 @@ claude-settings.json
 spikes/test-target/test-target
 spikes/test-target/*.log
 .DS_Store
+
+# Python bytecode (scripts/mcp_call.py imported by a test)
+__pycache__/
