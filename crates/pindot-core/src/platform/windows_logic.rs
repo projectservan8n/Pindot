@@ -8,6 +8,22 @@
 use super::keys::Modifiers;
 use super::{ChordTracker, DisplayInfo, HeldMods, HotkeyBinding, HotkeyEvent, KeyName, ModKey, PermissionState, Point, Side};
 
+// ------------------------------------------------------------- one instance
+
+/// The name of the kernel objects by which a second Pindot finds the first
+/// (`suffix` tells the lock from the "show your window" signal). One name
+/// per data folder, so a test instance with its own folder runs beside the
+/// real one. The same folder gives the same name whatever its spelling
+/// (case, slash direction, a trailing slash), in every build.
+pub fn instance_name(data_dir: &str, suffix: &str) -> String {
+    let folder = data_dir.replace('/', "\\").to_lowercase();
+    let folder = folder.trim_end_matches('\\');
+    // FNV-1a, written out: the two instances may come from different builds,
+    // and the standard library's hasher is not promised to stay the same.
+    let hash = folder.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3));
+    format!("Local\\dev.pindot.app-{hash:016x}-{suffix}")
+}
+
 // ------------------------------------------------------------- windows and apps
 
 pub const WS_EX_TRANSPARENT: u32 = 0x20;
@@ -564,6 +580,26 @@ mod tests {
         // Pindot itself runs as administrator: nothing is above it.
         assert!(!input_is_blocked(true, Elevation::Elevated));
         assert!(!input_is_blocked(true, Elevation::Denied));
+    }
+
+    #[test]
+    fn one_data_folder_has_one_instance_name_however_it_is_spelled() {
+        let a = instance_name(r"C:\Users\Ada\AppData\Roaming\Pindot", "lock");
+        assert_eq!(a, instance_name(r"c:\users\ada\appdata\roaming\pindot", "lock"));
+        assert_eq!(a, instance_name("C:/Users/Ada/AppData/Roaming/Pindot/", "lock"));
+        assert_ne!(a, instance_name(r"C:\Users\Ada\AppData\Roaming\Pindot-test", "lock"));
+        assert_ne!(a, instance_name(r"C:\Users\Ada\AppData\Roaming\Pindot", "show"));
+    }
+
+    #[test]
+    fn an_instance_name_is_a_valid_kernel_object_name() {
+        let n = instance_name(r"E:\some folder\with 'odd' chars\Pindot", "lock");
+        // "Local\" then a name without any further backslash.
+        let rest = n.strip_prefix("Local\\").expect("in this session's namespace");
+        assert!(!rest.contains('\\'), "{n}");
+        assert!(rest.starts_with("dev.pindot.app-"), "{n}");
+        assert!(rest.ends_with("-lock"), "{n}");
+        assert!(n.len() < 100);
     }
 
     #[test]

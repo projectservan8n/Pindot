@@ -7,7 +7,7 @@ was seen on that PC; a note after a box says how far an unticked one got.
 
 On Windows today:
 
-- **Works**: the build (see "Build"), `cargo test --workspace` (168 + 24 + 3
+- **Works**: the build (see "Build"), `cargo test --workspace` (180 + 24 + 3
   tests), the app with Setup, Settings and Activity, the MCP server and its
   guards, the overlay on both monitors, the microphone check, hold-to-talk
   (`Hotkey`, self-healing), the Esc stop key (`StopKey`), speech to text,
@@ -17,10 +17,15 @@ On Windows today:
   (`Input`), and the window list, apps, approval gate, opening apps and
   bringing a window forward (`Accessibility`). A real turn typed and
   clicked in a test window (`--test-turn`, TURN COMPLETED).
-- **Also works, on a test window only**: the element tree through UI
-  Automation (`read_window`, `find`, click by ref, press without the
-  pointer) and the password-field check (`IsPassword`). Not yet tried on a
-  browser, Office or a store app.
+- **Also works, on few apps**: the element tree through UI Automation
+  (`read_window`, `find`, click by ref, press without the pointer) and the
+  password-field check (`IsPassword`): on a test window, on a local page
+  in Edge and on Paint. Not yet on Office, File Explorer or a real web
+  site.
+- **Installing**: `scripts\build-windows.ps1` makes the app and a per-user
+  installer. A silent install, a start of the installed copy and a silent
+  uninstall were run. Starting Pindot twice opens the running one's
+  window.
 - The permission report lists only the microphone, read from the three
   privacy switches in the registry. Its button opens
   `ms-settings:privacy-microphone`. There is no "Ask" button: Windows has
@@ -217,18 +222,23 @@ Only click and type in windows you opened for the test.
       299 ms) and TTS (transcribed back word for word). The models were
       downloaded and verified through the Setup screen instead (230 MB in
       15 s; "Check files" 5 s). `voice_check play` was not run.
-- [ ] ONNX Runtime: `ort` downloads its Windows binaries at build time;
+- [x] ONNX Runtime: `ort` downloads its Windows binaries at build time;
       check the app starts on a clean machine without a separate install
-      (or that the needed DLL is bundled). (Here it was linked dynamically,
-      see "Build": `onnxruntime.dll` must sit next to `pindot.exe`, and the
-      installer does not bundle it yet.)
+      (or that the needed DLL is bundled). (Linked dynamically, see
+      "Build": `onnxruntime.dll` must sit next to `pindot.exe`. The
+      installer puts it there and the installed copy started. Not on a
+      clean machine.)
 - [x] Test build (`--release --features test-switches`): `pindot --test-voice
       docs/phase2/test-utterance.wav --model haiku` prints `RESULT PASS`.
       (Listening, Thinking, Acting twice, Speaking, Idle. Speech to text
       321 ms, the turn 7.0 s, first audio 746 ms after it, 8.1 s from the
       key release to the first sound. Claude called `request_access` twice
       and said it could not reach a text editor: no app resolves on
-      Windows yet. A debug build takes 11.5 s to the first audio.)
+      Windows yet. A debug build takes 11.5 s to the first audio. Run again
+      once desktop control was built, with a synthesised request (Parakeet,
+      haiku): the test window's app opened, text typed, a button pressed
+      and the reply spoken; RESULT PASS, 14.7 s from the key release to
+      the first sound.)
 - [ ] Real use: hold Ctrl+Win, say "Open Notepad and type hello", let go.
       Expect Listening, Thinking, Working, the approval window, the text in
       Notepad and a spoken reply. The Start menu must not open.
@@ -249,12 +259,23 @@ Only click and type in windows you opened for the test.
       Setup..., Settings..., Activity..., the checked Hold-to-talk
       (Ctrl+Win) and Quit Pindot. Quit exited cleanly: no `pindot`, no
       WebView2 process, the port free. Not used by hand.)
-- [ ] First start opens Setup without stealing focus from the app in front.
+- [x] First start opens Setup without stealing focus from the app in front.
+      (A private instance that needed Setup: its window came up first in
+      the z-order and the foreground window stayed another app's.)
+- [x] Starting Pindot a second time opens the running one's window and the
+      second process ends (54 ms). Seen with two private instances on one
+      data folder: the window, closed before, came back; minimized before,
+      it was restored and first in the z-order. Another data folder runs
+      beside, and after the first quits the next start runs normally. Not
+      seen: the window taking the keyboard when a person starts it (the
+      test's launcher was a background process, which Windows never lets
+      take the foreground).
 - [ ] Setup: the `claude` check finds Claude Code and reads `claude auth
-      status --json`; signed out shows "run `claude login`". Known gap:
-      `find_claude` looks only for `claude.exe` on PATH (the native
-      installer); an npm install provides `claude.cmd`, which is not found
-      yet, and a `.cmd` cannot be spawned in a PTY directly (use `cmd /c`).
+      status --json`; signed out shows "run `claude login`". (Found and
+      signed in: seen. Signed out: not seen. `find_claude` looks for
+      `claude.exe` on the PATH and in the home folder's usual places. An
+      npm install gives `claude.cmd`, which Pindot cannot start in its
+      terminal, so Setup says to install the native app.)
 - [x] Setup > Permissions shows the microphone row; "Open Settings" opens
       the microphone privacy page. The row reads the three privacy switches
       ("Allowed" here, all three on). Still to check: switch "Let desktop
@@ -286,3 +307,8 @@ Only click and type in windows you opened for the test.
       Setup, `curl -H "Authorization: Bearer <token>"
       http://127.0.0.1:47823/health` answers `ok`, and uninstall leaves
       only `%APPDATA%\Pindot\`.
+      (On the build PC, not a clean one: a silent install into a test
+      folder; the installed copy started with its own data folder and its
+      server answered 401 without the token; a silent uninstall removed
+      the files, the shortcuts and the Installed-apps entry. `/health`
+      with the token and the installer's pages were not tried.)

@@ -11,6 +11,8 @@
 //! - `uia`: the element tree through UI Automation (`read_window`, `find`,
 //!   pressing an element without the pointer, password fields).
 //! - `window`: keeping the overlay windows out of Alt+Tab.
+//! - `instance`: one Pindot per data folder; a second launch asks the
+//!   first to show its window.
 //!
 //! A click at x,y is always a real click on Windows: `actionable_at` (find
 //! the control under a point and press it instead) is not built.
@@ -21,6 +23,7 @@
 pub mod apps;
 pub mod capture;
 pub mod input;
+pub mod instance;
 pub mod keyhook;
 pub mod permissions;
 pub mod uia;

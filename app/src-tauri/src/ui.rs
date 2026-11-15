@@ -115,6 +115,12 @@ impl Ui {
 pub fn open_main(app: &AppHandle, view: &str, focus: bool) -> tauri::Result<()> {
     if let Some(w) = app.get_webview_window(MAIN) {
         let _ = app.emit_to(MAIN, NAVIGATE_EVENT, view);
+        // Windows: a minimized window stays minimized through show() and
+        // set_focus(), so asking for it (the tray menu, a second start)
+        // showed nothing.
+        if cfg!(windows) && w.is_minimized().unwrap_or(false) {
+            let _ = w.unminimize();
+        }
         w.show()?;
         if focus {
             front_with_focus(app);

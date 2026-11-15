@@ -592,13 +592,27 @@ then 2.1.325). What was run and seen is in
   pill ("Hold-to-talk is off: ..."). Not when the user switched
   hold-to-talk off, and not on macOS, where creating a tap without the
   permissions can itself show a prompt.
+- **One instance**: starting Pindot twice would give two overlays, two
+  tray icons and a copy without its port. macOS brings the running app
+  forward by itself; on Windows the first instance holds a named mutex and
+  waits on a named event, and a second start signals the event, passes on
+  its right to the foreground (`AllowSetForegroundWindow`) and ends
+  (`platform/windows/instance.rs`). The names come from the data folder
+  (`windows_logic::instance_name`; FNV-1a, so every build agrees), so a
+  test instance with its own `PINDOT_DATA_DIR` still runs beside the real
+  one. Not for `--demo`, a start without the server, or the test paths.
+- **A minimized main window is restored** when it is asked for (the tray
+  menu, a second start): `show()` and `set_focus()` leave it minimized on
+  Windows, so nothing appeared.
 - **`scripts\build-windows.ps1`** is the Windows `build-mac.sh`: the
   release app and a per-user NSIS installer, with ONNX Runtime linked as a
   DLL and shipped next to `pindot.exe` (decided: the static library needs a
   recent VS 2022, the DLL links anywhere). The DLL reaches the bundler
   through `--config`, not `tauri.conf.json`, because a resource listed
   there must exist for every `cargo build` on every OS. See
-  `docs/release.md`. Two instances that ask WebView2 for different options
+  `docs/release.md`, which also says what a silent install, a start of
+  the installed copy and a silent uninstall showed. Two instances that ask
+  WebView2 for different options
   (one with a remote-debugging port) cannot share the app's WebView2 data
   folder: the second fails at startup.
 - **Finding `claude`**: `claude.exe` on the PATH, then under the home
@@ -697,7 +711,8 @@ then 2.1.325). What was run and seen is in
   flags such windows; no click was aimed at one), a window that is
   invisible but not click-through (it would block clicks under it), a
   release build started from Explorer (for console flashes), and the
-  installer. The token and config files get no ACL (they rely on
+  installer's pages (it was only run silently). The token and config files
+  get no ACL (they rely on
   `%APPDATA%` being per-user). Quitting `claude` with Ctrl+C and the `win`
   modifier also changed the macOS path, which was not run.
 - `scripts/check-windows.sh` type-checks `pindot-core` and the app for

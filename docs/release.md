@@ -2,9 +2,10 @@
 
 Status (15 Nov 2026): the macOS arm64 release build is made and checked
 unsigned (see `docs/phase3/README.md`). The Windows build and its installer
-are made by `scripts\build-windows.ps1`; the installer was built and its
-contents checked, but it was not run. Signing and notarization are
-documented here only; neither has been set up.
+are made by `scripts\build-windows.ps1`; the installer was installed
+silently into a test folder, the installed copy run, and uninstalled. Its
+pages were not clicked through. Signing and notarization are documented
+here only; neither has been set up.
 
 ## macOS: unsigned build (done)
 
@@ -104,7 +105,7 @@ After the first signed release, users must grant the four permissions once
 more (the signature changed), and from then on the grants survive updates
 signed with the same certificate.
 
-## Windows (built on 15 Nov 2026; the installer was not run)
+## Windows (built on 15 Nov 2026; the installer was run silently only)
 
 1. On Windows 11: Rust (MSVC toolchain, `x86_64-pc-windows-msvc`), the
    Visual Studio Build Tools with "Desktop development with C++" (2019 is
@@ -130,9 +131,21 @@ signed with the same certificate.
    `cargo build`, on every OS. When `ort-sys` is upgraded, change the
    version and the hash in the script.
 4. What was checked: the installer holds `pindot.exe` and `onnxruntime.dll`
-   side by side (7-Zip), the DLL's SHA-256 is the official one, and the
-   two files copied to an empty folder start and quit cleanly. Not
-   checked: running the installer, the Start-menu entry, the uninstaller,
+   side by side (7-Zip) and the DLL's SHA-256 is the official one. Its
+   `pindot.exe` is the built one except for three bytes, the bundle type
+   Tauri writes into it (`NSS` for `UNK`). A silent install
+   (`Pindot_<version>_x64-setup.exe /S /D=<folder>`) took 2 s and left the
+   two files and `uninstall.exe`, a Start-menu and a desktop shortcut to
+   the installed `pindot.exe`, and "Pindot 0.0.1" under Installed apps.
+   The installed copy started, its server answered (401 without the
+   token), a second start of it ended at once, and it quit cleanly. A
+   silent uninstall (`uninstall.exe /S`) removed the files, both shortcuts
+   and the Installed-apps entry. It keeps the install folder's path under
+   `HKCU\Software\pindot` for the next install. By its script, the
+   uninstaller's "delete the application data" box removes only the
+   WebView2 data under the bundle id (`%LOCALAPPDATA%\dev.pindot.app`),
+   not `%APPDATA%\Pindot` with the settings, the token and the models.
+   Not checked: the installer's pages clicked through by hand, that box,
    a clean PC without WebView2. An MSI (`--bundles msi`, needs WiX) was
    not tried.
 5. WebView2: the default `bundle.windows.webviewInstallMode` downloads the

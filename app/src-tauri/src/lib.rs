@@ -161,6 +161,27 @@ pub fn run() {
         println!("NOTE: --capturable: Pindot's own windows show up in screenshots (evidence runs only)");
     }
 
+    // Windows: one Pindot per data folder. A second launch asks the first
+    // to show its window and ends here. (macOS does this by itself; the
+    // demo, a serverless start and the test paths are meant to run beside.)
+    #[cfg(windows)]
+    let instance = {
+        use pindot_core::platform::windows::instance::{Claim, ask_first_to_show, claim};
+        let guarded = args.server && !args.demo && !args.test.any();
+        match pindot_core::paths::data_dir().ok().filter(|_| guarded).map(|dir| (claim(&dir), dir)) {
+            Some((Claim::Second, dir)) => {
+                let asked = ask_first_to_show(&dir);
+                println!(
+                    "Pindot is already running{}; this second start ends here",
+                    if asked { " and was asked to show its window" } else { "" }
+                );
+                return;
+            }
+            Some((Claim::First(guard), _)) => Some(guard),
+            None => None,
+        }
+    };
+
     let builder = tauri::Builder::default();
     // Tauri activates the app at launch by default; an overlay must never
     // take focus from the app the user is working in.
@@ -215,6 +236,19 @@ pub fn run() {
             // No Dock icon, no menu bar, never steals focus.
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            // A second launch (Windows) shows this instance's window.
+            #[cfg(windows)]
+            if let Some(guard) = instance {
+                let h = app.handle().clone();
+                guard.on_show(move || {
+                    println!("a second start asked for the window");
+                    if let Err(e) = ui::open_main(&h, "setup", true) {
+                        println!("the window could not open: {e}");
+                    }
+                });
+                app.manage(guard);
+            }
 
             let (settings, load_note) = load_settings();
             if !load_note.is_empty() {

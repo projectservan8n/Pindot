@@ -7,9 +7,9 @@ Pindot works with Claude Code. It is an independent open-source project
 (MIT), not made by, endorsed by or affiliated with Anthropic. "Claude" and
 "Claude Code" are Anthropic's names for their products.
 
-**Status:** version 0.0.1, macOS only so far (built and tested on macOS 26.5,
-Apple silicon). Windows has honest stubs and a test checklist, nothing more.
-The release build is unsigned. Evidence for each phase is in `docs/phase0/`
+**Status:** version 0.0.1. Built and tested on macOS 26.5 (Apple silicon).
+Windows 11 works too, since 15 Nov 2026, but has been run on one PC and few
+apps: see "Windows" below. The release builds are unsigned. Evidence for each phase is in `docs/phase0/`
 to `docs/phase3/`; decisions and conventions are in `CLAUDE.md`.
 
 Pindot was called Deskhand until 15 Nov 2026. Updating from a Deskhand
@@ -293,8 +293,21 @@ yet across many real apps. Limits to know:
 
 `docs/windows-test-checklist.md` lists what was seen and what is left.
 
-Install Rust (MSVC toolchain), Node.js, the Visual Studio 2022 C++ build
-tools, WebView2 (part of Windows 11) and Claude Code. Then:
+Install Rust (MSVC toolchain), Node.js, the Visual Studio C++ build tools
+(2019 or 2022), WebView2 (part of Windows 11) and Claude Code. Then:
+
+```powershell
+scripts\build-windows.ps1              # the app and its installer
+scripts\build-windows.ps1 -NoBundle    # the app only
+```
+
+That gives `target\release\pindot.exe` and
+`target\release\bundle\nsis\Pindot_<version>_x64-setup.exe`, a 10 MB
+installer for the current user (no administrator rights). Starting Pindot
+while it is already running opens the running one's window instead of a
+second copy.
+
+To work on it:
 
 ```powershell
 cargo test --workspace
@@ -305,12 +318,13 @@ cargo build --release -p pindot        # target\release\pindot.exe
 Use a release build to try voice: a debug build takes over ten seconds to
 start speaking.
 
-With the older Visual Studio 2019 build tools the link step fails in
-`libort_sys` (unresolved `__std_find_trivial_*` symbols): the prebuilt ONNX
-Runtime needs a newer C++ runtime library. Either install the 2022 build
-tools, or link ONNX Runtime as a DLL: unpack
-`onnxruntime-win-x64-1.28.0.zip` from the ONNX Runtime releases on GitHub
-and set these before running `cargo`:
+The script links ONNX Runtime as a DLL and ships it next to `pindot.exe`.
+Plain `cargo` links it statically, and with the older Visual Studio 2019
+build tools that link step fails in `libort_sys` (unresolved
+`__std_find_trivial_*` symbols): the prebuilt ONNX Runtime needs a newer
+C++ runtime library. Either install the 2022 build tools, or link the DLL
+yourself: unpack `onnxruntime-win-x64-1.28.0.zip` from the ONNX Runtime
+releases on GitHub and set these before running `cargo`:
 
 ```powershell
 $env:ORT_LIB_LOCATION = "C:\path\to\onnxruntime-win-x64-1.28.0\lib"
