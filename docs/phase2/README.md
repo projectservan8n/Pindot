@@ -81,35 +81,35 @@ local models add about a quarter of a second.
 | License | MIT | Apache-2.0 |
 | Source (pinned commit) | huggingface.co/moonshine-ai/moonshine-voice-assets @ e318117 | huggingface.co/gradium/phonon-31m-en @ 92741c5 |
 | Size | 165.5 MB (7 files) | 65.1 MB (4 files) |
-| Checksums | SHA-256 per file in `crates/deskhand-core/src/voice/models.rs` | same |
+| Checksums | SHA-256 per file in `crates/pindot-core/src/voice/models.rs` | same |
 
-Stored in `~/Library/Application Support/Deskhand/models/<id>/`. Settings
+Stored in `~/Library/Application Support/Pindot/models/<id>/`. Settings
 live in `voice-settings.json` in the data dir (`stt_model`, `tts_model`,
 `tts_voice`, `speak_mode` `each_message`/`at_stop`, `idle_reset_secs`,
-`volume`, `model`), with `DESKHAND_*` environment overrides.
+`volume`, `model`), with `PINDOT_*` environment overrides.
 
 ## Test path (off by default, logged loudly)
 
 Since Phase 3 these switches exist only in a test build:
-`cargo build --release -p deskhand --features test-switches`. A normal or
+`cargo build --release -p pindot --features test-switches`. A normal or
 release build ignores them with a warning.
 
-`deskhand --test-voice WAV [--test-voice-esc] [--model haiku]
+`pindot --test-voice WAV [--test-voice-esc] [--model haiku]
 [--turn-timeout S] [--keep-running]` replaces the microphone with the WAV
 and presses Fn synthetically (through the real tap; if the tap doesn't see
 it, the press is injected directly and the log says so). Spoken replies go to
 a temp WAV and play at 20% volume. Prints `test-voice: RESULT PASS` or
 `CHECK OUTPUT`. Run 1:
 
-    DESKHAND_TEST_AUTO_APPROVE=TextEdit ./target/release/deskhand \
+    PINDOT_TEST_AUTO_APPROVE=TextEdit ./target/release/pindot \
       --test-voice docs/phase2/test-utterance.wav --model haiku
 
 ## Manual tests for Tony
 
-Start it with `./target/release/deskhand --voice` from a terminal in
-`~/deskhand` (build first with `cargo build --release`).
+Start it with `./target/release/pindot --voice` from a terminal in
+`~/pindot` (build first with `cargo build --release`).
 
-1. **Permissions** for the binary `~/deskhand/target/release/deskhand` (or
+1. **Permissions** for the binary `~/pindot/target/release/pindot` (or
    the terminal app that starts it): Microphone (the mic opens on each Fn
    hold, so macOS asks on the first one: allow it, then hold again; not
    granted or tested yet), Accessibility and Input Monitoring (Fn and Esc
@@ -129,4 +129,4 @@ Start it with `./target/release/deskhand --voice` from a terminal in
 
 Do not test "not signed in" with `claude logout` on the Mac mini: Tarsee
 uses the same login. Run 3 covers it with a stand-in script
-(`DESKHAND_CLAUDE_BIN=<script>`).
+(`PINDOT_CLAUDE_BIN=<script>`).

@@ -1,7 +1,7 @@
 //! The tray icon, the main window (Setup, Settings, Activity) and the
 //! commands behind it, plus when the voice loop runs.
 //!
-//! Every command that changes something outside Deskhand (a permission
+//! Every command that changes something outside Pindot (a permission
 //! request, opening System Settings, `claude mcp add/remove`) only runs from
 //! a button the user pressed; nothing here calls them on its own.
 
@@ -10,17 +10,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use deskhand_core::brain::config::{write_hook_settings, write_mcp_config};
-use deskhand_core::brain::{self, AuthState};
-use deskhand_core::connect::{self, ConnectStatus};
-use deskhand_core::platform::{self, HotkeyBinding, Os, Permission, PermissionState, PermissionStatus};
-use deskhand_core::server::activity::{self, ActivityEntry, ActivityFilter};
-use deskhand_core::server::{RunningServer, ServerState};
-use deskhand_core::settings::Settings;
-use deskhand_core::voice::audio::{AudioSink, CpalSpeaker};
-use deskhand_core::voice::engines::{PhononTts, TextToSpeech};
-use deskhand_core::voice::models::{self, DownloadOptions, ModelKind, Progress};
-use deskhand_core::voice::phonon_voices::{self, PhononVoice};
+use pindot_core::brain::config::{write_hook_settings, write_mcp_config};
+use pindot_core::brain::{self, AuthState};
+use pindot_core::connect::{self, ConnectStatus};
+use pindot_core::platform::{self, HotkeyBinding, Os, Permission, PermissionState, PermissionStatus};
+use pindot_core::server::activity::{self, ActivityEntry, ActivityFilter};
+use pindot_core::server::{RunningServer, ServerState};
+use pindot_core::settings::Settings;
+use pindot_core::voice::audio::{AudioSink, CpalSpeaker};
+use pindot_core::voice::engines::{PhononTts, TextToSpeech};
+use pindot_core::voice::models::{self, DownloadOptions, ModelKind, Progress};
+use pindot_core::voice::phonon_voices::{self, PhononVoice};
 use serde::Serialize;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -31,9 +31,9 @@ use crate::voice::{self, VoiceApp, VoiceState};
 /// The label of the Setup / Settings / Activity window.
 pub const MAIN: &str = "main";
 /// Emitted to the main window when something it shows changed.
-pub const STATE_EVENT: &str = "deskhand:state";
-pub const NAVIGATE_EVENT: &str = "deskhand:navigate";
-pub const DOWNLOAD_EVENT: &str = "deskhand:download";
+pub const STATE_EVENT: &str = "pindot:state";
+pub const NAVIGATE_EVENT: &str = "pindot:navigate";
+pub const DOWNLOAD_EVENT: &str = "pindot:download";
 
 /// App-wide UI state (managed by Tauri).
 pub struct Ui {
@@ -105,7 +105,7 @@ impl Ui {
 // ------------------------------------------------------------- window, tray
 
 /// Show the main window on `view` (`setup`, `settings` or `activity`).
-/// `focus` is false when Deskhand opens it by itself at launch, so it never
+/// `focus` is false when Pindot opens it by itself at launch, so it never
 /// takes the keyboard from the app the user is in.
 pub fn open_main(app: &AppHandle, view: &str, focus: bool) -> tauri::Result<()> {
     if let Some(w) = app.get_webview_window(MAIN) {
@@ -120,12 +120,12 @@ pub fn open_main(app: &AppHandle, view: &str, focus: bool) -> tauri::Result<()> 
     }
     let capturable = app.state::<Ui>().capturable;
     let w = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App(format!("index.html#{view}").into()))
-        .title("Deskhand")
+        .title("Pindot")
         .inner_size(820.0, 640.0)
         .min_inner_size(640.0, 460.0)
         .center()
         .focused(focus)
-        // Deskhand's own windows stay out of Claude's screenshots.
+        // Pindot's own windows stay out of Claude's screenshots.
         .content_protected(!capturable)
         .build()?;
     if let (Ok(p), Ok(z), Ok(scale)) = (w.outer_position(), w.outer_size(), w.scale_factor()) {
@@ -140,7 +140,7 @@ pub fn open_main(app: &AppHandle, view: &str, focus: bool) -> tauri::Result<()> 
     Ok(())
 }
 
-/// The user asked for the window (tray menu): activate Deskhand and give the
+/// The user asked for the window (tray menu): activate Pindot and give the
 /// window the keyboard. Queued on the main thread, so it runs after the
 /// tray menu has closed.
 fn front_with_focus(app: &AppHandle) {
@@ -152,7 +152,7 @@ fn front_with_focus(app: &AppHandle) {
                 && let Ok(ns) = w.ns_window()
             {
                 // SAFETY: Tauri's live NSWindow, on the main thread.
-                unsafe { deskhand_core::platform::macos::window::activate_and_focus(ns) };
+                unsafe { pindot_core::platform::macos::window::activate_and_focus(ns) };
             }
         });
     }
@@ -172,7 +172,7 @@ fn front_without_focus(app: &AppHandle) {
             if let Some(w) = h.get_webview_window(MAIN)
                 && let Ok(ns) = w.ns_window()
             {
-                use deskhand_core::platform::macos::window::{order_front_without_focus, window_number};
+                use pindot_core::platform::macos::window::{order_front_without_focus, window_number};
                 // SAFETY: Tauri's live NSWindow, on the main thread.
                 unsafe { order_front_without_focus(ns) };
                 println!("window {MAIN}: in front without focus (window id {})", unsafe { window_number(ns) });
@@ -185,13 +185,13 @@ fn front_without_focus(app: &AppHandle) {
 
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let ui = app.state::<Ui>();
-    let status = MenuItem::with_id(app, "status", "Deskhand: starting…", false, None::<&str>)?;
+    let status = MenuItem::with_id(app, "status", "Pindot: starting…", false, None::<&str>)?;
     let setup = MenuItem::with_id(app, "setup", "Setup…", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
     let activity = MenuItem::with_id(app, "activity", "Activity…", true, None::<&str>)?;
     let voice =
         CheckMenuItem::with_id(app, "voice", "Hold-to-talk", true, ui.settings().voice_enabled, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Deskhand", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Pindot", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
@@ -207,10 +207,10 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         ],
     )?;
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.png"))?;
-    TrayIconBuilder::with_id("deskhand")
+    TrayIconBuilder::with_id("pindot")
         .icon(icon)
         .icon_as_template(true)
-        .tooltip("Deskhand")
+        .tooltip("Pindot")
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -239,11 +239,11 @@ fn refresh_tray(app: &AppHandle) {
     let s = ui.settings();
     let label = s.effective().hotkey.label_for(Os::current());
     let text = match (ui.voice_state(), ui.voice_note.lock().unwrap().clone()) {
-        (Some(VoiceState::Running), _) => format!("Deskhand: hold {label} to talk"),
-        (Some(VoiceState::Starting), _) => "Deskhand: hold-to-talk starting…".into(),
-        (Some(VoiceState::Failed(e)), _) => format!("Deskhand: hold-to-talk failed ({})", short(&e, 60)),
-        (_, Some(note)) => format!("Deskhand: hold-to-talk off ({})", short(&note, 60)),
-        _ => "Deskhand: hold-to-talk off".into(),
+        (Some(VoiceState::Running), _) => format!("Pindot: hold {label} to talk"),
+        (Some(VoiceState::Starting), _) => "Pindot: hold-to-talk starting…".into(),
+        (Some(VoiceState::Failed(e)), _) => format!("Pindot: hold-to-talk failed ({})", short(&e, 60)),
+        (_, Some(note)) => format!("Pindot: hold-to-talk off ({})", short(&note, 60)),
+        _ => "Pindot: hold-to-talk off".into(),
     };
     if let Some(i) = ui.tray_status.lock().unwrap().as_ref() {
         let _ = i.set_text(text);
@@ -327,7 +327,7 @@ fn model_ready(setting: &str, kind: ModelKind, root: Option<&Path>) -> bool {
 /// needs is there. On a background thread; returns at once.
 pub fn restart_voice(app: &AppHandle) {
     let app = app.clone();
-    let spawned = std::thread::Builder::new().name("deskhand-voice-restart".into()).spawn(move || {
+    let spawned = std::thread::Builder::new().name("pindot-voice-restart".into()).spawn(move || {
         restart_voice_now(&app);
     });
     if let Err(e) = spawned {
@@ -423,7 +423,7 @@ pub fn app_info(app: AppHandle) -> AppInfo {
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
         os: if cfg!(target_os = "macos") { "macos" } else { "windows" },
-        data_dir: deskhand_core::paths::data_dir().ok().map(|p| p.display().to_string()),
+        data_dir: pindot_core::paths::data_dir().ok().map(|p| p.display().to_string()),
         settings_path: Settings::path().ok().map(|p| p.display().to_string()),
         load_note: ui.load_note.lock().unwrap().clone(),
         server_url: app.try_state::<RunningServer>().map(|s| s.mcp_url()),
@@ -459,14 +459,14 @@ pub struct SettingsView {
 }
 
 const OVERRIDE_VARS: &[&str] = &[
-    "DESKHAND_PORT",
-    "DESKHAND_HOTKEY",
-    "DESKHAND_STT_MODEL",
-    "DESKHAND_TTS_MODEL",
-    "DESKHAND_TTS_VOICE",
-    "DESKHAND_VOICE_MODEL",
-    "DESKHAND_VOLUME",
-    "DESKHAND_SPEAK_MODE",
+    "PINDOT_PORT",
+    "PINDOT_HOTKEY",
+    "PINDOT_STT_MODEL",
+    "PINDOT_TTS_MODEL",
+    "PINDOT_TTS_VOICE",
+    "PINDOT_VOICE_MODEL",
+    "PINDOT_VOLUME",
+    "PINDOT_SPEAK_MODE",
 ];
 
 #[tauri::command]
@@ -484,7 +484,7 @@ pub fn settings_get(app: AppHandle) -> SettingsView {
         stt_models: choices(ModelKind::SpeechToText),
         tts_models: choices(ModelKind::TextToSpeech),
         tts_voices: phonon_voices::VOICES,
-        default_port: deskhand_core::DEFAULT_PORT,
+        default_port: pindot_core::DEFAULT_PORT,
         running_port: app.try_state::<RunningServer>().map(|s| s.addr.port()),
         os: if cfg!(target_os = "macos") { "macos" } else { "windows" },
     }
@@ -510,7 +510,7 @@ pub fn settings_save(app: AppHandle, settings: Settings) -> Result<SaveResult, V
     let mut notes = Vec::new();
     if new.port != old.port {
         notes.push(format!(
-            "The MCP server moves to port {} the next time Deskhand starts. Press \"Connect to Claude Code\" again after that.",
+            "The MCP server moves to port {} the next time Pindot starts. Press \"Connect to Claude Code\" again after that.",
             new.port
         ));
     }
@@ -518,8 +518,19 @@ pub fn settings_save(app: AppHandle, settings: Settings) -> Result<SaveResult, V
         restart_voice(&app);
         notes.push("Hold-to-talk restarts with the new settings.".into());
     }
+    if new.voice.assistant_name != old.voice.assistant_name {
+        send_assistant_name(&app);
+    }
     changed(&app);
     Ok(SaveResult { notes })
+}
+
+/// Tell the overlays what the assistant is called (the banner says
+/// "Rusty is controlling input").
+pub fn send_assistant_name(app: &AppHandle) {
+    if let Some(ui) = app.try_state::<Ui>() {
+        let _ = app.emit("pindot:assistant", ui.settings().voice.assistant_name);
+    }
 }
 
 #[derive(Serialize)]
@@ -676,7 +687,7 @@ pub struct DownloadEvent {
 }
 
 /// Download (or check and repair) the given catalog models one after the
-/// other on a background thread, reporting `deskhand:download` events.
+/// other on a background thread, reporting `pindot:download` events.
 /// The user started it after seeing each license.
 #[tauri::command]
 pub fn models_download(app: AppHandle, ids: Vec<String>) -> Result<(), String> {
@@ -695,7 +706,7 @@ pub fn models_download(app: AppHandle, ids: Vec<String>) -> Result<(), String> {
     drop(slot);
     let app2 = app.clone();
     std::thread::Builder::new()
-        .name("deskhand-model-download".into())
+        .name("pindot-model-download".into())
         .spawn(move || {
             for spec in specs {
                 let opts = DownloadOptions { cancel: cancel.clone(), ..DownloadOptions::default() };
@@ -809,12 +820,12 @@ pub async fn disconnect_claude(app: AppHandle) -> Result<String, String> {
 }
 
 /// New bearer token (file mode 0600): the server switches to it at once,
-/// Deskhand's own `claude` configs are rewritten and hold-to-talk restarts.
+/// Pindot's own `claude` configs are rewritten and hold-to-talk restarts.
 /// A terminal `claude` registered with the old token must Connect again.
 #[tauri::command]
 pub fn token_regenerate(app: AppHandle) -> Result<String, String> {
     let server = app.try_state::<RunningServer>().ok_or("the MCP server is not running")?;
-    let token = deskhand_core::paths::regenerate_token().map_err(|e| format!("{e:#}"))?;
+    let token = pindot_core::paths::regenerate_token().map_err(|e| format!("{e:#}"))?;
     server.token.set(&token);
     write_mcp_config(&server.mcp_url(), &token).map_err(|e| format!("{e:#}"))?;
     write_hook_settings(&server.stop_hook_url(), &token).map_err(|e| format!("{e:#}"))?;
@@ -917,7 +928,7 @@ mod tests {
     fn model_setting_can_be_a_folder() {
         let dir = std::env::temp_dir();
         assert!(model_ready(&dir.display().to_string(), ModelKind::SpeechToText, None));
-        assert!(!model_ready("/no/such/deskhand/model", ModelKind::SpeechToText, None));
+        assert!(!model_ready("/no/such/pindot/model", ModelKind::SpeechToText, None));
         assert!(!model_ready("no-such-id", ModelKind::SpeechToText, Some(&dir)));
     }
 
@@ -947,9 +958,10 @@ pub async fn voice_download(name: String) -> Result<(), String> {
 static PREVIEWING: AtomicBool = AtomicBool::new(false);
 
 /// Speak a short sample with a voice (downloading it first if needed), at
-/// the volume on screen, with the saved speech model.
+/// the volume and with the assistant name on screen, with the saved speech
+/// model.
 #[tauri::command]
-pub async fn voice_preview(app: AppHandle, name: Option<String>, volume: f32) -> Result<(), String> {
+pub async fn voice_preview(app: AppHandle, name: Option<String>, volume: f32, assistant: Option<String>) -> Result<(), String> {
     if PREVIEWING.swap(true, Ordering::SeqCst) {
         return Err("A preview is already playing.".into());
     }
@@ -959,10 +971,12 @@ pub async fn voice_preview(app: AppHandle, name: Option<String>, volume: f32) ->
         let voice = phonon_voices::ensure(name.as_deref(), &root)?;
         let tts_dir = models::resolve(&settings.tts_model, ModelKind::TextToSpeech, &root)?;
         let tts = PhononTts::load(&tts_dir, voice.as_ref().map(|(n, p)| (*n, p.as_path())))?;
-        let text = match &voice {
-            Some((n, _)) => format!("Hi, I'm {n}. This is how I'll sound when I answer you."),
-            None => "Hi, this is the default voice. This is how I'll sound when I answer you.".to_string(),
-        };
+        let who = assistant
+            .as_deref()
+            .map(str::trim)
+            .filter(|a| pindot_core::voice::assistant_problems(a, "").is_empty())
+            .unwrap_or(pindot_core::voice::DEFAULT_ASSISTANT_NAME);
+        let text = format!("Hi, I'm {who}. This is how I'll sound when I answer you.");
         let mut pcm = Vec::new();
         tts.speak(&text, &mut |c| {
             pcm.extend_from_slice(c);

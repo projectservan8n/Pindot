@@ -140,7 +140,8 @@ button.danger {
 }
 
 input,
-select {
+select,
+textarea {
   font: inherit;
   padding: 4px 8px;
   border-radius: 6px;

@@ -62,7 +62,7 @@
 
 <header>
   <div class="brand">
-    <strong>Deskhand</strong>
+    <strong>Pindot</strong>
     <span class="muted">works with Claude Code</span>
   </div>
   <nav>

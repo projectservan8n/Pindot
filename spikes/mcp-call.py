@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Call Deskhand's MCP server by hand, without a model (spike helper).
+"""Call Pindot's MCP server by hand, without a model (spike helper).
 
     python3 spikes/mcp-call.py screenshot '{}' --save /tmp/shot.jpg
     python3 spikes/mcp-call.py screenshot '{}' click '{"x": 233, "y": 220}'
 
 Pairs of TOOL JSON_ARGS run in order in one MCP session, because `click`
 uses the geometry of the latest `screenshot`. Reads the bearer token from the
-Deskhand data dir and never prints it. Standard library only.
+Pindot data dir and never prints it. Standard library only.
 """
 import base64
 import json
@@ -15,9 +15,9 @@ import sys
 import urllib.error
 import urllib.request
 
-PORT = int(os.environ.get("DESKHAND_PORT", "47823"))
+PORT = int(os.environ.get("PINDOT_PORT", "47823"))
 URL = f"http://127.0.0.1:{PORT}/mcp"
-TOKEN_FILE = os.path.expanduser("~/Library/Application Support/Deskhand/mcp-token")
+TOKEN_FILE = os.path.expanduser("~/Library/Application Support/Pindot/mcp-token")
 
 
 def post(body, token, session=None):
@@ -25,7 +25,7 @@ def post(body, token, session=None):
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
         "Authorization": f"Bearer {token}",
-        "User-Agent": "deskhand-spike-build",
+        "User-Agent": "pindot-spike-build",
     }
     if session:
         headers["Mcp-Session-Id"] = session
@@ -62,7 +62,7 @@ def main():
             "params": {
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": {"name": "deskhand-spike-build", "version": "0"},
+                "clientInfo": {"name": "pindot-spike-build", "version": "0"},
             },
         },
         token,

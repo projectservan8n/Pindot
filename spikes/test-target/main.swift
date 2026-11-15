@@ -12,7 +12,7 @@ func arg(_ name: String, _ def: String) -> String {
     if let i = args.firstIndex(of: name), i + 1 < args.count { return args[i + 1] }
     return def
 }
-let logPath = arg("--log", "/tmp/deskhand-test-target.log")
+let logPath = arg("--log", "/tmp/pindot-test-target.log")
 let seconds = Double(arg("--seconds", "60")) ?? 60
 let originX = CGFloat(Double(arg("--x", "200")) ?? 200)
 let originY = CGFloat(Double(arg("--y", "200")) ?? 200)
@@ -41,13 +41,13 @@ final class Target: NSObject, NSApplicationDelegate {
         let primaryHeight = NSScreen.screens[0].frame.height
         let frame = NSRect(x: originX, y: primaryHeight - originY - h, width: w, height: h)
         window = NSWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.title = "Deskhand Test Target"
-        // --regular: a normal app and window, so Deskhand's request_access
+        window.title = "Pindot Test Target"
+        // --regular: a normal app and window, so Pindot's request_access
         // can approve it by name (MCP-level tests). Otherwise it floats.
         window.level = regular ? .normal : .floating
         window.isReleasedWhenClosed = false
 
-        button = NSButton(title: "Deskhand Test Button", target: self, action: #selector(clicked))
+        button = NSButton(title: "Pindot Test Button", target: self, action: #selector(clicked))
         button.bezelStyle = .regularSquare
         button.font = NSFont.boldSystemFont(ofSize: 22)
         button.frame = NSRect(x: 50, y: 70, width: 340, height: 90)

@@ -1,20 +1,20 @@
-// Deskhand's AI cursor. One overlay panel covers one monitor. Every panel
+// Pindot's AI cursor. One overlay panel covers one monitor. Every panel
 // gets the same events in global points (top-left of the primary display =
 // 0,0) and runs the same animation; each draws only what falls on its own
 // monitor, so a move between monitors glides across the edge.
 //
 // Events (app/src-tauri/src/overlay.rs):
-//   deskhand:cursor  {from, to, ms, label}  glide; the core acts after `ms` + 60 ms
-//   deskhand:action  {kind: click|press|scroll|drag|key|type|point, ...}
-//   deskhand:acting  bool         deskhand:stopped        deskhand:hide
-//   deskhand:voice   {state, notice}
-//   deskhand:companion {x, y, level}   the user's pointer and mic level, ~60 Hz
+//   pindot:cursor  {from, to, ms, label}  glide; the core acts after `ms` + 60 ms
+//   pindot:action  {kind: click|press|scroll|drag|key|type|point, ...}
+//   pindot:acting  bool         pindot:stopped        pindot:hide
+//   pindot:voice   {state, notice}
+//   pindot:companion {x, y, level}   the user's pointer and mic level, ~60 Hz
 //                    while a voice request is in progress: the cursor sits beside the user's pointer
-//   deskhand:caption {seq, text}       deskhand:caption-end {seq, interrupted}
-//   deskhand:caption-timing {seq, secs}  the reply's real audio length
+//   pindot:caption {seq, text}       pindot:caption-end {seq, interrupted}
+//   pindot:caption-timing {seq, secs}  the reply's real audio length
 (function () {
   'use strict';
-  const M = window.__DESKHAND_MONITOR__ || { index: 0, x: 0, y: 0, width: innerWidth, height: innerHeight };
+  const M = window.__PINDOT_MONITOR__ || { index: 0, x: 0, y: 0, width: innerWidth, height: innerHeight };
   const $ = (id) => document.getElementById(id);
   const body = document.body;
   const cursor = $('cursor');
@@ -683,17 +683,25 @@
   // ------------------------------------------------------------- events
   const ev = window.__TAURI__ && window.__TAURI__.event;
   if (!ev) return;
-  ev.listen('deskhand:cursor', (e) => onGlide(e.payload));
-  ev.listen('deskhand:action', (e) => onAction(e.payload || {}));
+  ev.listen('pindot:cursor', (e) => onGlide(e.payload));
+  ev.listen('pindot:action', (e) => onAction(e.payload || {}));
 
   const bannerText = $('banner-text');
-  const ACTING = 'Claude is controlling input';
+  // The assistant's name (Settings). The page asks for it once it listens;
+  // the app sends it again when it changes.
+  let assistant = 'Rusty';
+  const acting = () => assistant + ' is controlling input';
+  ev.listen('pindot:assistant', (e) => {
+    if (typeof e.payload !== 'string' || !e.payload) return;
+    assistant = e.payload;
+    if (body.classList.contains('acting')) bannerText.textContent = acting();
+  }).then(() => ev.emit('pindot:overlay-ready'));
   let stoppedTimer = null;
   let restTimer = null;
-  ev.listen('deskhand:acting', (e) => {
+  ev.listen('pindot:acting', (e) => {
     if (e.payload) {
       body.classList.remove('stopped', 'resting');
-      bannerText.textContent = ACTING;
+      bannerText.textContent = acting();
       if (restTimer) clearTimeout(restTimer);
     } else {
       // Between actions the cursor stays but rests: dimmer, tag tucked away.
@@ -705,16 +713,16 @@
     }
     body.classList.toggle('acting', !!e.payload);
   });
-  ev.listen('deskhand:stopped', () => {
+  ev.listen('pindot:stopped', () => {
     if (stoppedTimer) clearTimeout(stoppedTimer);
     body.classList.remove('acting');
     body.classList.add('stopped');
-    bannerText.textContent = 'Stopped · Claude no longer controls input';
+    bannerText.textContent = 'Stopped · ' + assistant + ' no longer controls input';
     hideCursor();
     hideCaption(150);
     stoppedTimer = setTimeout(() => body.classList.remove('stopped'), 2500);
   });
-  ev.listen('deskhand:hide', hideCursor);
+  ev.listen('pindot:hide', hideCursor);
 
   // Voice pill. A notice (e.g. "run `claude login`") stays for a few
   // seconds; pressing the hotkey again replaces it.
@@ -729,7 +737,7 @@
     pill.classList.toggle('notice', !!notice);
     pill.classList.toggle('show', !!notice || voiceState !== 'idle');
   }
-  ev.listen('deskhand:voice', (e) => {
+  ev.listen('pindot:voice', (e) => {
     const s = e.payload || {};
     const state = s.state || 'idle';
     if (s.notice) {
@@ -744,7 +752,7 @@
     updateBuddy();
   });
 
-  ev.listen('deskhand:companion', (e) => {
+  ev.listen('pindot:companion', (e) => {
     const p = e.payload || {};
     mate = { x: p.x, y: p.y };
     if (!mateOn) {
@@ -758,22 +766,22 @@
     kick();
   });
 
-  ev.listen('deskhand:caption', (e) => {
+  ev.listen('pindot:caption', (e) => {
     const p = e.payload || {};
     if (p.text) showCaption(p.seq, String(p.text));
   });
-  ev.listen('deskhand:caption-timing', (e) => {
+  ev.listen('pindot:caption-timing', (e) => {
     const p = e.payload || {};
     if (!(p.secs > 0)) return;
     timings.set(p.seq, p.secs);
     if (p.seq === capSeq) capSecs = p.secs;
   });
-  ev.listen('deskhand:caption-end', (e) => {
+  ev.listen('pindot:caption-end', (e) => {
     const p = e.payload || {};
     if (p.seq !== capSeq) return;
     cancelAnimationFrame(capRaf);
     if (!p.interrupted) setCaption(capText.length);
     capTimer = setTimeout(() => hideCaption(260), p.interrupted ? 200 : 2400);
   });
-  ev.emit('deskhand:overlay-ready', { index: M.index });
+  ev.emit('pindot:overlay-ready', { index: M.index });
 })();

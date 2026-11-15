@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Deskhand listens only while you hold the hold-to-talk key, and turns your words into text on this Mac.</string>
+	<string>Pindot listens only while you hold the hold-to-talk key, and turns your words into text on this Mac.</string>
 	<key>LSUIElement</key>
 	<true/>
 </dict>

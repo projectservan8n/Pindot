@@ -1,7 +1,7 @@
 // Shows one approval request. Every string from the request is inserted as
 // text (never HTML): app names and the reason come from Claude.
 (function () {
-  const req = window.__DESKHAND_APPROVAL__ || { apps: [], reason: '' };
+  const req = window.__PINDOT_APPROVAL__ || { apps: [], reason: '' };
   const names = req.apps.map((a) => a.name);
   document.getElementById('title').textContent = names.join(', ') || 'an app';
   const list = document.getElementById('apps');

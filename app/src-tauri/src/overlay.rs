@@ -6,7 +6,7 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
-use deskhand_core::platform::{CursorAction, Overlay, Point};
+use pindot_core::platform::{CursorAction, Overlay, Point};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -50,7 +50,7 @@ impl Overlay for TauriOverlay {
         let from = *last;
         let ms = from.map(|f| animation_ms(f.distance(to))).unwrap_or(300);
         *last = Some(to);
-        if let Err(e) = self.app.emit("deskhand:cursor", CursorMove { from, to, ms, label }) {
+        if let Err(e) = self.app.emit("pindot:cursor", CursorMove { from, to, ms, label }) {
             tracing::warn!("overlay emit failed: {e}");
         }
         // Small margin so the click lands after the last frame is drawn.
@@ -58,7 +58,7 @@ impl Overlay for TauriOverlay {
     }
 
     fn set_acting(&self, acting: bool) {
-        let _ = self.app.emit("deskhand:acting", acting);
+        let _ = self.app.emit("pindot:acting", acting);
     }
 
     fn action(&self, action: &CursorAction) {
@@ -66,7 +66,7 @@ impl Overlay for TauriOverlay {
         if let CursorAction::Drag { to, .. } = action {
             *self.last.lock().unwrap() = Some(*to);
         }
-        if let Err(e) = self.app.emit("deskhand:action", action) {
+        if let Err(e) = self.app.emit("pindot:action", action) {
             tracing::warn!("overlay emit failed: {e}");
         }
     }
@@ -92,12 +92,12 @@ mod mac {
 
     pub fn create_panel(app: &AppHandle, index: usize, m: &MonitorRect, capturable: bool) -> tauri::Result<()> {
         let script = format!(
-            "window.__DESKHAND_MONITOR__ = {{ index: {index}, x: {}, y: {}, width: {}, height: {} }};",
+            "window.__PINDOT_MONITOR__ = {{ index: {index}, x: {}, y: {}, width: {}, height: {} }};",
             m.x, m.y, m.width, m.height
         );
         let panel = PanelBuilder::<_, OverlayPanel>::new(app, format!("overlay-{index}"))
             .url(WebviewUrl::App("overlay.html".into()))
-            .title("Deskhand cursor")
+            .title("Pindot cursor")
             .position(Position::Logical(LogicalPosition::new(m.x, m.y)))
             .size(Size::Logical(LogicalSize::new(m.width, m.height)))
             .level(PanelLevel::ScreenSaver)
@@ -153,7 +153,7 @@ pub use mac::{create_panel, log_activation_policy};
 pub fn create_panel(app: &AppHandle, index: usize, m: &MonitorRect, capturable: bool) -> tauri::Result<()> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
     let script = format!(
-        "window.__DESKHAND_MONITOR__ = {{ index: {index}, x: {}, y: {}, width: {}, height: {} }};",
+        "window.__PINDOT_MONITOR__ = {{ index: {index}, x: {}, y: {}, width: {}, height: {} }};",
         m.x, m.y, m.width, m.height
     );
     let w = WebviewWindowBuilder::new(app, format!("overlay-{index}"), WebviewUrl::App("overlay.html".into()))

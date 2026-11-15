@@ -60,7 +60,7 @@
 </script>
 
 <p class="muted">
-  "Connect" adds Deskhand's tools to Claude Code in any terminal, by running this command for you (it changes your
+  "Connect" adds Pindot's tools to Claude Code in any terminal, by running this command for you (it changes your
   Claude Code user settings):
 </p>
 {#if view}

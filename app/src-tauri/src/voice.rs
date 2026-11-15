@@ -1,8 +1,8 @@
 //! The voice loop inside the app: hold the hotkey (Fn on macOS), speak,
-//! release. Deskhand transcribes the words locally, types them into ONE
-//! persistent interactive `claude` (see `deskhand_core::brain::persistent`),
+//! release. Pindot transcribes the words locally, types them into ONE
+//! persistent interactive `claude` (see `pindot_core::brain::persistent`),
 //! shows listening / thinking / acting / speaking on the overlay and speaks
-//! the reply locally. The parts live in `deskhand_core::voice`.
+//! the reply locally. The parts live in `pindot_core::voice`.
 //!
 //! `--test-voice WAV` is TEST ONLY and logged loudly: the microphone is
 //! replaced by the WAV file, the hotkey is pressed and released
@@ -16,18 +16,18 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use deskhand_core::brain::persistent::{BrainConfig, PersistentBrain, session_dir};
-use deskhand_core::platform::{HotkeyBinding, HotkeyEvent, ListenerHandle};
-use deskhand_core::server::ServerState;
-use deskhand_core::server::control::ControlEvent;
-use deskhand_core::voice::audio::{self, AudioSink, CpalMicrophone, CpalSpeaker, Microphone, WavMicrophone, WavSink};
-use deskhand_core::voice::engines::{PhononTts, STT_SAMPLE_RATE, TextToSpeech, load_stt};
-use deskhand_core::voice::machine::{Display, Input, Machine};
-use deskhand_core::voice::models::{self, ModelKind};
-use deskhand_core::voice::phonon_voices;
-use deskhand_core::voice::runner::{self, LiveIo, Metric, Recorder, StatusSink, VoiceHandle, VoiceRunner, VoiceStatus};
-use deskhand_core::voice::speaker::{Speaker, SpeakerEvent};
-use deskhand_core::voice::{VOICE_SYSTEM_PROMPT, VoiceSettings};
+use pindot_core::brain::persistent::{BrainConfig, PersistentBrain, session_dir};
+use pindot_core::platform::{HotkeyBinding, HotkeyEvent, ListenerHandle};
+use pindot_core::server::ServerState;
+use pindot_core::server::control::ControlEvent;
+use pindot_core::voice::audio::{self, AudioSink, CpalMicrophone, CpalSpeaker, Microphone, WavMicrophone, WavSink};
+use pindot_core::voice::engines::{PhononTts, STT_SAMPLE_RATE, TextToSpeech, load_stt};
+use pindot_core::voice::machine::{Display, Input, Machine};
+use pindot_core::voice::models::{self, ModelKind};
+use pindot_core::voice::phonon_voices;
+use pindot_core::voice::runner::{self, LiveIo, Metric, Recorder, StatusSink, VoiceHandle, VoiceRunner, VoiceStatus};
+use pindot_core::voice::speaker::{Speaker, SpeakerEvent};
+use pindot_core::voice::{VoiceSettings, voice_system_prompt};
 use tauri::{AppHandle, Emitter};
 
 /// Playback volume of the test path (the "one play at low volume").
@@ -91,7 +91,7 @@ impl Companion {
     fn start(app: AppHandle, shown: Arc<Mutex<Display>>) -> std::io::Result<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let s = stop.clone();
-        let thread = std::thread::Builder::new().name("deskhand-companion".into()).spawn(move || {
+        let thread = std::thread::Builder::new().name("pindot-companion".into()).spawn(move || {
             let mut active_until: Option<Instant> = None;
             let mut sent: Option<(f64, f64, f32)> = None;
             let mut sent_at = Instant::now();
@@ -106,14 +106,14 @@ impl Companion {
                     std::thread::sleep(Duration::from_millis(100));
                     continue;
                 }
-                if let Some(p) = deskhand_core::platform::pointer_location() {
+                if let Some(p) = pindot_core::platform::pointer_location() {
                     let level = if state == Display::Listening { audio::mic_level() } else { 0.0 };
                     let same = sent.is_some_and(|(x, y, l)| {
                         (x - p.x).abs() < 0.5 && (y - p.y).abs() < 0.5 && (l - level).abs() < 0.002
                     });
                     // Only changes, plus a heartbeat so a new panel catches up.
                     if !same || sent_at.elapsed() > Duration::from_millis(500) {
-                        let _ = app.emit("deskhand:companion", serde_json::json!({ "x": p.x, "y": p.y, "level": level }));
+                        let _ = app.emit("pindot:companion", serde_json::json!({ "x": p.x, "y": p.y, "level": level }));
                         sent = Some((p.x, p.y, level));
                         sent_at = Instant::now();
                     }
@@ -180,7 +180,7 @@ pub enum VoiceState {
 pub fn start(app: &AppHandle, state: Arc<ServerState>, link: ServerLink, opts: VoiceOptions) -> Arc<VoiceApp> {
     let voice = Arc::new(VoiceApp::default());
     let (v, app) = (voice.clone(), app.clone());
-    let spawned = std::thread::Builder::new().name("deskhand-voice-setup".into()).spawn(move || {
+    let spawned = std::thread::Builder::new().name("pindot-voice-setup".into()).spawn(move || {
         let test = opts.test_wav.is_some();
         let exit_when_done = opts.exit_when_done;
         if let Err(e) = setup(&app, &v, state, link, opts) {
@@ -202,7 +202,7 @@ pub fn start(app: &AppHandle, state: Arc<ServerState>, link: ServerLink, opts: V
 }
 
 fn show(app: &AppHandle, state: Display, notice: Option<String>) {
-    let _ = app.emit("deskhand:voice", VoiceStatus { state, notice });
+    let _ = app.emit("pindot:voice", VoiceStatus { state, notice });
 }
 
 fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: ServerLink, opts: VoiceOptions) -> Result<()> {
@@ -243,7 +243,7 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
 
     let wav_sink = match &opts.test_wav {
         Some(_) => {
-            let dir = std::env::temp_dir().join(format!("deskhand-test-voice-{}", std::process::id()));
+            let dir = std::env::temp_dir().join(format!("pindot-test-voice-{}", std::process::id()));
             std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
             Some(Arc::new(WavSink::new(dir, Some(Arc::new(CpalSpeaker { volume: TEST_VOLUME })))))
         }
@@ -262,14 +262,14 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
             if captions {
                 match &e {
                     SpeakerEvent::FirstAudio { seq, text, .. } => {
-                        let _ = capt_app.emit("deskhand:caption", serde_json::json!({ "seq": seq, "text": text }));
+                        let _ = capt_app.emit("pindot:caption", serde_json::json!({ "seq": seq, "text": text }));
                     }
                     SpeakerEvent::Generated { seq, secs } => {
-                        let _ = capt_app.emit("deskhand:caption-timing", serde_json::json!({ "seq": seq, "secs": secs }));
+                        let _ = capt_app.emit("pindot:caption-timing", serde_json::json!({ "seq": seq, "secs": secs }));
                     }
                     SpeakerEvent::Finished { seq, interrupted } => {
                         let _ = capt_app
-                            .emit("deskhand:caption-end", serde_json::json!({ "seq": seq, "interrupted": interrupted }));
+                            .emit("pindot:caption-end", serde_json::json!({ "seq": seq, "interrupted": interrupted }));
                     }
                     _ => {}
                 }
@@ -287,7 +287,7 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
         model: opts.model.clone().or(settings.model.clone()),
         effort: settings.effort.clone(),
         permission_mode: settings.permission_mode,
-        system_prompt: VOICE_SYSTEM_PROMPT.into(),
+        system_prompt: voice_system_prompt(&settings),
     };
     let (h, p) = (handle.clone(), probe.clone());
     let brain = PersistentBrain::start(
@@ -309,7 +309,7 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
                 p.status(s);
             }
             *shown.lock().unwrap() = s.state;
-            let _ = app.emit("deskhand:voice", s);
+            let _ = app.emit("pindot:voice", s);
         })
     };
     let io = LiveIo { recorder, speaker, brain, control: Some(state.control.clone()), status, shown: Display::Idle };
@@ -317,7 +317,7 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
     let runner = VoiceRunner::start(handle.clone(), inbox, machine, Box::new(io))?;
 
     forward_esc(&state, handle.clone(), Arc::downgrade(voice));
-    let hotkey_label = opts.hotkey.label_for(deskhand_core::platform::Os::current());
+    let hotkey_label = opts.hotkey.label_for(pindot_core::platform::Os::current());
     let hotkey = match start_hotkey(opts.hotkey.clone(), handle.clone()) {
         Ok(l) => Some(l),
         Err(e) => {
@@ -360,7 +360,7 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
             esc: opts.test_esc,
         };
         let exit_when_done = opts.exit_when_done;
-        std::thread::Builder::new().name("deskhand-test-voice".into()).spawn(move || {
+        std::thread::Builder::new().name("pindot-test-voice".into()).spawn(move || {
             let ok = test.run();
             println!("test-voice: RESULT {}", if ok { "PASS" } else { "CHECK OUTPUT" });
             if exit_when_done {
@@ -378,7 +378,7 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
 /// and interrupts the turn.
 fn forward_esc(state: &Arc<ServerState>, handle: VoiceHandle, voice: std::sync::Weak<VoiceApp>) {
     let mut rx = state.control.subscribe();
-    let spawned = std::thread::Builder::new().name("deskhand-voice-esc".into()).spawn(move || {
+    let spawned = std::thread::Builder::new().name("pindot-voice-esc".into()).spawn(move || {
         use tokio::sync::broadcast::error::RecvError;
         loop {
             // A restarted voice loop has its own forwarder; this one ends.
@@ -399,9 +399,9 @@ fn forward_esc(state: &Arc<ServerState>, handle: VoiceHandle, voice: std::sync::
 
 fn start_hotkey(binding: HotkeyBinding, handle: VoiceHandle) -> Result<ListenerHandle, String> {
     let (tx, rx) = std::sync::mpsc::channel();
-    let listener = deskhand_core::platform::native().hotkey.start(binding, tx).map_err(|e| e.to_string())?;
+    let listener = pindot_core::platform::native().hotkey.start(binding, tx).map_err(|e| e.to_string())?;
     std::thread::Builder::new()
-        .name("deskhand-hotkey".into())
+        .name("pindot-hotkey".into())
         .spawn(move || {
             for e in rx {
                 handle.input(match e {
@@ -490,7 +490,7 @@ impl TestRun {
         {
             if through_tap {
                 println!("test-voice: posting a synthetic Fn {}", if down { "down" } else { "up" });
-                match deskhand_core::platform::macos::hotkey::post_synthetic_fn(down) {
+                match pindot_core::platform::macos::hotkey::post_synthetic_fn(down) {
                     Ok(()) => return,
                     Err(e) => println!("test-voice: posting Fn failed ({e}); injecting the hotkey directly"),
                 }
@@ -600,7 +600,7 @@ impl TestRun {
     /// test-approved app (one the test opened) in front, so a missed Esc
     /// could only reach that app. Checks that no app received it.
     fn press_esc_mid_turn(&self, pressed_at: Instant) -> bool {
-        let ax = deskhand_core::platform::native().accessibility;
+        let ax = pindot_core::platform::native().accessibility;
         let front_is_test_app = || {
             let Some(pid) = ax.frontmost_pid().ok().flatten() else { return false };
             let Some(app) = ax.app_info(pid) else { return false };
@@ -626,7 +626,7 @@ impl TestRun {
         std::thread::sleep(Duration::from_millis(300));
         #[cfg(target_os = "macos")]
         {
-            use deskhand_core::platform::macos::stopkey::{post_test_escape, watch_escape};
+            use pindot_core::platform::macos::stopkey::{post_test_escape, watch_escape};
             let (tx, rx) = std::sync::mpsc::channel();
             let watcher = watch_escape(tx);
             if let Err(e) = &watcher {

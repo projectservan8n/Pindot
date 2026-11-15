@@ -8,11 +8,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use deskhand_core::brain::config::{ALLOWED_TOOLS_RULE, write_brain_mcp_config, write_hook_settings};
-use deskhand_core::brain::transcript::{find_transcript, wait_for_last_turn};
-use deskhand_core::brain::turn::{TurnEnd, drive_turn};
-use deskhand_core::brain::{ClaudeSession, SpawnOptions, claude_version, find_claude};
-use deskhand_core::server::ServerState;
+use pindot_core::brain::config::{ALLOWED_TOOLS_RULE, write_brain_mcp_config, write_hook_settings};
+use pindot_core::brain::transcript::{find_transcript, wait_for_last_turn};
+use pindot_core::brain::turn::{TurnEnd, drive_turn};
+use pindot_core::brain::{ClaudeSession, SpawnOptions, claude_version, find_claude};
+use pindot_core::server::ServerState;
 
 pub struct TurnArgs {
     pub prompt: String,
@@ -32,10 +32,10 @@ pub struct ServerUrls {
 pub fn run(state: Arc<ServerState>, urls: ServerUrls, args: TurnArgs) -> Result<bool> {
     let cwd = match args.cwd {
         Some(c) => c,
-        None => dirs_home()?.join("deskhand").join(".spike-cwd"),
+        None => dirs_home()?.join("pindot").join(".spike-cwd"),
     };
     std::fs::create_dir_all(&cwd)?;
-    let bin = find_claude().context("claude CLI not found (set DESKHAND_CLAUDE_BIN)")?;
+    let bin = find_claude().context("claude CLI not found (set PINDOT_CLAUDE_BIN)")?;
     println!("test-turn: claude {} ({})", bin.display(), claude_version(&bin).unwrap_or_default());
 
     let mut opts = SpawnOptions::new(bin, cwd);

@@ -8,8 +8,8 @@ fn main() {
         std::fs::create_dir_all(dist).expect("creating app/dist");
         std::fs::write(
             dist.join("index.html"),
-            "<!doctype html><meta charset=utf-8><title>Deskhand</title>\
-             <p>The Deskhand UI is not built. Run <code>npm ci &amp;&amp; npm run build</code> in <code>app/</code>, then build again.</p>",
+            "<!doctype html><meta charset=utf-8><title>Pindot</title>\
+             <p>The Pindot UI is not built. Run <code>npm ci &amp;&amp; npm run build</code> in <code>app/</code>, then build again.</p>",
         )
         .expect("writing the placeholder page");
         println!("cargo:warning=app/dist was missing: wrote a placeholder page. Run `npm ci && npm run build` in app/ for the real UI.");

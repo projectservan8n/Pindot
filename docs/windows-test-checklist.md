@@ -3,7 +3,7 @@
 Phases 0 to 3 were built and tested on macOS only. **Nothing has been run on
 Windows**: there is no Windows machine here. On Windows today:
 
-- `deskhand-core` and the app crate type-check for `x86_64-pc-windows-msvc`
+- `pindot-core` and the app crate type-check for `x86_64-pc-windows-msvc`
   with no errors or warnings (run on the Mac, 15 Nov 2026, with and without
   `test-switches`). Command: `scripts/check-windows.sh`. It only proves the
   Rust compiles: `ring`'s C code and the icon resource need Windows headers
@@ -50,7 +50,7 @@ them scaled to 150%.
 
 ## (b) Overlay
 
-- [ ] `deskhand --demo` shows the cursor on every monitor, including the 150%
+- [ ] `pindot --demo` shows the cursor on every monitor, including the 150%
       one, and the cursor glides across the monitor edge.
 - [ ] Clicks and scrolls pass through the overlay to the window underneath.
 - [ ] The overlay never takes focus. The Alt+Tab list and the taskbar don't
@@ -87,7 +87,7 @@ them scaled to 150%.
 
 ## Data dir and token
 
-- [ ] The token and configs go in `%APPDATA%\Deskhand\` and are readable by
+- [ ] The token and configs go in `%APPDATA%\Pindot\` and are readable by
       the current user only (check the ACL with `icacls`).
 
 ## (e) Phase 1: tools, element tree and guardrails
@@ -122,26 +122,26 @@ Only click and type in windows you opened for the test.
       and is not in our own screenshots (`WDA_EXCLUDEFROMCAPTURE`).
 - [ ] Coordinates on a 150% monitor and a 100% monitor: `click(x,y)` from a
       screenshot of each display lands on the right spot.
-- [ ] The activity view (`deskhand --activity`) lists calls live, and
-      `%APPDATA%\Deskhand\activity.jsonl` is readable by the user only.
-- [ ] Done-when on Windows: build with `cargo build -p deskhand --features
-      test-switches`, then `deskhand --test-turn "...Notepad..." --model
-      haiku --permission-mode default` with `DESKHAND_TEST_AUTO_APPROVE=Notepad`
+- [ ] The activity view (`pindot --activity`) lists calls live, and
+      `%APPDATA%\Pindot\activity.jsonl` is readable by the user only.
+- [ ] Done-when on Windows: build with `cargo build -p pindot --features
+      test-switches`, then `pindot --test-turn "...Notepad..." --model
+      haiku --permission-mode default` with `PINDOT_TEST_AUTO_APPROVE=Notepad`
       completes with at most one screenshot.
 
 ## (f) Phase 2: the voice loop
 
-- [ ] `voice_check` (`cargo run --release -p deskhand-core --bin
+- [ ] `voice_check` (`cargo run --release -p pindot-core --bin
       voice_check`) lists the audio devices (cpal on WASAPI), downloads
-      and verifies both models into `%APPDATA%\Deskhand\models\`, and
+      and verifies both models into `%APPDATA%\Pindot\models\`, and
       runs STT on `docs/phase2/test-utterance.wav` and TTS with a play at
       low volume.
 - [ ] ONNX Runtime: `ort` downloads its Windows binaries at build time;
       check the app starts on a clean machine without a separate install
       (or that the needed DLL is bundled).
-- [ ] Test build (`--features test-switches`): `deskhand --test-voice
+- [ ] Test build (`--features test-switches`): `pindot --test-voice
       docs/phase2/test-utterance.wav --model haiku` with
-      `DESKHAND_TEST_AUTO_APPROVE=Notepad` prints `RESULT PASS`.
+      `PINDOT_TEST_AUTO_APPROVE=Notepad` prints `RESULT PASS`.
 - [ ] Real use: hold Ctrl+Win, say "Open Notepad and type hello", let go.
       Expect Listening, Thinking, Working, the approval window, the text in
       Notepad and a spoken reply. The Start menu must not open.
@@ -150,7 +150,7 @@ Only click and type in windows you opened for the test.
       interrupted (Esc is written to the ConPTY), and the next request
       works in the same session.
 - [ ] The persistent `claude.exe` under ConPTY survives 10 minutes idle and
-      the next request starts a fresh session; quitting Deskhand leaves no
+      the next request starts a fresh session; quitting Pindot leaves no
       `claude.exe`, `node.exe` or `conhost.exe` behind.
 
 ## (g) Phase 3: app, settings, setup, release
@@ -175,7 +175,7 @@ Only click and type in windows you opened for the test.
       typing `Fn` is refused with the Windows message; Save writes
       `settings.json` and the new chord works without a restart.
 - [ ] Settings > Regenerate token: the old token gets 401 and the new one
-      200; check the file ACL with `icacls "%APPDATA%\Deskhand\mcp-token"`
+      200; check the file ACL with `icacls "%APPDATA%\Pindot\mcp-token"`
       (only the current user should have access; today nothing sets it).
 - [ ] Settings > Port: a port in use shows the error banner; a new port
       applies after a restart.
@@ -191,4 +191,4 @@ Only click and type in windows you opened for the test.
       `docs/release.md`); install on a clean Windows 11, launch, check
       Setup, `curl -H "Authorization: Bearer <token>"
       http://127.0.0.1:47823/health` answers `ok`, and uninstall leaves
-      only `%APPDATA%\Deskhand\`.
+      only `%APPDATA%\Pindot\`.

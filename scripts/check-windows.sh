@@ -1,5 +1,5 @@
 #!/bin/sh
-# Type-check deskhand-core and the app for Windows from macOS.
+# Type-check pindot-core and the app for Windows from macOS.
 #
 # This proves only that the Rust code compiles for x86_64-pc-windows-msvc.
 # The C code (ring) and the icon resource need Windows headers and tools, so
@@ -68,7 +68,7 @@ export CXX_x86_64_pc_windows_msvc="$tools/cc"
 export AR_x86_64_pc_windows_msvc="$tools/ar"
 export RC_x86_64_pc_windows_msvc="$tools/llvm-rc"
 
-cargo check -p deskhand-core --all-targets --target "$TARGET"
-cargo check -p deskhand --all-targets --target "$TARGET"
-cargo check -p deskhand --all-targets --features test-switches --target "$TARGET"
+cargo check -p pindot-core --all-targets --target "$TARGET"
+cargo check -p pindot --all-targets --target "$TARGET"
+cargo check -p pindot --all-targets --features test-switches --target "$TARGET"
 echo "Windows type-check passed (Rust only; not linked, not run)."

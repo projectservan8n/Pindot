@@ -10,7 +10,7 @@ app/src-tauri/gen/schemas/
 
 # Never commit secrets or runtime state. The MCP bearer token and the
 # claude config files that embed it live in the per-user data dir
-# (~/Library/Application Support/Deskhand), never here.
+# (~/Library/Application Support/Pindot), never here.
 mcp-token
 *.token
 claude-mcp.json

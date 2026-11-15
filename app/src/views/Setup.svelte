@@ -144,7 +144,7 @@
 <section>
   <h2>1. Claude Code</h2>
   <p class="muted">
-    Deskhand drives your own Claude Code (the <code>claude</code> command) on your own sign-in. It never uses an API
+    Pindot drives your own Claude Code (the <code>claude</code> command) on your own sign-in. It never uses an API
     key.
   </p>
   {#if !claude}
@@ -178,7 +178,7 @@
   {:else}
     <p class="muted">
       macOS asks once for each. "Ask macOS" shows the system prompt; "Open System Settings" goes to the right list,
-      where you switch Deskhand on. Some take effect after Deskhand restarts.
+      where you switch Pindot on. Some take effect after Pindot restarts.
     </p>
   {/if}
   <table class="perms">

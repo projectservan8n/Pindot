@@ -1,9 +1,9 @@
-//! Deskhand app: one click-through AI-cursor overlay per monitor (with the
+//! Pindot app: one click-through AI-cursor overlay per monitor (with the
 //! "Claude is controlling input" banner and the voice pill), the embedded
 //! MCP server with the desktop tools, the per-app approval window, the tray
 //! icon, the Setup / Settings / Activity window and the voice loop.
 //!
-//!   deskhand [--voice] [--activity] [--setup] [--capturable] [--model M] [--no-server]
+//!   pindot [--voice] [--activity] [--setup] [--capturable] [--model M] [--no-server]
 //!            [--demo] [--exit-after SECONDS]
 //!
 //! Normal start: the tray icon, the MCP server on the port from Settings, and
@@ -11,7 +11,7 @@
 //! `claude` signed in). The Setup window opens by itself (without taking
 //! focus) when something is missing. `--voice` starts hold-to-talk even
 //! before Setup is finished. `--activity` / `--setup` open that view.
-//! `--capturable` lets screenshots see Deskhand's own windows (evidence
+//! `--capturable` lets screenshots see Pindot's own windows (evidence
 //! only). `--demo` shows every AI cursor action on each monitor. Ctrl+C or SIGTERM
 //! quit cleanly.
 //!
@@ -20,7 +20,7 @@
 //!   [--test-esc-after MS]
 //!   [--test-voice WAV [--test-voice-esc] [--turn-timeout S] [--keep-running]]
 //! `--test-turn` runs one real turn of interactive `claude` against this app
-//! and quits. `--test-esc-after MS` (with `DESKHAND_TEST_AUTO_APPROVE`) posts
+//! and quits. `--test-esc-after MS` (with `PINDOT_TEST_AUTO_APPROVE`) posts
 //! one synthetic Esc once an action has run for MS with a test app in front,
 //! and checks that no app received it. `--test-voice WAV` runs the voice loop
 //! with the WAV in place of the microphone and a synthetic hotkey press,
@@ -38,14 +38,14 @@ mod voice;
 use std::sync::Arc;
 use std::time::Duration;
 
-use deskhand_core::brain::config::{write_hook_settings, write_mcp_config};
-use deskhand_core::paths::{activity_log_path, load_or_create_token};
-use deskhand_core::platform::{CursorAction, KeyCombo, MouseButton, Overlay, Point, drag_travel_ms};
-use deskhand_core::server::activity::ActivityLog;
-use deskhand_core::server::control::ControlEvent;
-use deskhand_core::server::{RunningServer, ServerDeps, ServerState, start};
-use deskhand_core::settings::{LoadNote, Settings};
-use tauri::{AppHandle, Emitter, Manager};
+use pindot_core::brain::config::{write_hook_settings, write_mcp_config};
+use pindot_core::paths::{activity_log_path, load_or_create_token};
+use pindot_core::platform::{CursorAction, KeyCombo, MouseButton, Overlay, Point, drag_travel_ms};
+use pindot_core::server::activity::ActivityLog;
+use pindot_core::server::control::ControlEvent;
+use pindot_core::server::{RunningServer, ServerDeps, ServerState, start};
+use pindot_core::settings::{LoadNote, Settings};
+use tauri::{AppHandle, Emitter, Listener, Manager};
 
 pub use approval::TauriApprover;
 pub use overlay::{MonitorRect, TauriOverlay};
@@ -139,7 +139,7 @@ fn load_settings() -> (Settings, String) {
                 LoadNote::Fresh => "First start: default settings.".into(),
                 LoadNote::MigratedVoiceSettings => "Voice settings from the earlier voice-settings.json were moved into settings.json.".into(),
                 LoadNote::Invalid(e) => format!("settings.json could not be used ({e}); it was kept as a backup and the defaults are in use."),
-                LoadNote::NewerVersion(v) => format!("settings.json is from a newer Deskhand (version {v}); unknown fields are kept."),
+                LoadNote::NewerVersion(v) => format!("settings.json is from a newer Pindot (version {v}); unknown fields are kept."),
             };
             (s, text)
         }
@@ -148,13 +148,13 @@ fn load_settings() -> (Settings, String) {
 }
 
 pub fn run() {
-    deskhand_core::init_logging();
+    pindot_core::init_logging();
     let args = parse_args();
     if cfg!(feature = "test-switches") {
-        println!("!!! TEST BUILD: test switches are compiled in (DESKHAND_TEST_AUTO_APPROVE, --test-*). Not for normal use. !!!");
+        println!("!!! TEST BUILD: test switches are compiled in (PINDOT_TEST_AUTO_APPROVE, --test-*). Not for normal use. !!!");
     }
     if args.capturable {
-        println!("NOTE: --capturable: Deskhand's own windows show up in screenshots (evidence runs only)");
+        println!("NOTE: --capturable: Pindot's own windows show up in screenshots (evidence runs only)");
     }
 
     let builder = tauri::Builder::default();
@@ -197,7 +197,7 @@ pub fn run() {
                 && window.label() == ui::MAIN
             {
                 // SAFETY: window events arrive on the main thread.
-                unsafe { deskhand_core::platform::macos::window::deactivate_app() };
+                unsafe { pindot_core::platform::macos::window::deactivate_app() };
             }
             // Closing an approval window is a "Deny".
             if let tauri::WindowEvent::Destroyed = event
@@ -218,6 +218,10 @@ pub fn run() {
             }
             let port = settings.effective().port;
             app.manage(ui::Ui::new(args.capturable, args.voice, args.model.clone(), settings, load_note));
+            // Each overlay page asks for the assistant's name once it loads
+            // (events sent before that are lost); Settings sends it on save.
+            let h = app.handle().clone();
+            app.listen_any("pindot:overlay-ready", move |_| ui::send_assistant_name(&h));
 
             let monitors: Vec<MonitorRect> = app
                 .available_monitors()?
@@ -268,7 +272,7 @@ pub fn run() {
                 let handle = app.handle().clone();
                 let explicit_view = args.activity || args.setup;
                 std::thread::Builder::new()
-                    .name("deskhand-startup".into())
+                    .name("pindot-startup".into())
                     .spawn(move || startup_checks(&handle, explicit_view))?;
             }
             if args.demo {
@@ -289,7 +293,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building Deskhand")
+        .expect("error while building Pindot")
         .run(|app, event| match event {
             tauri::RunEvent::Ready => {
                 #[cfg(target_os = "macos")]
@@ -309,7 +313,7 @@ pub fn run() {
                 if let Some(s) = app.try_state::<RunningServer>() {
                     println!("server stopping on {}", s.addr);
                 }
-                println!("Deskhand exited cleanly");
+                println!("Pindot exited cleanly");
             }
             _ => {}
         });
@@ -321,7 +325,7 @@ fn start_server(
     port: u16,
     capturable: bool,
 ) -> anyhow::Result<(Arc<ServerState>, RunningServer)> {
-    let ax = deskhand_core::platform::native().accessibility;
+    let ax = pindot_core::platform::native().accessibility;
     let approver = Arc::new(TauriApprover::new(app.clone(), ax, capturable));
     let log_path = activity_log_path()?;
     let activity = Arc::new(ActivityLog::open(log_path.clone()));
@@ -337,7 +341,7 @@ fn start_server(
     app.manage(approver);
     write_mcp_config(&server.mcp_url(), &token)?;
     write_hook_settings(&server.stop_hook_url(), &token)?;
-    println!("MCP server: {} (token and configs in the Deskhand data dir)", server.mcp_url());
+    println!("MCP server: {} (token and configs in the Pindot data dir)", server.mcp_url());
     println!("activity log: {}", log_path.display());
     Ok((state, server))
 }
@@ -466,7 +470,7 @@ fn forward_events(app: &AppHandle, state: &Arc<ServerState>) {
         loop {
             match act.recv().await {
                 Ok(e) => {
-                    let _ = h.emit_to(ui::MAIN, "deskhand:activity", e);
+                    let _ = h.emit_to(ui::MAIN, "pindot:activity", e);
                 }
                 Err(RecvError::Lagged(_)) => continue,
                 Err(RecvError::Closed) => break,
@@ -481,7 +485,7 @@ fn forward_events(app: &AppHandle, state: &Arc<ServerState>) {
             match ctl.recv().await {
                 Ok(ControlEvent::EmergencyStop) => {
                     println!("EMERGENCY STOP: user pressed Esc (action cancelled, input released)");
-                    let _ = h.emit("deskhand:stopped", ());
+                    let _ = h.emit("pindot:stopped", ());
                 }
                 Ok(ControlEvent::Acting { on }) => tracing::info!(on, "controlling-input indicator"),
                 Err(RecvError::Lagged(_)) => continue,
@@ -497,7 +501,7 @@ fn forward_events(app: &AppHandle, state: &Arc<ServerState>) {
 /// a missed Esc could only reach the test's own window.
 fn spawn_esc_self_test(state: Arc<ServerState>, ms: u64) {
     std::thread::spawn(move || {
-        let ax = deskhand_core::platform::native().accessibility;
+        let ax = pindot_core::platform::native().accessibility;
         let front_is_test_app = || {
             let Some(pid) = ax.frontmost_pid().ok().flatten() else { return false };
             let Some(app) = ax.app_info(pid) else { return false };
@@ -521,7 +525,7 @@ fn spawn_esc_self_test(state: Arc<ServerState>, ms: u64) {
         }
         #[cfg(target_os = "macos")]
         {
-            use deskhand_core::platform::macos::stopkey::{post_test_escape, watch_escape};
+            use pindot_core::platform::macos::stopkey::{post_test_escape, watch_escape};
             let (tx, rx) = std::sync::mpsc::channel();
             let watcher = watch_escape(tx);
             if let Err(e) = &watcher {
@@ -603,7 +607,7 @@ fn demo_companion(app: &tauri::AppHandle, ov: &dyn Overlay, m: &MonitorRect, sta
     use tauri::Emitter;
     let at = |fx: f64, fy: f64| Point::new(m.x + m.width * fx, m.y + m.height * fy);
     let voice = |state: &str| {
-        let _ = app.emit("deskhand:voice", serde_json::json!({ "state": state, "notice": null }));
+        let _ = app.emit("pindot:voice", serde_json::json!({ "state": state, "notice": null }));
     };
     let mut t = 0.0f64;
     // Feed the pretend pointer (drifting a little) and level for `secs`.
@@ -612,7 +616,7 @@ fn demo_companion(app: &tauri::AppHandle, ov: &dyn Overlay, m: &MonitorRect, sta
         while t < end {
             let p = at(0.36 + 0.05 * (t * 0.7).sin(), 0.48 + 0.03 * (t * 1.1).sin());
             let level = if talking { 0.01 + 0.09 * (t * 9.0).sin().abs() * (0.5 + 0.5 * (t * 2.3).sin()) } else { 0.0 };
-            let _ = app.emit("deskhand:companion", serde_json::json!({ "x": p.x, "y": p.y, "level": level }));
+            let _ = app.emit("pindot:companion", serde_json::json!({ "x": p.x, "y": p.y, "level": level }));
             std::thread::sleep(Duration::from_millis(16));
             t += 0.016;
         }
@@ -636,11 +640,11 @@ fn demo_companion(app: &tauri::AppHandle, ov: &dyn Overlay, m: &MonitorRect, sta
     println!("{:.3} demo: companion speaking", stamp());
     voice("speaking");
     let _ = app.emit(
-        "deskhand:caption",
+        "pindot:caption",
         serde_json::json!({ "seq": 1, "text": "Done. I pressed Send, so your message to Maya is on its way." }),
     );
     mate(4.2, false);
-    let _ = app.emit("deskhand:caption-end", serde_json::json!({ "seq": 1, "interrupted": false }));
+    let _ = app.emit("pindot:caption-end", serde_json::json!({ "seq": 1, "interrupted": false }));
     voice("idle");
     println!("{:.3} demo: companion idle", stamp());
     mate(2.5, false);

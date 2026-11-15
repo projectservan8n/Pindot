@@ -1,26 +1,26 @@
 [package]
-name = "deskhand"
+name = "pindot"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Deskhand desktop app: overlay, tray, setup and settings, MCP server, voice loop"
+description = "Pindot desktop app: overlay, tray, setup and settings, MCP server, voice loop"
 
 [features]
 # TEST ONLY: the --test-turn, --test-esc-after, --test-voice, --test-voice-esc
-# and --keep-running flags and DESKHAND_TEST_AUTO_APPROVE. Off by default;
+# and --keep-running flags and PINDOT_TEST_AUTO_APPROVE. Off by default;
 # release builds never have it. Build with `--features test-switches`.
-test-switches = ["deskhand-core/test-switches"]
+test-switches = ["pindot-core/test-switches"]
 
 [lib]
-name = "deskhand_app"
+name = "pindot_app"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.7.4", features = [] }
 
 [dependencies]
-deskhand-core = { path = "../../crates/deskhand-core" }
+pindot-core = { path = "../../crates/pindot-core" }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true

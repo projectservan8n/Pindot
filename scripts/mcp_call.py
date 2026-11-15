@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Call Deskhand's MCP tools directly, for manual and scripted tests.
+"""Call Pindot's MCP tools directly, for manual and scripted tests.
 
   mcp_call.py init                      start an MCP session (id kept in /tmp)
   mcp_call.py call TOOL '{"json":1}'    call a tool in that session
   mcp_call.py end                       end the session (releases the lock)
   mcp_call.py list                      list tool names
 
-Reads the server URL from the claude-mcp.json Deskhand writes and the
+Reads the server URL from the claude-mcp.json Pindot writes and the
 bearer token from its data dir; never prints the token. Images in results
-are saved to $MCP_IMG_DIR (default /tmp/deskhand-mcp-img) and their paths
+are saved to $MCP_IMG_DIR (default /tmp/pindot-mcp-img) and their paths
 printed.
 """
 import base64, json, os, sys, time, urllib.request, urllib.error
 
-DATA = os.environ.get("DESKHAND_DATA_DIR") or os.path.expanduser("~/Library/Application Support/Deskhand")
-SESSION_FILE = "/tmp/deskhand-mcp-session"
-IMG_DIR = os.environ.get("MCP_IMG_DIR", "/tmp/deskhand-mcp-img")
+DATA = os.environ.get("PINDOT_DATA_DIR") or os.path.expanduser("~/Library/Application Support/Pindot")
+SESSION_FILE = "/tmp/pindot-mcp-session"
+IMG_DIR = os.environ.get("MCP_IMG_DIR", "/tmp/pindot-mcp-img")
 
 
 def url_and_token():

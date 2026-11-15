@@ -1,10 +1,10 @@
-Deskhand
+Pindot
 Copyright (c) 2026 Tony Herrera
 Licensed under the MIT License (see LICENSE).
 
-Deskhand works with Claude Code. It is not made by, endorsed by or
+Pindot works with Claude Code. It is not made by, endorsed by or
 affiliated with Anthropic. "Claude" and "Claude Code" are names of
-Anthropic's products. Deskhand does not include or redistribute Claude Code;
+Anthropic's products. Pindot does not include or redistribute Claude Code;
 it runs the copy the user installed, on the user's own sign-in.
 
 ------------------------------------------------------------------------
@@ -26,22 +26,22 @@ Moonshine v2 Small streaming, English (speech to text)
   Japanese, Korean, Mandarin, Spanish, Ukrainian, Vietnamese) are under the
   Moonshine Community License, a non-commercial license, and its
   text-to-speech and grapheme-to-phoneme files carry their own terms.
-  Deskhand only downloads the English streaming model named above. Check
+  Pindot only downloads the English streaming model named above. Check
   Moonshine's LICENSE before adding any other Moonshine file.
-  Full text shown in the app: crates/deskhand-core/licenses/moonshine-MIT.txt
+  Full text shown in the app: crates/pindot-core/licenses/moonshine-MIT.txt
 
 Parakeet TDT 0.6B v3 (speech to text, optional), by NVIDIA
   License: Creative Commons Attribution 4.0 International (CC BY 4.0)
   ONNX export by istupakov, used unmodified (int8 files):
   Source: https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx
           commit 8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce (4 files, 670.6 MB)
-  Full text shown in the app: crates/deskhand-core/licenses/cc-by-4.0.txt
+  Full text shown in the app: crates/pindot-core/licenses/cc-by-4.0.txt
 
 Phonon 31m, English (text to speech), by Gradium
   License: Apache License 2.0 (weights, tokenizer and default voice)
   Source: https://huggingface.co/gradium/phonon-31m-en
           commit 92741c5b07d085ff840e26fea8ce43110b87852f (4 files, 65.1 MB)
-  Full text shown in the app: crates/deskhand-core/licenses/apache-2.0.txt
+  Full text shown in the app: crates/pindot-core/licenses/apache-2.0.txt
 
 ------------------------------------------------------------------------
 Software included in the app binary

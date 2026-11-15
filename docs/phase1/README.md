@@ -13,13 +13,13 @@ tests against mocks are listed separately.
 | File | What it shows |
 |---|---|
 | `approval-window.png` | The approval window (real, not answered: it timed out and denied) |
-| `activity-view.png` | The live activity view (`deskhand --activity`) |
+| `activity-view.png` | The live activity view (`pindot --activity`) |
 | `banner-controlling-input.png` | The "Claude is controlling input · press Esc to stop" banner, taken with `--capturable` |
 | `ai-cursor-before-click.png` | The AI cursor on the target just before a click, `--capturable` |
 | `window-screenshot-tool.jpg` | `screenshot(window_id)` result |
 | `click-xy-mapped.jpg` | A click at x,y in screenshot pixels landed where intended |
 | `scroll-up.jpg`, `drag-select.jpg` | `scroll` and `drag` results in the test document |
-| `display-screenshot-masked-640.jpg` | `screenshot()` of the whole display in normal (non-capturable) mode: every non-approved app greyed, no Deskhand windows, no AI cursor |
+| `display-screenshot-masked-640.jpg` | `screenshot()` of the whole display in normal (non-capturable) mode: every non-approved app greyed, no Pindot windows, no AI cursor |
 | `runA-early-activity.txt` | Approval timeout denies, the gate refuses `open_app`/`read_window` before approval, then `open_app` |
 | `runB-tool-tests-activity.txt` | 80 activity rows of the direct tool tests (`scripts/mcp_call.py`) |
 | `runC-failed.txt` | The first done-when attempt, which failed: the two bugs it found (see below) |
@@ -33,7 +33,7 @@ tests against mocks are listed separately.
 | Tool | Status |
 |---|---|
 | `desktop_context` | Tested |
-| `request_access` | Tested with `DESKHAND_TEST_AUTO_APPROVE` and with the real window timing out (denied after 120 s). The Allow/Deny buttons were not clicked: a human has to (see below) |
+| `request_access` | Tested with `PINDOT_TEST_AUTO_APPROVE` and with the real window timing out (denied after 120 s). The Allow/Deny buttons were not clicked: a human has to (see below) |
 | `open_app`, `focus_window` | Tested |
 | `read_window` | Tested on the TextEdit Open panel, a document window, the menu bar and a Save sheet; pagination tested in unit tests |
 | `find` | Tested (menu items such as Format > Make Plain Text, buttons) |
@@ -63,17 +63,17 @@ tests against mocks are listed separately.
 interactive `claude` 2.1.325 in a PTY on `claude login` (no `-p`, no API
 key), `--model haiku --permission-mode default --allowedTools mcp__desktop`,
 `--mcp-config`/`--settings` files, cwd `.spike-cwd`. TextEdit was approved by
-the test-only `DESKHAND_TEST_AUTO_APPROVE`.
+the test-only `PINDOT_TEST_AUTO_APPROVE`.
 
 - Tools called, in order: ToolSearch (Claude Code loads deferred MCP tools),
   `desktop_context`, `request_access`, `open_app`, `read_window` (the Open
   panel, menus on, page 1 of 2), `click` ref e35 "New Document",
   `read_window`, `click` ref e199 (the text area), `type_text` "Hello from
-  Deskhand phase 1", `read_window` (filter all, to check).
+  Pindot phase 1", `read_window` (filter all, to check).
 - **Screenshots: 0.** Stop hook after 17.3 s; the UserPromptSubmit and Stop
   hooks and the transcript agree; `claude` exited cleanly.
 - Checked independently afterwards: `read_window` of the document shows
-  `textarea value="Hello from Deskhand phase 1"` (`runD-result-window.jpg`).
+  `textarea value="Hello from Pindot phase 1"` (`runD-result-window.jpg`).
   The document was then closed with Delete and TextEdit quit.
 
 **Run C failed** (`runC-failed.txt`) and found two bugs, both fixed and
@@ -86,20 +86,20 @@ verified by run D:
    `/exit`, so `/exit` can't be appended to an unsent prompt.
 2. Claude Code 2.1.325 sends tool calls as stateless MCP 2026-07-28 requests
    (no transport session), so every call was a new session and the approval
-   was lost at once. A Deskhand session is now one Claude session, keyed by
-   an `X-Deskhand-Session` header in the brain's MCP config (unit test
+   was lost at once. A Pindot session is now one Claude session, keyed by
+   an `X-Pindot-Session` header in the brain's MCP config (unit test
    `stateless_calls_share_the_claude_session_named_by_the_header`, which
    fails without the fix).
 
 ## Manual tests for Tony
 
-Build first: `cd ~/deskhand && cargo build` (since Phase 3, step 2 needs a
-test build: `cargo build -p deskhand --features test-switches`, because
-`DESKHAND_TEST_AUTO_APPROVE` is ignored without it). Only one Deskhand can run at a
+Build first: `cd ~/pindot && cargo build` (since Phase 3, step 2 needs a
+test build: `cargo build -p pindot --features test-switches`, because
+`PINDOT_TEST_AUTO_APPROVE` is ignored without it). Only one Pindot can run at a
 time (it binds 127.0.0.1:47823).
 
 1. **Approval Allow and Deny (needs a human click).**
-   `./target/debug/deskhand` (no test variables). In another terminal:
+   `./target/debug/pindot` (no test variables). In another terminal:
    `python3 scripts/mcp_call.py init`, then
    `python3 scripts/mcp_call.py call request_access '{"apps":["TextEdit"],"reason":"manual test"}'`.
    The approval window appears. Click "Allow for this session": the call
@@ -109,7 +109,7 @@ time (it binds 127.0.0.1:47823).
    (denies). Check that Enter does nothing. `mcp_call.py end`, quit the app
    with Ctrl+C.
 2. **Physical Esc.** Start the app with
-   `DESKHAND_TEST_AUTO_APPROVE=TextEdit ./target/debug/deskhand`, then
+   `PINDOT_TEST_AUTO_APPROVE=TextEdit ./target/debug/pindot`, then
    `mcp_call.py init`, `call request_access '{"apps":["TextEdit"],"reason":"esc"}'`,
    `call open_app '{"name":"TextEdit"}'`, `call wait '{"ms":10000}'` and
    press Esc on the keyboard while it waits. Expect: the banner goes,
@@ -121,7 +121,7 @@ time (it binds 127.0.0.1:47823).
    TextEdit window on the second display, `call screenshot '{"display":1}'`,
    then `call click` at a point in that image: the AI cursor and the click
    must land on the right spot, and the banner should show on both displays.
-4. **Permissions.** On a fresh Mac (or after removing Deskhand from
+4. **Permissions.** On a fresh Mac (or after removing Pindot from
    Privacy & Security), start the app: it must say which permission is
    missing (Accessibility, Screen Recording, Input Monitoring) and the tools
    must fail with that message, not crash.

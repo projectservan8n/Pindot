@@ -4,8 +4,11 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export type SpeakMode = 'each_message' | 'at_stop';
 
-/** 'ask': only Deskhand's tools. 'auto': Claude Code's auto mode. */
+/** 'ask': only Pindot's tools. 'auto': Claude Code's auto mode. */
 export type PermissionMode = 'ask' | 'auto';
+
+/** How the assistant talks (one line of its prompt). */
+export type TalkStyle = 'friendly' | 'brief' | 'professional' | 'playful';
 
 export interface VoiceSettings {
   stt_model: string;
@@ -25,6 +28,11 @@ export interface VoiceSettings {
   companion: boolean;
   /** What Claude says appears beside the cursor. */
   captions: boolean;
+  /** What the assistant is called ("Rusty"). */
+  assistant_name: string;
+  talk_style: TalkStyle;
+  /** The user's own words on how to be talked to. */
+  talk_notes: string;
 }
 
 export interface Settings {
@@ -191,7 +199,8 @@ export const api = {
   permissionOpenSettings: (permission: Permission) => invoke<void>('permission_open_settings', { permission }),
   modelsStatus: () => invoke<ModelInfo[]>('models_status'),
   voiceDownload: (name: string) => invoke<void>('voice_download', { name }),
-  voicePreview: (name: string | null, volume: number) => invoke<void>('voice_preview', { name, volume }),
+  voicePreview: (name: string | null, volume: number, assistant: string) =>
+    invoke<void>('voice_preview', { name, volume, assistant }),
   modelsDownload: (ids: string[]) => invoke<void>('models_download', { ids }),
   modelsCancel: () => invoke<void>('models_cancel'),
   connectStatus: () => invoke<ConnectView>('connect_status'),
@@ -208,13 +217,13 @@ export const api = {
 };
 
 export const events = {
-  state: (cb: () => void): Promise<UnlistenFn> => listen('deskhand:state', () => cb()),
+  state: (cb: () => void): Promise<UnlistenFn> => listen('pindot:state', () => cb()),
   navigate: (cb: (view: string) => void): Promise<UnlistenFn> =>
-    listen<string>('deskhand:navigate', (e) => cb(e.payload)),
+    listen<string>('pindot:navigate', (e) => cb(e.payload)),
   download: (cb: (e: DownloadEvent) => void): Promise<UnlistenFn> =>
-    listen<DownloadEvent>('deskhand:download', (e) => cb(e.payload)),
+    listen<DownloadEvent>('pindot:download', (e) => cb(e.payload)),
   activity: (cb: (e: ActivityEntry) => void): Promise<UnlistenFn> =>
-    listen<ActivityEntry>('deskhand:activity', (e) => cb(e.payload)),
+    listen<ActivityEntry>('pindot:activity', (e) => cb(e.payload)),
 };
 
 /** A command error as text (Rust returns a string or a list of strings). */

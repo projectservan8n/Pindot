@@ -1,6 +1,6 @@
-# Deskhand
+# Pindot
 
-Open-source (MIT) desktop app for macOS and Windows. Deskhand gives the user's
+Open-source (MIT) desktop app for macOS and Windows. Pindot gives the user's
 own Claude Code CLI eyes and hands on the desktop through MCP tools, and the
 user drives it by voice. The product name must never contain "Claude".
 
@@ -10,6 +10,11 @@ done on macOS (spikes; tools, accessibility tree and guardrails; the voice
 loop; the app with setup, settings, downloader, activity viewer and the
 release build). The evidence is in `docs/phase0/` to `docs/phase3/`.
 Windows is stubs plus `docs/windows-test-checklist.md`.
+
+Pindot was called **Deskhand** until 15 Nov 2026. The captured run outputs
+(`docs/phase*/*.log`, `*.txt`) and the screenshots keep the old name, as
+recorded; everything else was renamed (crates, bundle id `dev.pindot.app`,
+`PINDOT_*` variables, `pindot:*` events, `X-Pindot-Session`).
 
 ## Hard rules
 
@@ -29,7 +34,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   product's "Connect to Claude Code" button (`claude mcp add --scope user`) is
   a user action, not something tests run.
 - Secrets: the MCP bearer token is generated at runtime. It lives in the
-  per-user data dir (`~/Library/Application Support/Deskhand/`, dir 0700,
+  per-user data dir (`~/Library/Application Support/Pindot/`, dir 0700,
   files 0600) with the generated `claude-mcp.json` and `claude-settings.json`,
   never in the repo. Model weights are downloaded at runtime, never committed.
 - Reference code (Tarsee's `claude-interactive-pool.js` and
@@ -39,7 +44,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
 
 ## Layout
 
-- `crates/deskhand-core`: everything testable without a UI.
+- `crates/pindot-core`: everything testable without a UI.
   - `platform/`: OS traits `Capture`, `Input`, `Hotkey`, `StopKey` (global
     Esc), `Accessibility` and `Overlay`. Each has a macOS implementation (`platform/macos`), Windows
     stubs that return `Unsupported` (`platform/windows`) and mocks
@@ -80,7 +85,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   Setup, Settings, Activity by URL hash; `lib/format.ts` is unit-tested
   with vitest). `app/public`: the overlay (with the voice pill) and approval
   pages, plain HTML/JS. Vite builds both into `app/dist`, which Tauri embeds
-  at compile time: rebuild the frontend before `cargo build -p deskhand`.
+  at compile time: rebuild the frontend before `cargo build -p pindot`.
 - `spikes/test-target`: a Swift test window for the Phase 0 spikes.
   `spikes/mcp-call.py` is the Phase 0 one-shot MCP client;
   `scripts/mcp_call.py` keeps one MCP session across calls (`init`, `call
@@ -89,7 +94,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
 ## Decisions and why
 
 - **MCP server**: rmcp 3.10 `StreamableHttpService` behind our own axum guard.
-  It binds 127.0.0.1 only, on default port 47823 (`DESKHAND_PORT` overrides
+  It binds 127.0.0.1 only, on default port 47823 (`PINDOT_PORT` overrides
   it). Any `Origin` header gets 403, a `Host` other than
   127.0.0.1/localhost gets 403, and a missing or wrong bearer token gets 401.
 - **Coordinates**: tools speak in pixels of the latest screenshot, whose long
@@ -115,14 +120,14 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   non-activating, at ScreenSaver level, joining all spaces and full-screen
   auxiliary, with `ignores_mouse_events`. The app runs with the Accessory
   policy and `activate_ignoring_other_apps(false)`, so it never takes focus.
-  Each panel receives the same `deskhand:cursor` events in global points and
+  Each panel receives the same `pindot:cursor` events in global points and
   draws the cursor only while it is over its own monitor.
   `NSWindowSharingType::None` keeps the cursor out of every screenshot,
   including ours. Verified on macOS 26.5 with `screencapture` and xcap; Apple
   has changed this behaviour before, so re-check it on every macOS major
   release. `--capturable` turns it off for tests.
 - **Overlay feedback** (Tony's request): tools tell the overlay what they
-  did through `Overlay::action(CursorAction)` → `deskhand:action`: a ripple
+  did through `Overlay::action(CursorAction)` → `pindot:action`: a ripple
   for a real click, an inward ring for an accessibility press, chevrons for
   scroll, key caps for `key`, a typing chip (the character count only, never
   the text), a spotlight for `point`, and a drag that the cursor follows
@@ -161,7 +166,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   "Allow for this session"; Esc denies, Enter does nothing, closing denies,
   no answer in 120 s denies. Synthesising a click on Allow is not allowed,
   even in tests (an automated agent was blocked from doing it, rightly).
-- **`DESKHAND_TEST_AUTO_APPROVE=TextEdit` is test-only** (Tony's decision):
+- **`PINDOT_TEST_AUTO_APPROVE=TextEdit` is test-only** (Tony's decision):
   off by default, prints a loud warning at start and on every use, and is
   never read in the normal path.
 - **Character keys go through the main thread**: for `key` with a letter
@@ -174,7 +179,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   loop (tests, CLIs) gets the timeout error for letter keys.
 - **The gate**: actions only touch approved apps. Refs carry their app;
   `click`/`scroll`/`drag` at x,y run a hit test on the window list first
-  (Deskhand's own prompt/activity windows block, the menu bar needs an
+  (Pindot's own prompt/activity windows block, the menu bar needs an
   approved app's menu, the Apple menu is never allowed); `type_text`/`key`
   need keyboard focus in an approved app. Screenshots grey out every window
   of a non-approved app and the bare desktop.
@@ -187,8 +192,8 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   2026-07-28 removed transport sessions (SEP-2567) and Claude Code 2.1.325
   sends each tool call as its own stateless request, so state keyed on the
   MCP connection was lost between calls (run C: `open_app` refused right
-  after `request_access` approved). Every `claude` Deskhand starts gets an
-  `X-Deskhand-Session: <its --session-id>` header in its MCP config
+  after `request_access` approved). Every `claude` Pindot starts gets an
+  `X-Pindot-Session: <its --session-id>` header in its MCP config
   (`claude-mcp-brain.json`); approvals, refs, the latest screenshot and the
   lock live in `ServerState::session_for(key)` until `end_session(key)` when
   that `claude` exits. A legacy client with `Mcp-Session-Id` (e.g.
@@ -207,7 +212,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   at the top of every display while an action runs, and the AI cursor glides
   to the target before every click, scroll and drag.
 - **Activity log**: `activity.jsonl` in the data dir (0600, rotated at
-  5 MB), one line per tool call; `deskhand --activity` opens a live view.
+  5 MB), one line per tool call; `pindot --activity` opens a live view.
 - **Permission mode for nested sessions** (voice: Ask unless the user picks Auto in Settings): `--permission-mode default` plus
   `--allowedTools mcp__desktop` (Tony's decision). claude 2.1.325's help
   lists acceptEdits, auto, bypassPermissions, manual, dontAsk and plan, but
@@ -240,7 +245,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   binary, checked with a real turn): ~5k per call in Ask, ~10k in Auto.
   With no built-in tools the MCP tools load up front, so no `ToolSearch`
   round trip. `--no-chrome` also closes a hole: a voice turn used Claude in
-  Chrome to open a site without Deskhand's approval window.
+  Chrome to open a site without Pindot's approval window.
 - **Claude settings** (Tony's choice): the Settings window picks the voice
   brain's model (`--model`: CLI default, haiku, sonnet, opus, fable),
   thinking effort (`--effort`) and permissions. **Ask** (default): only
@@ -249,7 +254,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   a warning (runs as the user, the classifier can be wrong or tricked,
   Claude Code recommends isolated environments). App approvals and Esc
   still apply. The brain writes its own `claude-settings-brain.json`.
-- **Trusting our own session folder**: it is empty and Deskhand's, so the
+- **Trusting our own session folder**: it is empty and Pindot's, so the
   voice brain answers the folder-trust dialog with Yes for it (and only it).
   Claude Code itself records that answer in `~/.claude.json` once.
 - **The brain stays interactive `claude` in a PTY**: never `-p`, the Agent
@@ -298,7 +303,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
 - **Clicky features** (Tony's request, after reading farzaa/clicky and
   jasonkneen/openclicky, both MIT; ideas only, no code copied):
   - Companion cursor (`voice.companion`): while a voice request is in progress, the app
-    sends `deskhand:companion {x, y, level}` (pointer from
+    sends `pindot:companion {x, y, level}` (pointer from
     `platform::pointer_location`, mic RMS from `audio::mic_level`) at
     ~60 Hz, changes only, until 2.5 s after idle. The AI cursor springs
     beside the user's pointer, the tag shows a waveform (listening) or
@@ -338,7 +343,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
 - **Settings file**: `settings.json` (0600), `version: 1`. Phase 2's
   `voice-settings.json` is folded in on first load and renamed
   `voice-settings.migrated.json`; unknown fields are kept; an unreadable
-  file is kept as a backup and the defaults are used; `DESKHAND_*`
+  file is kept as a backup and the defaults are used; `PINDOT_*`
   environment variables override but are never saved. A port change
   applies after a restart; hotkey, model and speak-mode changes restart the
   voice loop at once.
@@ -379,7 +384,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   Settings" opens `x-apple.systempreferences:com.apple.preference.security?Privacy_<Pane>`.
 - **Test-only switches are compile-time gated** (Tony's rule): the
   `test-switches` cargo feature (app feature `test-switches` enables
-  `deskhand-core/test-switches`). Without it, `DESKHAND_TEST_AUTO_APPROVE`
+  `pindot-core/test-switches`). Without it, `PINDOT_TEST_AUTO_APPROVE`
   is ignored with a warning, and `--test-turn`, `--test-voice`,
   `--test-voice-esc`, `--test-esc-after`, `--accept-trust`,
   `--permission-mode`, `--turn-timeout` and `--keep-running` print
@@ -393,6 +398,31 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   folder and `--permission-mode default`; `--restricted` not adopted (open
   question in the README); human approvals; the shared session for clients
   without our header is stated in the README guardrails.
+
+### After Phase 3: the rename and the assistant
+
+- **Rename to Pindot** (Tony's request). The data folder moves once:
+  `paths::data_dir` renames `.../Deskhand` to `.../Pindot` when the new one
+  doesn't exist yet (settings, token, models, activity log, session folder),
+  so nothing is downloaded or set up again. The new bundle id means macOS
+  asks for the four permissions once more; `tccutil reset All
+  dev.deskhand.app` clears the old entries. `claude` sees a new session
+  folder, so the voice brain answers its folder-trust dialog once more and
+  old voice sessions can't be resumed. A `claude mcp add` registration keeps
+  working: same server name, port and token.
+- **Assistant name and talk style** (Tony's request; default name Rusty).
+  `voice.assistant_name` (1-24 characters, one line), `voice.talk_style`
+  (friendly, brief, professional, playful) and `voice.talk_notes` (the
+  user's own words, up to 300 characters) in `settings.json`.
+  `voice::voice_system_prompt` builds the prompt: "Your name is X.", the
+  rules, the style's line, then the notes last, framed as tone and wording
+  only so they never loosen a rule. A change restarts the voice loop. The
+  name also goes to the overlay banner ("Rusty is controlling input"): each
+  overlay page emits `pindot:overlay-ready` once it listens, and the app
+  answers with `pindot:assistant` (and sends it again on save), so the
+  overlay still only listens and emits, with no command. Preview says
+  "Hi, I'm X." A blank or broken name in a hand-edited file goes back to
+  Rusty; long notes are cut.
 
 ## Known risks (open)
 
@@ -414,9 +444,9 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   have only been tested with synthetic events and one display. The approval
   window's buttons have not been clicked by a human yet. See
   `docs/phase1/README.md` for the manual steps.
-- Stateless MCP clients that Deskhand did not start and that send no
-  `X-Deskhand-Session` header all share one session; their approvals last
-  until Deskhand quits. Fine for one external client, wrong for two.
+- Stateless MCP clients that Pindot did not start and that send no
+  `X-Pindot-Session` header all share one session; their approvals last
+  until Pindot quits. Fine for one external client, wrong for two.
 - Submitting a prompt through the PTY: Claude Code takes fast input as a
   paste and can drop an Enter that arrives during it. `type_prompt` waits
   for the echo and quiet; `drive_turn` presses Enter once more if the
@@ -433,7 +463,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   and `Entitlements.plist` (microphone). The designated requirement is
   then the bundle id plus the team id, so macOS keeps the four permission
   grants across rebuilds. An ad-hoc build changes signature every time
-  and loses them; `tccutil reset All dev.deskhand.app` clears stale
+  and loses them; `tccutil reset All dev.pindot.app` clears stale
   entries. The identity is never written into the repo.
 - **macOS 26 menu bar**: status items are drawn by Control Center, not by
   our process, and move when the frontmost app changes. Tests must re-read
@@ -441,7 +471,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
 - **Windows**: `find_claude` looks only for `claude.exe`; an npm install
   gives `claude.cmd` (see the checklist).
 - Nothing has been built or run on Windows. `scripts/check-windows.sh`
-  type-checks `deskhand-core` and the app for `x86_64-pc-windows-msvc` from
+  type-checks `pindot-core` and the app for `x86_64-pc-windows-msvc` from
   the Mac, with stand-ins for the C compiler, archiver and `llvm-rc` (ring and
   the icon resource need Windows headers), so it proves only that the Rust
   compiles. Re-run it after changes to Windows paths. See
@@ -455,7 +485,7 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   `~/.cargo/registry/src`. Don't trust memory for rmcp, tauri-nspanel,
   portable-pty or `claude` flags.
 - Send long command output to a log and read the tail:
-  `cargo build > /tmp/deskhand-build.log 2>&1; tail -30 /tmp/deskhand-build.log`.
+  `cargo build > /tmp/pindot-build.log 2>&1; tail -30 /tmp/pindot-build.log`.
 - Tests may only click or type inside windows the test opened itself (our
   Swift test window, or a TextEdit document the test created and discards
   unsaved). Never in an app the user already has open. Kill every spike,

@@ -1037,64 +1037,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "deskhand"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "deskhand-core",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-nspanel",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "deskhand-core"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "axum",
- "base64 0.22.1",
- "block2",
- "cpal",
- "dirs 6.0.0",
- "dispatch2",
- "enigo",
- "flate2",
- "hound",
- "image",
- "objc2",
- "objc2-app-kit",
- "objc2-application-services",
- "objc2-av-foundation",
- "objc2-core-foundation",
- "objc2-core-graphics",
- "objc2-foundation",
- "portable-pty",
- "ptts",
- "rand 0.9.5",
- "rmcp",
- "schemars 1.2.3",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tar",
- "thiserror 2.0.21",
- "tokio",
- "tower",
- "tracing",
- "tracing-subscriber",
- "transcribe-rs",
- "ureq",
- "uuid",
- "xcap",
-]
-
-[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3822,6 +3764,64 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+
+[[package]]
+name = "pindot"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "pindot-core",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-nspanel",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "pindot-core"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "block2",
+ "cpal",
+ "dirs 6.0.0",
+ "dispatch2",
+ "enigo",
+ "flate2",
+ "hound",
+ "image",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-application-services",
+ "objc2-av-foundation",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-foundation",
+ "portable-pty",
+ "ptts",
+ "rand 0.9.5",
+ "rmcp",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tar",
+ "thiserror 2.0.21",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "transcribe-rs",
+ "ureq",
+ "uuid",
+ "xcap",
+]
 
 [[package]]
 name = "pipewire"

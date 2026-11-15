@@ -14,8 +14,8 @@ npx tauri build            # runs `npm run build` first (beforeBuildCommand)
 
 Output (Apple silicon):
 
-- `target/release/bundle/macos/Deskhand.app`
-- `target/release/bundle/dmg/Deskhand_<version>_aarch64.dmg`
+- `target/release/bundle/macos/Pindot.app`
+- `target/release/bundle/dmg/Pindot_<version>_aarch64.dmg`
 
 `npx tauri build` never enables the `test-switches` feature, so a release
 build has no test-only switches (they print a warning and are ignored).
@@ -26,7 +26,7 @@ open of a downloaded copy ("Open Anyway" in System Settings > Privacy &
 Security). macOS also ties privacy grants (Accessibility, Input Monitoring,
 Screen Recording, Microphone) to the code signature: with an unsigned or
 ad-hoc build, every rebuild counts as a new app and the grants have to be
-given again (remove the old Deskhand entry first).
+given again (remove the old Pindot entry first).
 
 For an Intel or universal build: `rustup target add x86_64-apple-darwin`,
 then `npx tauri build --target universal-apple-darwin`. Not tried.
@@ -39,7 +39,7 @@ then `npx tauri build --target universal-apple-darwin`. Not tried.
    `security find-identity -v -p codesigning` shows its name, e.g.
    `Developer ID Application: Tony Herrera (TEAMID)`.
 2. Add an entitlements file, `app/src-tauri/Entitlements.plist`, for the
-   hardened runtime. Deskhand needs only the microphone:
+   hardened runtime. Pindot needs only the microphone:
 
    ```xml
    <?xml version="1.0" encoding="UTF-8"?>
@@ -54,7 +54,7 @@ then `npx tauri build --target universal-apple-darwin`. Not tried.
 
    Do not turn on the App Sandbox: event taps (the hold-to-talk key and
    Esc), the accessibility API on other apps and synthetic input do not
-   work inside it. No Apple Events entitlement is needed (Deskhand sends
+   work inside it. No Apple Events entitlement is needed (Pindot sends
    none).
 3. In `app/src-tauri/tauri.conf.json`, under `bundle.macOS`:
 
@@ -73,8 +73,8 @@ then `npx tauri build --target universal-apple-darwin`. Not tried.
    the identity), or `npx tauri build` with the variable set, then check:
 
    ```sh
-   codesign --verify --deep --strict --verbose=2 target/release/bundle/macos/Deskhand.app
-   codesign -d --entitlements - target/release/bundle/macos/Deskhand.app
+   codesign --verify --deep --strict --verbose=2 target/release/bundle/macos/Pindot.app
+   codesign -d --entitlements - target/release/bundle/macos/Pindot.app
    ```
 
 ## macOS: notarization (documented, not set up)
@@ -89,9 +89,9 @@ Tauri notarizes and staples during `tauri build` when these are set:
 Then check:
 
 ```sh
-xcrun stapler validate target/release/bundle/macos/Deskhand.app
-spctl -a -vvv -t exec target/release/bundle/macos/Deskhand.app
-spctl -a -vvv -t open --context context:primary-signature target/release/bundle/dmg/Deskhand_*_aarch64.dmg
+xcrun stapler validate target/release/bundle/macos/Pindot.app
+spctl -a -vvv -t exec target/release/bundle/macos/Pindot.app
+spctl -a -vvv -t open --context context:primary-signature target/release/bundle/dmg/Pindot_*_aarch64.dmg
 ```
 
 If notarization fails, `xcrun notarytool log <submission-id> --keychain-profile <profile>`
@@ -121,8 +121,8 @@ or hear the hotkey.
    npx tauri build --bundles nsis,msi
    ```
 
-   Output: `target\release\bundle\nsis\Deskhand_<version>_x64-setup.exe`
-   and `target\release\bundle\msi\Deskhand_<version>_x64_en-US.msi`.
+   Output: `target\release\bundle\nsis\Pindot_<version>_x64-setup.exe`
+   and `target\release\bundle\msi\Pindot_<version>_x64_en-US.msi`.
    The MSI needs WiX, which the Tauri CLI downloads on first use.
 3. WebView2: the default `bundle.windows.webviewInstallMode` downloads the
    bootstrapper during install if WebView2 is missing (needs the internet);
@@ -139,7 +139,7 @@ or hear the hotkey.
    For Azure Trusted Signing or a hardware token, use `signCommand`
    instead (a command with `%1` for the file to sign). Unsigned installers
    show a SmartScreen warning ("More info" > "Run anyway").
-5. Check: `Get-AuthenticodeSignature .\Deskhand_*_x64-setup.exe`, then
+5. Check: `Get-AuthenticodeSignature .\Pindot_*_x64-setup.exe`, then
    install on a clean Windows 11 machine and run the checklist.
 
 ## Release checklist
@@ -150,6 +150,6 @@ or hear the hotkey.
 3. `npx tauri build` (signed and notarized once set up).
 4. Launch check on a clean user account: the app starts with a menu-bar
    icon and the Setup window, `curl` of `http://127.0.0.1:47823/health`
-   with the token answers, and Quit leaves no `deskhand` or child `claude`
+   with the token answers, and Quit leaves no `pindot` or child `claude`
    process.
 5. Publish the .dmg with its SHA-256 (`shasum -a 256`).

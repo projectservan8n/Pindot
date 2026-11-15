@@ -1,0 +1,63 @@
+[package]
+name = "pindot-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Pindot core: OS traits, MCP server, and the interactive claude brain"
+
+[features]
+# TEST ONLY. Compiles in the switches the automated tests use
+# (PINDOT_TEST_AUTO_APPROVE). Off by default and never in a release build.
+test-switches = []
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+rmcp = { version = "3.10", features = ["server", "macros", "schemars", "transport-streamable-http-server"] }
+schemars = "1.2"
+axum = "0.8.9"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+base64 = "0.22"
+rand = "0.9"
+portable-pty = "0.9"
+dirs = "6"
+# Voice loop (Phase 2). Speech to text: Moonshine streaming through ONNX Runtime.
+transcribe-rs = { version = "0.3.12", default-features = false, features = ["onnx"] }
+# Text to speech: Phonon through the ptts runtime (xn tensors); `hf` reads tokenizer.json.
+ptts = { version = "0.7.1", default-features = false, features = ["hf"] }
+cpal = "0.18.2"
+hound = "3.5.1"
+# Model downloader: pinned URLs, checked with SHA-256.
+ureq = "3.5"
+sha2 = "0.10.9"
+tar = "0.4"
+flate2 = "1.1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+xcap = "0.9.10"
+enigo = "0.6.1"
+objc2 = "0.6.5"
+objc2-core-graphics = "0.3.2"
+objc2-core-foundation = "0.3.2"
+objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["std", "AVCaptureDevice", "AVMediaFormat", "block2"] }
+block2 = "0.6.2"
+# AXUIElement (accessibility tree, press, hit test). Same objc2 0.3 family.
+objc2-application-services = { version = "0.3.2", default-features = false, features = ["std", "libc", "HIServices", "AXUIElement", "AXValue", "AXError", "AXAttributeConstants", "AXActionConstants", "AXRoleConstants", "AXValueConstants"] }
+# NSRunningApplication: pid -> app name and bundle id, activation.
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "NSRunningApplication", "NSWorkspace"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSArray"] }
+# The main dispatch queue: macOS asserts that keyboard-layout lookups run there.
+dispatch2 = "0.3.1"
+
+# Windows: stubs only (Phase 0 and 1). The Windows implementation adds xcap and enigo here
+# (see docs/windows-test-checklist.md).
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

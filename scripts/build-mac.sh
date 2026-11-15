@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build Deskhand.app signed with a stable certificate, so macOS keeps the
+# Build Pindot.app signed with a stable certificate, so macOS keeps the
 # Accessibility, Input Monitoring, Screen Recording and Microphone grants
 # across rebuilds. (An ad-hoc signature changes on every build, and macOS
 # drops the grants each time.)
@@ -27,6 +27,6 @@ fi
 
 npx tauri build --bundles app "$@"
 
-app=../target/release/bundle/macos/Deskhand.app
+app=../target/release/bundle/macos/Pindot.app
 codesign --verify --deep --strict "$app"
 codesign -dv "$app" 2>&1 | grep -E '^(Authority=Developer|Authority=Apple Development|TeamIdentifier|Signature=adhoc)' | head -2

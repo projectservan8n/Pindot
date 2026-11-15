@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api, errorText, type AppInfo, type HotkeyCheck, type SettingsView } from '../lib/api';
+  import { api, errorText, type AppInfo, type HotkeyCheck, type SettingsView, type TalkStyle } from '../lib/api';
   import { chordFromCodes, formatBytes, hotkeyPresets } from '../lib/format';
   import Connect from './Connect.svelte';
 
@@ -54,7 +54,7 @@
     previewing = true;
     voiceBad = false;
     try {
-      await api.voicePreview(view.settings.voice.tts_voice, view.settings.voice.volume);
+      await api.voicePreview(view.settings.voice.tts_voice, view.settings.voice.volume, assistantName);
     } catch (e) {
       voiceNote = errorText(e);
       voiceBad = true;
@@ -65,6 +65,18 @@
 
   // The Auto warning is open; Auto is only set from its button.
   let autoConfirm = $state(false);
+
+  // Limits and styles match voice/mod.rs (ASSISTANT_NAME_MAX,
+  // TALK_NOTES_MAX, TalkStyle); Save validates them again.
+  const NAME_MAX = 24;
+  const NOTES_MAX = 300;
+  const assistantName = $derived(view?.settings.voice.assistant_name.trim() || 'Rusty');
+  const talkStyles: { value: TalkStyle; label: string; hint: string }[] = [
+    { value: 'friendly', label: 'Friendly', hint: 'warm and relaxed, like a friend' },
+    { value: 'brief', label: 'Brief', hint: 'as few words as possible' },
+    { value: 'professional', label: 'Professional', hint: 'polite, calm and precise' },
+    { value: 'playful', label: 'Playful', hint: 'upbeat, a light joke now and then' },
+  ];
 
   // Values match brain/config.rs (CLAUDE_MODELS, EFFORT_LEVELS); Save
   // validates them again.
@@ -183,6 +195,36 @@
   {/if}
 
   <section>
+    <h2>Assistant</h2>
+    <div class="row">
+      <label for="aname">Name</label>
+      <input id="aname" bind:value={view.settings.voice.assistant_name} maxlength={NAME_MAX} placeholder="Rusty" />
+    </div>
+    <fieldset>
+      <legend>How {assistantName} talks to you</legend>
+      {#each talkStyles as t (t.value)}
+        <label class="row">
+          <input type="radio" bind:group={view.settings.voice.talk_style} value={t.value} />
+          {t.label}<span class="small muted">{t.hint}</span>
+        </label>
+      {/each}
+    </fieldset>
+    <label for="anotes" class="notes-label">Anything else about how it talks to you? <span class="small muted">Optional</span></label>
+    <textarea
+      id="anotes"
+      class="notes"
+      rows="2"
+      maxlength={NOTES_MAX}
+      bind:value={view.settings.voice.talk_notes}
+      placeholder="e.g. Call me Sam. Tell me what you did, not how."
+    ></textarea>
+    <p class="small muted">
+      {view.settings.voice.talk_notes.length}/{NOTES_MAX} · Used from your next request. These change the tone, not the
+      safety rules: {assistantName} still asks before anything risky.
+    </p>
+  </section>
+
+  <section>
     <h2>Hold-to-talk</h2>
     <label class="row">
       <input type="checkbox" bind:checked={view.settings.voice_enabled} />
@@ -268,7 +310,7 @@
       <legend>Speak</legend>
       <label class="row">
         <input type="radio" bind:group={view.settings.voice.speak_mode} value="each_message" />
-        Every message Claude writes (default)
+        Every message {assistantName} writes (default)
       </label>
       <label class="row">
         <input type="radio" bind:group={view.settings.voice.speak_mode} value="at_stop" />
@@ -281,7 +323,7 @@
     </label>
     <label class="row">
       <input type="checkbox" bind:checked={view.settings.voice.captions} />
-      Show what Claude says in a bubble next to the cursor
+      Show what {assistantName} says in a bubble next to the cursor
     </label>
     <div class="row">
       <label for="vol">Volume</label>
@@ -317,7 +359,7 @@
             autoConfirm = false;
           }}
         />
-        Ask (recommended): Claude uses only Deskhand's desktop tools
+        Ask (recommended): Claude uses only Pindot's desktop tools
       </label>
       <label class="row">
         <input
@@ -341,7 +383,7 @@
               a web page or on screen can try to trick Claude.
             </li>
             <li>Claude Code itself recommends auto mode only in isolated environments.</li>
-            <li>Deskhand still asks you before Claude controls each app, and Esc still stops everything.</li>
+            <li>Pindot still asks you before Claude controls each app, and Esc still stops everything.</li>
             <li>Each step costs about twice the tokens of Ask (about 10k instead of 5k).</li>
           </ul>
           <div class="row">
@@ -410,6 +452,17 @@
 {/if}
 
 <style>
+  .notes-label {
+    display: block;
+    margin: 10px 0 4px;
+  }
+  .notes {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 62ch;
+    resize: vertical;
+  }
   .voice-desc {
     max-width: 62ch;
     margin-top: 0;

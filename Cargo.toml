@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/deskhand-core", "app/src-tauri"]
+members = ["crates/pindot-core", "app/src-tauri"]
 
 [workspace.package]
 version = "0.0.1"

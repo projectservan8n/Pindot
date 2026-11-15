@@ -1,14 +1,14 @@
-//! The per-app approval prompt, answered by a human in Deskhand's own
+//! The per-app approval prompt, answered by a human in Pindot's own
 //! window. One small always-on-top window per request (`approval-<id>`).
 //! It is content-protected, so screenshots (ours included) never show it,
-//! and Deskhand itself can never be approved, so Claude cannot click it.
+//! and Pindot itself can never be approved, so Claude cannot click it.
 //! Closing the window counts as "Deny".
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use deskhand_core::platform::{Accessibility, WindowInfo};
-use deskhand_core::server::approval::{ApprovalRequest, Approver};
+use pindot_core::platform::{Accessibility, WindowInfo};
+use pindot_core::server::approval::{ApprovalRequest, Approver};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::oneshot;
 
@@ -76,13 +76,13 @@ impl Approver for TauriApprover {
         let restore = self.front_window();
         self.pending.lock().unwrap().insert(id, Pending { reply, restore });
         let json = serde_json::to_string(&req).unwrap_or_else(|_| "null".into());
-        let script = format!("window.__DESKHAND_APPROVAL__ = {json};");
+        let script = format!("window.__PINDOT_APPROVAL__ = {json};");
         let height = 230.0 + 64.0 * req.apps.len().min(6) as f64;
         let app = self.app.clone();
         let protect = !self.capturable;
         let _ = self.app.run_on_main_thread(move || {
             let built = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("approval.html".into()))
-                .title("Deskhand: allow Claude to control an app?")
+                .title("Pindot: allow Claude to control an app?")
                 .inner_size(460.0, height)
                 .resizable(false)
                 .minimizable(false)
