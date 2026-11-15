@@ -391,7 +391,10 @@
   </section>
 
   <div class="savebar">
-    <button class="primary" onclick={save} disabled={saving || (check !== null && !check.ok)}>Save</button>
+    <button class="primary" onclick={save} disabled={saving || autoConfirm || (check !== null && !check.ok)}>Save</button>
+    {#if autoConfirm}
+      <span class="small warn-text">Turn on Auto in the warning above, or press Keep Ask, before saving.</span>
+    {/if}
     {#each notes as n (n)}<span class="small ok">{n}</span>{/each}
     {#each problems as p (p)}<span class="small bad">{p}</span>{/each}
   </div>
