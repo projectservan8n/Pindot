@@ -585,6 +585,22 @@ then 2.1.325). What was run and seen is in
   mcp add/remove` each flashed a black window in a release build. They
   start with `CREATE_NO_WINDOW` now (`brain::hidden`). Launching from a
   terminal hides the flash, so test a release build from Explorer.
+- **Held while off**: when hold-to-talk is off for a reason (a model is
+  missing, Setup is not finished) nothing listened for the key, so holding
+  it did nothing at all, which read as "the hotkey is broken". On Windows a
+  key hook now runs in that state only to put the reason on the overlay's
+  pill ("Hold-to-talk is off: ..."). Not when the user switched
+  hold-to-talk off, and not on macOS, where creating a tap without the
+  permissions can itself show a prompt.
+- **`scripts\build-windows.ps1`** is the Windows `build-mac.sh`: the
+  release app and a per-user NSIS installer, with ONNX Runtime linked as a
+  DLL and shipped next to `pindot.exe` (decided: the static library needs a
+  recent VS 2022, the DLL links anywhere). The DLL reaches the bundler
+  through `--config`, not `tauri.conf.json`, because a resource listed
+  there must exist for every `cargo build` on every OS. See
+  `docs/release.md`. Two instances that ask WebView2 for different options
+  (one with a remote-debugging port) cannot share the app's WebView2 data
+  folder: the second fails at startup.
 - **Finding `claude`**: `claude.exe` on the PATH, then under the home
   folder's usual places (a windowed app may get a shorter PATH). An npm
   install is a `claude.cmd` script: Pindot cannot start a script in its

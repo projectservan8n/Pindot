@@ -72,10 +72,11 @@ pass, and the items left unticked.
       (The windows have `WS_EX_TRANSPARENT | WS_EX_LAYERED`, and a screen
       copy of the second monitor with the overlay up matched the one before
       in over 92% of its pixels. Not clicked by hand.)
-- [ ] The overlay never takes focus. The Alt+Tab list and the taskbar don't
+- [x] The overlay never takes focus. The Alt+Tab list and the taskbar don't
       show it. (Focus stayed with the app in front. The overlay windows are
-      titled "Tauri App" and have `WS_EX_APPWINDOW`, so Alt+Tab may list
-      them: look.)
+      now tool windows titled "Pindot cursor": `WS_EX_TOOLWINDOW` set and
+      `WS_EX_APPWINDOW` cleared, read back from the running app. Alt+Tab
+      itself was not pressed.)
 - [ ] The overlay stays above a full-screen app, such as a video in F11 mode
       or a PowerPoint slideshow.
 - [x] A screenshot (Win+Shift+S and our `screenshot` tool) does **not** show
@@ -109,7 +110,9 @@ pass, and the items left unticked.
       14.6 s, two screenshots. The second monitor and other scales are not
       tried.)
 - [ ] Clicking into an elevated window fails with a clear error, not silently.
-      (Not built: Windows drops the input and `SendInput` reports success.)
+      (Built: the target's process is checked before any input is sent.
+      `spike_hotkey status` flagged two administrator windows on the test
+      PC. No click was aimed at one, so the error itself is unseen.)
 
 ## (d) Brain in ConPTY
 
@@ -159,20 +162,37 @@ Only click and type in windows you opened for the test.
       needed no screenshot: 18.1 s.)
 - [ ] `read_window` on Notepad lists the menu bar (File, Edit, ...) and the
       edit area with refs; `find("Save as")` finds the menu item.
-      (Not tried on Notepad or any real app. Items of a closed menu are not
-      in the tree on Windows.)
+      (Notepad was not used: the tester had it open. On Paint instead:
+      104 controls in 0.46 s, with File and View, Save/Undo/Redo and their
+      shortcuts, every tool and shape; the pencil picked by ref; "Don't
+      save" found and pressed in the closing dialog. Items of a closed menu
+      are not in the tree on Windows.)
+- [x] A web page: Edge with its own profile on a local page. The first read
+      lists the page (0.45 s, after one retry: a browser builds the tree
+      only once asked); a field typed into; a checkbox, a button and a link
+      pressed by ref without the pointer; typing into the page's password
+      field refused, the field left empty.
 - [x] Secure fields: a password box (UIA `IsPassword`) is reported as
       `securetextfield` and `type_text` refuses to type into it.
       (A classic password box. Still to try: a password field on a web
       page, in Chrome and in Edge.)
-- [ ] `StopKey` with `WH_KEYBOARD_LL`: while armed, a physical Esc returns 1
+- [x] `StopKey` with `WH_KEYBOARD_LL`: while armed, a physical Esc returns 1
       (swallowed: Notepad must not see it), stops the action in flight and
       shows the "Stopped" banner. Our own `key esc` (tagged with
       `dwExtraInfo` = our marker) passes through.
+      (`spike_hotkey esc` with a test window in front and unmarked,
+      synthetic Esc presses: armed, both presses reported and the window
+      saw none; disarmed, the window saw the press. The physical key, an
+      action stopped in flight and the banner are still to see.)
 - [ ] Approval window: `request_access(["Notepad"])` shows our prompt, Deny
       and "Allow for this session" both work by mouse, Esc denies, and a
       120 s timeout denies. Extra warning shows for Terminal/PowerShell,
       Explorer, Settings/Control Panel, password managers.
+      (Seen in a release build: the prompt on top with both apps, the
+      file-manager warning for File Explorer and the reason marked "not
+      verified"; Deny, pressed over CDP, gave the tool "The user denied
+      access". Allow, Esc and the timeout were not tried, and nobody has
+      used the mouse on it.)
 - [x] The gate: `click` on a point over a window of a non-approved app is
       refused before any input; screenshots grey out windows of
       non-approved apps. (A click on Chrome and one on the taskbar were
@@ -222,8 +242,13 @@ Only click and type in windows you opened for the test.
 
 ## (g) Phase 3: app, settings, setup, release
 
-- [ ] Tray icon in the notification area with Setup, Settings, Activity,
+- [x] Tray icon in the notification area with Setup, Settings, Activity,
       the hold-to-talk switch and Quit. Quit leaves no process.
+      (The icon is in the hidden-icons flyout. Pressed through UI
+      Automation; the menu, read with `MN_GETHMENU`, has the status line,
+      Setup..., Settings..., Activity..., the checked Hold-to-talk
+      (Ctrl+Win) and Quit Pindot. Quit exited cleanly: no `pindot`, no
+      WebView2 process, the port free. Not used by hand.)
 - [ ] First start opens Setup without stealing focus from the app in front.
 - [ ] Setup: the `claude` check finds Claude Code and reads `claude auth
       status --json`; signed out shows "run `claude login`". Known gap:
@@ -256,7 +281,7 @@ Only click and type in windows you opened for the test.
       Claude Code config.
 - [ ] Activity: filter by session and tool; Clear asks first and empties
       `activity.jsonl`.
-- [ ] Release: `npx tauri build --bundles nsis,msi` (see
+- [ ] Release: `scripts\build-windows.ps1` (see
       `docs/release.md`); install on a clean Windows 11, launch, check
       Setup, `curl -H "Authorization: Bearer <token>"
       http://127.0.0.1:47823/health` answers `ok`, and uninstall leaves

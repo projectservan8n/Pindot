@@ -56,6 +56,9 @@ pub struct Ui {
     download: Mutex<Option<Arc<AtomicBool>>>,
     tray_status: Mutex<Option<MenuItem<Wry>>>,
     tray_voice: Mutex<Option<CheckMenuItem<Wry>>>,
+    /// Windows, while hold-to-talk is off for a reason: a key hook that
+    /// only says why when the key is held (see `start_off_notice`).
+    off_hotkey: Mutex<Option<platform::ListenerHandle>>,
 }
 
 impl Ui {
@@ -73,6 +76,7 @@ impl Ui {
             download: Mutex::new(None),
             tray_status: Mutex::new(None),
             tray_voice: Mutex::new(None),
+            off_hotkey: Mutex::new(None),
         }
     }
 
@@ -92,6 +96,7 @@ impl Ui {
 
     /// Stop the voice loop (hotkey tap, audio, the `claude` child).
     pub fn shutdown_voice(&self) {
+        drop(self.off_hotkey.lock().unwrap().take());
         if let Some(v) = self.voice.lock().unwrap().take() {
             v.shutdown();
         }
@@ -375,9 +380,40 @@ pub fn restart_voice_now(app: &AppHandle) {
     } else {
         let note = blockers.join("; ");
         println!("voice: hold-to-talk is off ({note})");
+        // Not when the user switched hold-to-talk off themselves.
+        #[cfg(windows)]
+        if ui.force_voice || ui.settings().effective().voice_enabled {
+            start_off_notice(app, &note);
+        }
         *ui.voice_note.lock().unwrap() = Some(note);
     }
     changed(app);
+}
+
+/// Hold-to-talk is off for a reason (a model is missing, Setup is not
+/// finished): when the key is held anyway, say why on the overlay instead
+/// of doing nothing. Windows only: a key hook needs no permission there,
+/// while on macOS creating a tap without one can itself show a prompt.
+#[cfg(windows)]
+fn start_off_notice(app: &AppHandle, note: &str) {
+    use pindot_core::platform::HotkeyEvent;
+    let ui = app.state::<Ui>();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let Ok(listener) = platform::native().hotkey.start(ui.settings().effective().hotkey, tx) else { return };
+    *ui.off_hotkey.lock().unwrap() = Some(listener);
+    let (app, text) = (app.clone(), format!("Hold-to-talk is off: {note}"));
+    // Ends when the listener is dropped (the channel closes).
+    let spawned = std::thread::Builder::new().name("pindot-off-notice".into()).spawn(move || {
+        for event in rx {
+            if event == HotkeyEvent::Down {
+                println!("voice: the hold-to-talk key was held while it is off; the overlay says why");
+                let _ = app.emit("pindot:voice", serde_json::json!({ "state": "idle", "notice": text }));
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        tracing::warn!("no off notice: {e}");
+    }
 }
 
 fn set_voice_enabled(app: &AppHandle, on: bool) -> Result<(), String> {

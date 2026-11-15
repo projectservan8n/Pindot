@@ -1,8 +1,10 @@
 # Release builds
 
-Status (14 Nov 2026): the macOS arm64 release build is made and checked
-unsigned (see `docs/phase3/README.md`). Signing, notarization and the
-Windows build are documented here only; none of them has been set up or run.
+Status (15 Nov 2026): the macOS arm64 release build is made and checked
+unsigned (see `docs/phase3/README.md`). The Windows build and its installer
+are made by `scripts\build-windows.ps1`; the installer was built and its
+contents checked, but it was not run. Signing and notarization are
+documented here only; neither has been set up.
 
 ## macOS: unsigned build (done)
 
@@ -102,32 +104,41 @@ After the first signed release, users must grant the four permissions once
 more (the signature changed), and from then on the grants survive updates
 signed with the same certificate.
 
-## Windows (documented, not run: no Windows machine here)
-
-Nothing in this section has been tried. The Windows platform code is still
-stubs (see `docs/windows-test-checklist.md`), so a Windows build today
-starts, serves MCP and shows its windows, but cannot capture, click, type
-or hear the hotkey.
+## Windows (built on 15 Nov 2026; the installer was not run)
 
 1. On Windows 11: Rust (MSVC toolchain, `x86_64-pc-windows-msvc`), the
-   Visual Studio 2022 Build Tools with "Desktop development with C++",
-   Node.js 22, and WebView2 (built into Windows 11).
-2. `bundle.targets` in `tauri.conf.json` is `["app", "dmg"]` (macOS only),
-   so name the Windows bundles on the command line:
+   Visual Studio Build Tools with "Desktop development with C++" (2019 is
+   enough, see below), Node.js 22, and WebView2 (built into Windows 11).
+2. Build:
 
    ```powershell
-   cd app
-   npm ci
-   npx tauri build --bundles nsis,msi
+   scripts\build-windows.ps1              # pindot.exe and the installer
+   scripts\build-windows.ps1 -NoBundle    # pindot.exe only
    ```
 
-   Output: `target\release\bundle\nsis\Pindot_<version>_x64-setup.exe`
-   and `target\release\bundle\msi\Pindot_<version>_x64_en-US.msi`.
-   The MSI needs WiX, which the Tauri CLI downloads on first use.
-3. WebView2: the default `bundle.windows.webviewInstallMode` downloads the
+   Output: `target\release\pindot.exe` and
+   `target\release\bundle\nsis\Pindot_<version>_x64-setup.exe` (10 MB; it
+   installs for the current user, no administrator rights).
+3. **ONNX Runtime ships as a DLL** next to `pindot.exe`. The static library
+   the `ort` crate downloads only links with a recent Visual Studio 2022
+   toolset; the DLL links with any. The script sets `ORT_LIB_LOCATION` and
+   `ORT_PREFER_DYNAMIC_LINK=1`, downloading Microsoft's release of the
+   version `ort-sys` pins into `target\ort-dist` once and checking its
+   SHA-256 (set `ORT_LIB_LOCATION` yourself to use another copy). The DLL
+   is given to the bundler with `--config` on the command line, not in
+   `tauri.conf.json`: a resource listed there has to exist for every
+   `cargo build`, on every OS. When `ort-sys` is upgraded, change the
+   version and the hash in the script.
+4. What was checked: the installer holds `pindot.exe` and `onnxruntime.dll`
+   side by side (7-Zip), the DLL's SHA-256 is the official one, and the
+   two files copied to an empty folder start and quit cleanly. Not
+   checked: running the installer, the Start-menu entry, the uninstaller,
+   a clean PC without WebView2. An MSI (`--bundles msi`, needs WiX) was
+   not tried.
+5. WebView2: the default `bundle.windows.webviewInstallMode` downloads the
    bootstrapper during install if WebView2 is missing (needs the internet);
    `offlineInstaller` or `fixedRuntime` avoid that at the cost of size.
-4. Signing (not set up): with a code-signing certificate in the Windows
+6. Signing (not set up): with a code-signing certificate in the Windows
    certificate store, set under `bundle.windows`:
 
    ```json
@@ -139,7 +150,7 @@ or hear the hotkey.
    For Azure Trusted Signing or a hardware token, use `signCommand`
    instead (a command with `%1` for the file to sign). Unsigned installers
    show a SmartScreen warning ("More info" > "Run anyway").
-5. Check: `Get-AuthenticodeSignature .\Pindot_*_x64-setup.exe`, then
+7. Check: `Get-AuthenticodeSignature .\Pindot_*_x64-setup.exe`, then
    install on a clean Windows 11 machine and run the checklist.
 
 ## Release checklist
