@@ -43,6 +43,37 @@ $dll = Join-Path $env:ORT_LIB_LOCATION 'onnxruntime.dll'
 if (-not (Test-Path $dll)) { throw "No onnxruntime.dll in ORT_LIB_LOCATION ($env:ORT_LIB_LOCATION)." }
 Write-Host "ONNX Runtime: $env:ORT_LIB_LOCATION (linked as a DLL)"
 
+# onnxruntime.dll needs Microsoft's C++ runtime (msvcp140.dll and three
+# more), which a fresh Windows PC may not have: Pindot would not start
+# there. So the installer puts them next to pindot.exe as well; Microsoft
+# lets these DLLs be shipped with an app. The newest set on this PC is
+# taken (Visual Studio's Redist folder, or the installed redistributable in
+# System32). A set older than 14.40 would crash a library built with a
+# recent Visual Studio, so it is not shipped and a warning says so.
+$crtNames = 'msvcp140.dll', 'msvcp140_1.dll', 'vcruntime140.dll', 'vcruntime140_1.dll'
+$crtDirs = @(Join-Path $env:WINDIR 'System32')
+$crtDirs += @(Get-ChildItem "${env:ProgramFiles(x86)}\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT", `
+        "$env:ProgramFiles\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT" -Directory -ErrorAction SilentlyContinue |
+    ForEach-Object { $_.FullName })
+$crtDir = $crtDirs |
+    Where-Object { $d = $_; -not ($crtNames | Where-Object { -not (Test-Path (Join-Path $d $_)) }) } |
+    Sort-Object { (Get-Item (Join-Path $_ 'msvcp140.dll')).VersionInfo.FileVersionRaw } -Descending |
+    Select-Object -First 1
+$crtVersion = if ($crtDir) { (Get-Item (Join-Path $crtDir 'msvcp140.dll')).VersionInfo.FileVersionRaw } else { $null }
+if ($crtVersion -and $crtVersion -ge [version]'14.40') {
+    Write-Host "C++ runtime: $crtVersion from $crtDir (shipped next to pindot.exe)"
+    # A copy under the repo: the bundler loses the drive letter of a
+    # resource that is on another drive than the project.
+    $crtCopy = Join-Path $repo "target\crt-dist\$crtVersion"
+    New-Item -ItemType Directory -Force $crtCopy | Out-Null
+    foreach ($n in $crtNames) { Copy-Item -LiteralPath (Join-Path $crtDir $n) -Destination $crtCopy -Force }
+    $crtDir = $crtCopy
+}
+else {
+    Write-Warning "No C++ runtime of version 14.40 or later was found on this PC (best: $crtVersion). The installer will not carry it: Pindot then needs the Visual C++ Redistributable on the PC it is installed on."
+    $crtDir = $null
+}
+
 Push-Location (Join-Path $repo 'app')
 try {
     if (-not (Test-Path 'node_modules')) { npm ci; if ($LASTEXITCODE) { throw 'npm ci failed' } }
@@ -51,12 +82,14 @@ try {
         cargo build --release -p pindot; if ($LASTEXITCODE) { throw 'cargo build failed' }
     }
     else {
-        # Ship the DLL next to pindot.exe. Given on the command line, not in
+        # Ship the DLLs next to pindot.exe. Given on the command line, not in
         # tauri.conf.json, so a plain `cargo build` needs no DLL to exist.
+        $resources = @{ ($dll -replace '\\', '/') = 'onnxruntime.dll' }
+        if ($crtDir) { foreach ($n in $crtNames) { $resources[((Join-Path $crtDir $n) -replace '\\', '/')] = $n } }
         $override = @{
             bundle = @{
                 targets   = @('nsis')
-                resources = @{ ($dll -replace '\\', '/') = 'onnxruntime.dll' }
+                resources = $resources
             }
         } | ConvertTo-Json -Depth 5 -Compress
         $overrideFile = Join-Path ([IO.Path]::GetTempPath()) "pindot-bundle-$PID.json"

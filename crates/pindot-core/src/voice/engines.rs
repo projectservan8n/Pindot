@@ -116,8 +116,17 @@ impl PhononTts {
             synth.add_voice_file(name, path).map_err(|e| anyhow!("Phonon voice {name}: {e}"))?;
             options = options.voice(name);
         }
-        tracing::info!("Phonon loaded from {} in {:?}", dir.display(), t0.elapsed());
-        Ok(Self { synth, options })
+        let tts = Self { synth, options };
+        // The first utterance of a process pays for warming the model up:
+        // about half a second on a desktop CPU, where later ones start in
+        // under 0.1 s. Pay it here, while the voice loop starts, not in
+        // front of the first reply. One chunk is enough; nothing is played.
+        let warm = Instant::now();
+        if let Err(e) = tts.speak("Hi.", &mut |_| false) {
+            tracing::warn!("warming Phonon up failed (the first reply will start late): {e:#}");
+        }
+        tracing::info!("Phonon loaded from {} in {:?} (warm-up {:?})", dir.display(), t0.elapsed(), warm.elapsed());
+        Ok(tts)
     }
 }
 

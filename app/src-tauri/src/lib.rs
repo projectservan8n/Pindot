@@ -265,17 +265,18 @@ pub fn run() {
                 .available_monitors()?
                 .iter()
                 .map(|m| {
-                    let s = m.scale_factor();
-                    let p = m.position().to_logical::<f64>(s);
-                    let z = m.size().to_logical::<f64>(s);
-                    MonitorRect { x: p.x, y: p.y, width: z.width, height: z.height, scale: s }
+                    let (p, z) = (m.position(), m.size());
+                    MonitorRect::from_physical((p.x, p.y), (z.width, z.height), m.scale_factor(), cfg!(windows))
                 })
                 .collect();
             for (i, m) in monitors.iter().enumerate() {
-                println!("monitor {i}: origin ({}, {}) size {}x{} pt, scale {}", m.x, m.y, m.width, m.height, m.scale);
+                println!(
+                    "monitor {i}: origin ({}, {}) size {}x{} pt, scale {}, {} pt per page pixel",
+                    m.x, m.y, m.width, m.height, m.scale, m.unit
+                );
                 overlay::create_panel(app.handle(), i, m, args.capturable)?;
             }
-            let ov = Arc::new(TauriOverlay::new(app.handle().clone()));
+            let ov = Arc::new(TauriOverlay::new(app.handle().clone(), monitors.first().map_or(1.0, |m| m.unit)));
             app.manage(ov.clone());
 
             if args.server {

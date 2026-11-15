@@ -7,7 +7,7 @@ was seen on that PC; a note after a box says how far an unticked one got.
 
 On Windows today:
 
-- **Works**: the build (see "Build"), `cargo test --workspace` (187 + 24 + 3
+- **Works**: the build (see "Build"), `cargo test --workspace` (193 + 24 + 6
   tests), the app with Setup, Settings and Activity, the MCP server and its
   guards, the overlay on both monitors, the microphone check, hold-to-talk
   (`Hotkey`, self-healing), the Esc stop key (`StopKey`), speech to text,
@@ -20,8 +20,8 @@ On Windows today:
 - **Also works, on few apps**: the element tree through UI Automation
   (`read_window`, `find`, click by ref, press without the pointer) and the
   password-field check (`IsPassword`): on a test window, in Edge (a local
-  page and one public site), on Paint, on Settings and on File Explorer.
-  Not yet on Office, a chat or mail app, or a heavy web app.
+  page and one public site), on Paint, on Settings, on File Explorer and
+  on Word. Not yet on a chat or mail app, or a heavy web app.
 - **Installing**: `scripts\build-windows.ps1` makes the app and a per-user
   installer. A silent install, a start of the installed copy and a silent
   uninstall were run. Starting Pindot twice opens the running one's
@@ -195,7 +195,33 @@ Only click and type in windows you opened for the test.
       Automation's Invoke on a file is "open"); see `press_action`. A
       double-click on a row covered by another app's window was refused.
       Dates read "15 Nov 2026 10:04 pm" and `find` matches them (Explorer
-      puts invisible direction marks between the parts).
+      puts invisible direction marks between the parts). A row that can be
+      selected and opened is now clicked for real (the pointer put back):
+      nothing tells a file, where a click selects, from a tile that a
+      click opens.
+- [x] A click at x,y on a button presses it without the pointer (it stayed
+      at 740,701); the same x,y again is a real click and the pointer is
+      put back; a click at x,y in a text box is a real one. Seen in the
+      full app, with the overlay up.
+- [x] A classic menu bar (the test window's `MainMenu`): `read_window` with
+      menus lists "File > New", "File > Save as..." with Ctrl+Shift+S,
+      "Edit > Copy" as disabled, "View > Word wrap" as checked and "View >
+      Zoom > In"; `find("Save as")` finds the item; a click on its ref ran
+      the command with no pointer and no open menu; the disabled item was
+      refused ("That control is disabled") and no menu was left open.
+- [x] Word, on a blank document the test made: opened by name; the start
+      page read (35 controls); a blank document; 126 controls in 0.38 s
+      with the ribbon; 17 characters typed ("Word Count 3 words"); Bold
+      pressed by ref; Alt+F4 and "Don't Save" by ref. Word closed, nothing
+      saved.
+- [x] Timings in a release build, as `docs/phase3` took them on the Mac: a
+      screenshot 65.7 ms median, 88.6 ms p95, 111.6 ms max over 40 back to
+      back and 65.9 ms median over 12 two seconds apart (Mac: 50.7 and
+      86.1 ms median); capture 16 ms, mask 1 ms, resize 26 ms. `read_window`
+      30 ms, `find` 30 ms, a press by ref 16 ms, `desktop_context` 2 ms on
+      the test window. `claude` ready in 2.5 s (Mac 2.1 s). Speech starts
+      35 to 70 ms after its text (Mac 43 to 124 ms): the first utterance
+      took 520 ms until the model was warmed up when it loads.
 - [x] Secure fields: a password box (UIA `IsPassword`) is reported as
       `securetextfield` and `type_text` refuses to type into it.
       (A classic password box. Still to try: a password field on a web

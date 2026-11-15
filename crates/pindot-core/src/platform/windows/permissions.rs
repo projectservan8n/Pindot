@@ -12,9 +12,7 @@
 use std::ptr::null_mut;
 
 use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS, POINT};
-use windows_sys::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromPoint};
 use windows_sys::Win32::System::Registry::{HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
-use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 use crate::platform::windows_logic::{Consent, MicSwitches};
@@ -80,15 +78,5 @@ pub fn pointer_location() -> Option<Point> {
     if unsafe { GetCursorPos(&mut p) } == 0 {
         return None;
     }
-    let (mut dpi_x, mut dpi_y) = (96u32, 96u32);
-    // SAFETY: plain queries; the monitor handle is checked before use.
-    let scale = unsafe {
-        let monitor = MonitorFromPoint(p, MONITOR_DEFAULTTONEAREST);
-        if !monitor.is_null() && GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) == 0 {
-            f64::from(dpi_x) / 96.0
-        } else {
-            1.0
-        }
-    };
-    Some(Point::new(f64::from(p.x) / scale, f64::from(p.y) / scale))
+    Some(Point::new(f64::from(p.x), f64::from(p.y)))
 }

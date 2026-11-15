@@ -39,7 +39,13 @@
   motionPref.addEventListener('change', (e) => { reduced = e.matches; });
 
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const local = (g) => ({ x: g.x - M.x, y: g.y - M.y });
+  // Points arrive as global points. Inside this page everything is in CSS
+  // pixels: UNIT points make one (1 on macOS; on Windows a point is a
+  // physical pixel, so UNIT is the monitor's scale).
+  const UNIT = M.unit > 0 ? M.unit : 1;
+  const px = (p) => (p && typeof p.x === 'number' ? Object.assign({}, p, { x: p.x / UNIT, y: p.y / UNIT }) : p);
+  const ORIGIN = { x: M.x / UNIT, y: M.y / UNIT };
+  const local = (g) => ({ x: g.x - ORIGIN.x, y: g.y - ORIGIN.y });
   const onMonitor = (g, pad) => {
     const l = local(g);
     return l.x >= -pad && l.y >= -pad && l.x <= M.width + pad && l.y <= M.height + pad;
@@ -683,8 +689,14 @@
   // ------------------------------------------------------------- events
   const ev = window.__TAURI__ && window.__TAURI__.event;
   if (!ev) return;
-  ev.listen('pindot:cursor', (e) => onGlide(e.payload));
-  ev.listen('pindot:action', (e) => onAction(e.payload || {}));
+  ev.listen('pindot:cursor', (e) => {
+    const p = e.payload || {};
+    onGlide(Object.assign({}, p, { from: px(p.from), to: px(p.to) }));
+  });
+  ev.listen('pindot:action', (e) => {
+    const a = e.payload || {};
+    onAction(a.to ? Object.assign({}, a, { to: px(a.to) }) : a);
+  });
 
   const bannerText = $('banner-text');
   // The assistant's name (Settings). The page asks for it once it listens;
@@ -754,7 +766,7 @@
 
   ev.listen('pindot:companion', (e) => {
     const p = e.payload || {};
-    mate = { x: p.x, y: p.y };
+    mate = px({ x: p.x, y: p.y });
     if (!mateOn) {
       mateOn = true;
       body.classList.remove('resting');

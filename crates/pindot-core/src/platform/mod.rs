@@ -103,6 +103,9 @@ pub enum PlatformError {
     /// An accessibility element no longer exists (window closed, UI rebuilt).
     #[error("that element no longer exists")]
     Stale,
+    /// The control is there but greyed out: pressing it is refused.
+    #[error("that control is disabled")]
+    Disabled,
     #[error("{0}")]
     Other(String),
 }

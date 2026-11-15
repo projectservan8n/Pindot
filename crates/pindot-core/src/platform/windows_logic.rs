@@ -5,8 +5,13 @@
 //! `platform/windows` reads the registry and runs the hook; it only passes
 //! the raw values in here.
 
+use std::time::{Duration, Instant};
+
 use super::keys::Modifiers;
-use super::{ChordTracker, DisplayInfo, HeldMods, HotkeyBinding, HotkeyEvent, KeyName, ModKey, PermissionState, Point, Side};
+use super::{
+    ChordTracker, DisplayInfo, HeldMods, HotkeyBinding, HotkeyEvent, KeyName, ModKey, PRESS_ROLES, PermissionState, Point,
+    Rect, Side,
+};
 
 // ------------------------------------------------------------- one instance
 
@@ -308,16 +313,21 @@ pub const UIA_TAB_ITEM: i32 = 50019;
 pub const UIA_TREE_ITEM: i32 = 50024;
 pub const UIA_DATA_ITEM: i32 = 50029;
 
-/// Which action a press by ref takes in place of one click, if any.
+/// Which action a press takes in place of one click. `None`: no action
+/// is known to do what a click does, so the mouse clicks.
 ///
-/// A row, a tab or a radio button that can be selected is selected and
-/// nothing more. For a file in File Explorer, Invoke means "open" (what a
-/// double-click does), so pressing a row by ref opened the file where a
-/// click only selects it; on a program's row it would have run the program.
+/// A tab or a radio button is selected. So is a row that offers nothing
+/// else (the navigation list of Settings). A row that offers Invoke as
+/// well is ambiguous: on a file in File Explorer a click selects and
+/// Invoke opens (pressing it opened the file, and would have run a
+/// program); on a tile of Word's start page a click opens and Select only
+/// marks. Such a row gets a real click, as every row does on macOS.
 pub fn press_action(control_type: i32, can: Patterns) -> Option<PressAction> {
-    let item = matches!(control_type, UIA_LIST_ITEM | UIA_DATA_ITEM | UIA_TREE_ITEM | UIA_TAB_ITEM | UIA_RADIO_BUTTON);
-    if item && can.select {
+    if can.select && matches!(control_type, UIA_TAB_ITEM | UIA_RADIO_BUTTON) {
         return Some(PressAction::Select);
+    }
+    if can.select && matches!(control_type, UIA_LIST_ITEM | UIA_DATA_ITEM | UIA_TREE_ITEM) {
+        return (!can.invoke).then_some(PressAction::Select);
     }
     [
         (can.invoke, PressAction::Invoke),
@@ -328,6 +338,70 @@ pub fn press_action(control_type: i32, can: Patterns) -> Option<PressAction> {
     ]
     .into_iter()
     .find_map(|(offered, action)| offered.then_some(action))
+}
+
+/// Does a plain click at a point on this control press it without the
+/// pointer? Only for the kinds of control a click presses (`PRESS_ROLES`,
+/// as on macOS): on a row a real click selects, in a text field it puts
+/// the caret where it lands.
+pub fn click_presses(control_type: i32, can: Patterns, enabled: bool) -> bool {
+    let (role, _) = uia_role(control_type, false, false);
+    enabled && PRESS_ROLES.contains(&role) && press_action(control_type, Patterns { legacy: false, ..can }).is_some()
+}
+
+/// How long, and how near, a second click counts as "the same place again".
+pub const REPEAT_WINDOW: Duration = Duration::from_secs(30);
+const REPEAT_RADIUS: i32 = 6;
+
+/// Where the last click at a point went. A control can report a press that
+/// did nothing; clicking the same place again must then be a real click,
+/// and stay one while the clicks keep coming.
+#[derive(Debug, Default)]
+pub struct LastPress {
+    at: Option<(i32, i32, Instant)>,
+}
+
+impl LastPress {
+    pub const fn new() -> Self {
+        Self { at: None }
+    }
+
+    /// Note a click at this pixel. True if it repeats the last one.
+    pub fn is_repeat(&mut self, x: i32, y: i32, now: Instant) -> bool {
+        let near = |a: i32, b: i32| (a - b).abs() <= REPEAT_RADIUS;
+        let last = self.at.filter(|&(lx, ly, t)| near(x, lx) && near(y, ly) && now.saturating_duration_since(t) <= REPEAT_WINDOW);
+        // A repeat keeps its place (clicks may drift by a pixel) and renews the time.
+        self.at = Some(last.map_or((x, y, now), |(lx, ly, _)| (lx, ly, now)));
+        last.is_some()
+    }
+}
+
+/// A classic menu item's text as the user reads it, and its shortcut:
+/// "Save &As...\tCtrl+Shift+S" is ("Save As...", "Ctrl+Shift+S").
+pub fn menu_label(raw: &str) -> (String, Option<String>) {
+    let (text, shortcut) = match raw.split_once('\t') {
+        Some((text, keys)) => (text, Some(keys.trim()).filter(|k| !k.is_empty()).map(String::from)),
+        None => (raw, None),
+    };
+    let chars: Vec<char> = text.chars().collect();
+    let mut name = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            // "(&S)", the East Asian way of marking the key, goes as a whole.
+            '(' if chars.get(i + 1) == Some(&'&') && chars.get(i + 3) == Some(&')') => i += 4,
+            '&' if chars.get(i + 1) == Some(&'&') => {
+                name.push('&');
+                i += 2;
+            }
+            '&' => i += 1,
+            c => {
+                name.push(c);
+                i += 1;
+            }
+        }
+    }
+    (name.trim().to_string(), shortcut)
 }
 
 // ------------------------------------------------------------- input
@@ -378,19 +452,27 @@ pub fn mouse_abs(x: i32, y: i32, virt: (i32, i32, i32, i32)) -> (i32, i32) {
     (norm(x, left, width), norm(y, top, height))
 }
 
-/// A global logical point to a physical pixel: times the scale of the
-/// display it is on (the nearest display if it is on none).
-pub fn to_physical(displays: &[DisplayInfo], p: Point) -> (i32, i32) {
-    let scale = displays
-        .iter()
-        .find(|d| d.bounds.contains(p))
-        .or_else(|| {
-            displays.iter().min_by(|a, b| {
-                a.bounds.center().distance(p).partial_cmp(&b.bounds.center().distance(p)).unwrap_or(std::cmp::Ordering::Equal)
-            })
-        })
-        .map_or(1.0, |d| d.scale_factor);
-    ((p.x * scale).round() as i32, (p.y * scale).round() as i32)
+/// A display as Pindot's tools see it on Windows: its bounds are its
+/// physical pixels (`rect` is left, top, right, bottom) and its scale is 1,
+/// whatever Windows scales it by. So a point is a pixel everywhere.
+///
+/// The earlier rule divided each monitor by its own scale. A 150% monitor
+/// to the right of a 100% one then began at 1280 "points", inside the first
+/// one's 0..1920, and a click meant for one could land on the other.
+pub fn display_info(id: u32, name: String, rect: (i32, i32, i32, i32), primary: bool) -> DisplayInfo {
+    let (left, top, right, bottom) = rect;
+    DisplayInfo {
+        id,
+        name,
+        bounds: Rect::new(f64::from(left), f64::from(top), f64::from(right - left), f64::from(bottom - top)),
+        scale_factor: 1.0,
+        is_primary: primary,
+    }
+}
+
+/// A global point to the pixel it names.
+pub fn to_pixel(p: Point) -> (i32, i32) {
+    (p.x.round() as i32, p.y.round() as i32)
 }
 
 // ------------------------------------------------------------- microphone
@@ -827,11 +909,14 @@ mod tests {
     }
 
     #[test]
-    fn a_click_on_a_file_row_selects_it_and_never_opens_it() {
-        // File Explorer's rows: Invoke opens the file, SelectionItem selects it.
+    fn a_row_that_can_be_selected_and_opened_is_left_to_a_real_click() {
+        // A file in File Explorer: a click selects it and Invoke opens it.
+        // A tile on Word's start page: a click opens it and Select only
+        // marks it. Nothing tells the two apart, so no press stands in for
+        // the click: the mouse does what a click does there.
         let row = Patterns { invoke: true, select: true, ..Patterns::default() };
         for item in [UIA_LIST_ITEM, UIA_DATA_ITEM, UIA_TREE_ITEM] {
-            assert_eq!(press_action(item, row), Some(PressAction::Select), "control type {item}");
+            assert_eq!(press_action(item, row), None, "control type {item}");
         }
     }
 
@@ -982,18 +1067,74 @@ mod tests {
         assert_eq!(y, (540.0_f64 * 65535.0 / 1079.0).round() as i32);
     }
 
-    fn display(x: f64, y: f64, w: f64, h: f64, scale: f64) -> DisplayInfo {
-        DisplayInfo { id: 1, name: String::new(), bounds: super::super::Rect::new(x, y, w, h), scale_factor: scale, is_primary: x == 0.0 }
+    #[test]
+    fn monitors_of_different_scales_never_overlap() {
+        // A 100% monitor and, to its right, a 150% one of 2560x1440 pixels.
+        let a = display_info(1, "A".into(), (0, 0, 1920, 1080), true);
+        let b = display_info(2, "B".into(), (1920, 0, 4480, 1440), false);
+        assert_eq!(a.bounds, Rect::new(0.0, 0.0, 1920.0, 1080.0));
+        assert_eq!(b.bounds, Rect::new(1920.0, 0.0, 2560.0, 1440.0));
+        assert_eq!((a.scale_factor, b.scale_factor), (1.0, 1.0), "a point is a pixel on both");
+        assert!(a.is_primary && !b.is_primary);
+        let on_b = Point::new(1950.4, 15.5);
+        assert!(b.bounds.contains(on_b) && !a.bounds.contains(on_b));
+        assert_eq!(to_pixel(on_b), (1950, 16));
+        assert_eq!(to_pixel(Point::new(-100.2, 200.0)), (-100, 200));
     }
 
     #[test]
-    fn a_logical_point_becomes_physical_with_its_displays_scale() {
-        // Primary at 150% (2880x1620 px = 1920x1080 pt), a 100% one to its left.
-        let displays = [display(0.0, 0.0, 1920.0, 1080.0, 1.5), display(-1920.0, 0.0, 1920.0, 1080.0, 1.0)];
-        assert_eq!(to_physical(&displays, Point::new(100.0, 200.0)), (150, 300));
-        assert_eq!(to_physical(&displays, Point::new(-100.0, 200.0)), (-100, 200));
-        // Off every display: the nearest one's scale.
-        assert_eq!(to_physical(&displays, Point::new(-5000.0, 10.0)), (-5000, 10));
+    fn a_click_at_a_point_presses_buttons_links_and_boxes() {
+        let invoke = Patterns { invoke: true, ..Patterns::default() };
+        assert!(click_presses(50000, invoke, true), "a button");
+        assert!(click_presses(50005, invoke, true), "a link");
+        assert!(click_presses(UIA_MENU_ITEM, invoke, true), "a menu item");
+        assert!(click_presses(50002, Patterns { toggle: true, ..Patterns::default() }, true), "a checkbox");
+        assert!(click_presses(UIA_RADIO_BUTTON, Patterns { select: true, ..Patterns::default() }, true), "a radio button");
+    }
+
+    #[test]
+    fn a_click_at_a_point_stays_a_real_click_elsewhere() {
+        let all = Patterns { invoke: true, toggle: true, select: true, expand: true, legacy: true };
+        assert!(!click_presses(UIA_LIST_ITEM, all, true), "a row: a real click selects it");
+        assert!(!click_presses(UIA_EDIT, all, true), "a text field: a real click puts the caret there");
+        assert!(!click_presses(50033, all, true), "a group");
+        assert!(!click_presses(50000, all, false), "a disabled button");
+        assert!(!click_presses(50000, Patterns { legacy: true, ..Patterns::default() }, true), "only the old default action");
+        assert!(!click_presses(50000, Patterns::default(), true));
+    }
+
+    #[test]
+    fn the_second_click_at_the_same_place_is_a_real_one() {
+        let t0 = Instant::now();
+        let mut last = LastPress::default();
+        assert!(!last.is_repeat(400, 300, t0), "the first click may be a press");
+        assert!(last.is_repeat(400, 300, t0 + Duration::from_secs(3)));
+        assert!(last.is_repeat(403, 298, t0 + Duration::from_secs(5)), "about the same place");
+        // It stays real while the clicks keep coming.
+        assert!(last.is_repeat(400, 300, t0 + Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn a_click_elsewhere_or_much_later_may_be_a_press_again() {
+        let t0 = Instant::now();
+        let mut last = LastPress::default();
+        assert!(!last.is_repeat(400, 300, t0));
+        assert!(!last.is_repeat(700, 300, t0 + Duration::from_secs(1)), "another place");
+        assert!(!last.is_repeat(400, 300, t0 + Duration::from_secs(2)), "the first place was replaced");
+        let later = t0 + Duration::from_secs(2) + REPEAT_WINDOW + Duration::from_secs(1);
+        assert!(!last.is_repeat(400, 300, later), "long after");
+    }
+
+    #[test]
+    fn a_classic_menu_label_loses_its_marks() {
+        assert_eq!(menu_label("&Save"), ("Save".to_string(), None));
+        assert_eq!(menu_label("Save &As...\tCtrl+Shift+S"), ("Save As...".to_string(), Some("Ctrl+Shift+S".to_string())));
+        assert_eq!(menu_label("Find && Replace"), ("Find & Replace".to_string(), None));
+        assert_eq!(menu_label("E&xit\t Alt+F4 "), ("Exit".to_string(), Some("Alt+F4".to_string())));
+        assert_eq!(menu_label("Zoom\t"), ("Zoom".to_string(), None));
+        // The East Asian way of marking the key.
+        assert_eq!(menu_label("\u{4fdd}\u{5b58}(&S)..."), ("\u{4fdd}\u{5b58}...".to_string(), None));
+        assert_eq!(menu_label(""), (String::new(), None));
     }
 
     fn switches(device: Consent, user: Consent, desktop_apps: Consent) -> MicSwitches {

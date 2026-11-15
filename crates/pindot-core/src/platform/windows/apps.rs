@@ -21,13 +21,16 @@ use std::ffi::c_void;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, GetLastError, HWND, LPARAM, POINT, RECT};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GetMenu, GetMenuItemCount, GetMenuItemInfoW, GetMenuState, GetMenuStringW, GetSubMenu, HMENU, MENUITEMINFOW,
+    MF_BYCOMMAND, MF_BYPOSITION, MF_DISABLED, MF_GRAYED, MFS_CHECKED, MFS_GRAYED, MFT_SEPARATOR, MIIM_FTYPE, MIIM_ID, MIIM_STATE, MIIM_SUBMENU, PostMessageW, WM_COMMAND,
+};
 use windows_sys::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
 use windows_sys::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
-use windows_sys::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromPoint, MonitorFromWindow};
 use windows_sys::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW};
 use windows_sys::Win32::Storage::Packaging::Appx::GetApplicationUserModelId;
 use windows_sys::Win32::System::Threading::{
@@ -41,15 +44,15 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WindowFromPoint,
 };
 
-use super::capture::{Monitor, dpi_aware, monitor_scale, monitors};
+use super::capture::dpi_aware;
 use super::uia;
 use crate::platform::windows_logic::{
-    Elevation, RawWindow, StartApp, WindowKind, app_matches, classify_window, find_start_app, input_is_blocked,
-    parse_start_apps, start_name_for, to_physical,
+    Elevation, LastPress, RawWindow, StartApp, WindowKind, app_matches, classify_window, find_start_app,
+    input_is_blocked, menu_label, parse_start_apps, start_name_for, to_pixel,
 };
 use crate::platform::{
-    Accessibility, AppInfo, AxTree, DisplayInfo, ElementHandle, HitElement, PlatformError, Point, Rect, ResolvedApp,
-    Result, TreeLimits, WindowInfo,
+    Accessibility, ActionTarget, AppInfo, AxNode, AxTree, ElementHandle, HitElement, PlatformError, Point, Rect,
+    ResolvedApp, Result, TreeLimits, WindowInfo,
 };
 
 const NO_ACTION: &str = "that accessibility action on Windows (only a press)";
@@ -147,15 +150,9 @@ fn bounds(h: HWND) -> Option<(RECT, Rect)> {
     if !ok {
         return None;
     }
-    // SAFETY: a plain query.
-    let s = monitor_scale(unsafe { MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST) });
-    let logical = Rect::new(
-        f64::from(r.left) / s,
-        f64::from(r.top) / s,
-        f64::from(r.right - r.left) / s,
-        f64::from(r.bottom - r.top) / s,
-    );
-    Some((r, logical))
+    // A point is a pixel (see `windows_logic::display_info`).
+    let frame = Rect::new(f64::from(r.left), f64::from(r.top), f64::from(r.right - r.left), f64::from(r.bottom - r.top));
+    Some((r, frame))
 }
 
 /// A process's executable and, for a packaged app, its application id.
@@ -450,6 +447,103 @@ fn bring_to_front(h: HWND) {
 
 pub struct WinAccessibility;
 
+/// Where the last click at a point went (see `LastPress`).
+static LAST_PRESS: Mutex<LastPress> = Mutex::new(LastPress::new());
+
+/// A command of a classic menu (an `HMENU`): pressed by posting it to its
+/// window, the way the menu itself would.
+struct MenuCommand {
+    hwnd: isize,
+    id: u32,
+}
+
+/// `Some` if the handle is a classic menu's command. `Err(Stale)` once its
+/// window is gone.
+fn menu_command(el: &ElementHandle) -> Result<Option<&MenuCommand>> {
+    let Some(c) = el.downcast_ref::<MenuCommand>() else { return Ok(None) };
+    // SAFETY: a plain query.
+    if unsafe { IsWindow(c.hwnd as HWND) } == 0 {
+        return Err(PlatformError::Stale);
+    }
+    Ok(Some(c))
+}
+
+/// One level of a classic menu, added to `tree` as menu items with their
+/// path ("File > Save as..."). UI Automation shows these only while the
+/// menu is open; macOS lists a closed menu's items, and so does this.
+fn classic_menu(hwnd: HWND, menu: HMENU, path: &str, root: Option<usize>, levels: u16, limits: &TreeLimits, tree: &mut AxTree) {
+    // SAFETY: plain queries on a menu handle; a handle that went away
+    // gives a count of -1 and empty answers.
+    let count = unsafe { GetMenuItemCount(menu) };
+    for pos in 0..count.max(0) {
+        if tree.nodes.len() >= limits.max_nodes {
+            tree.truncated = true;
+            return;
+        }
+        // SAFETY: zeroed is a valid MENUITEMINFOW; cbSize says which struct.
+        let mut info: MENUITEMINFOW = unsafe { std::mem::zeroed() };
+        info.cbSize = size_of::<MENUITEMINFOW>() as u32;
+        info.fMask = MIIM_FTYPE | MIIM_ID | MIIM_STATE | MIIM_SUBMENU;
+        if unsafe { GetMenuItemInfoW(menu, pos as u32, 1, &mut info) } == 0 || info.fType & MFT_SEPARATOR != 0 {
+            continue;
+        }
+        let mut buf = [0u16; 256];
+        // SAFETY: the buffer and its length.
+        let len = unsafe { GetMenuStringW(menu, pos as u32, buf.as_mut_ptr(), buf.len() as i32, MF_BYPOSITION) };
+        let (name, shortcut) = menu_label(&String::from_utf16_lossy(&buf[..len.clamp(0, 255) as usize]));
+        if name.is_empty() {
+            continue; // drawn by the app: nothing to call it by
+        }
+        let item_path = format!("{path} > {name}");
+        if !info.hSubMenu.is_null() {
+            if levels > 1 {
+                classic_menu(hwnd, info.hSubMenu, &item_path, root, levels - 1, limits, tree);
+            }
+            continue;
+        }
+        tree.nodes.push(AxNode {
+            handle: Arc::new(MenuCommand { hwnd: hwnd as isize, id: info.wID }),
+            depth: 2,
+            role: "AXMenuItem".into(),
+            subrole: None,
+            name,
+            value: (info.fState & MFS_CHECKED != 0).then(|| "checked".to_string()),
+            bounds: None,
+            enabled: info.fState & MFS_GRAYED == 0,
+            focused: false,
+            shortcut,
+            menu_path: Some(item_path),
+            menu_root: root,
+        });
+    }
+}
+
+/// The items of the window's classic menu bar, to `limits.menu_depth`
+/// (2 = the items of each menu, 3 = one level of submenus too).
+fn classic_menus(hwnd: HWND, limits: &TreeLimits, tree: &mut AxTree) {
+    if limits.menu_depth < 2 {
+        return;
+    }
+    // SAFETY: plain queries.
+    let bar = unsafe { GetMenu(hwnd) };
+    if bar.is_null() {
+        return;
+    }
+    for pos in 0..unsafe { GetMenuItemCount(bar) }.max(0) {
+        let mut buf = [0u16; 256];
+        // SAFETY: the buffer and its length.
+        let len = unsafe { GetMenuStringW(bar, pos as u32, buf.as_mut_ptr(), buf.len() as i32, MF_BYPOSITION) };
+        let (title, _) = menu_label(&String::from_utf16_lossy(&buf[..len.clamp(0, 255) as usize]));
+        let menu = unsafe { GetSubMenu(bar, pos) };
+        if title.is_empty() || menu.is_null() {
+            continue;
+        }
+        // The menu's title in the tree, where the AI cursor goes meanwhile.
+        let root = tree.nodes.iter().position(|n| n.role == "AXMenuBarItem" && n.name == title);
+        classic_menu(hwnd, menu, &title, root, limits.menu_depth - 1, limits, tree);
+    }
+}
+
 impl Accessibility for WinAccessibility {
     fn is_trusted(&self) -> bool {
         // Windows has no per-app accessibility permission.
@@ -530,39 +624,76 @@ impl Accessibility for WinAccessibility {
         if unsafe { IsWindow(h) } == 0 {
             return Err(PlatformError::Stale);
         }
-        let scale = monitor_scale(unsafe { MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST) });
-        uia::window_tree(window.id as usize, &class_name(h), scale, limits)
+        let mut tree = uia::window_tree(window.id as usize, &class_name(h), limits)?;
+        classic_menus(h, limits, &mut tree);
+        Ok(tree)
     }
 
     fn element_frame(&self, el: &ElementHandle) -> Result<Option<Rect>> {
-        // In physical pixels first: the scale is that of the monitor it is on.
-        let Some(px) = uia::element_frame(el, 1.0)? else { return Ok(None) };
-        let c = px.center();
-        // SAFETY: a plain query.
-        let s = monitor_scale(unsafe { MonitorFromPoint(POINT { x: c.x as i32, y: c.y as i32 }, MONITOR_DEFAULTTONEAREST) });
-        Ok(Some(Rect::new(px.x / s, px.y / s, px.width / s, px.height / s)))
+        if menu_command(el)?.is_some() {
+            return Ok(None); // an item of a closed menu is nowhere on screen
+        }
+        uia::element_frame(el)
     }
 
     fn press(&self, el: &ElementHandle) -> Result<()> {
-        uia::press(el)
+        let Some(command) = menu_command(el)? else { return uia::press(el) };
+        let h = command.hwnd as HWND;
+        // The menu would refuse a greyed-out item; a posted command would
+        // not, so ask the menu first. (It finds the item in any submenu.)
+        // SAFETY: plain queries.
+        let state = unsafe { GetMenuState(GetMenu(h), command.id, MF_BYCOMMAND) };
+        if state == u32::MAX {
+            return Err(PlatformError::Stale);
+        }
+        if state & (MF_GRAYED | MF_DISABLED) != 0 {
+            return Err(PlatformError::Disabled);
+        }
+        check_input_reaches(h)?;
+        // SAFETY: posting a message to a window that exists.
+        if unsafe { PostMessageW(h, WM_COMMAND, command.id as usize, 0) } == 0 {
+            return Err(PlatformError::Other("the menu command could not be sent to its window".into()));
+        }
+        Ok(())
     }
 
     fn can_press(&self, el: &ElementHandle) -> Result<bool> {
+        if menu_command(el)?.is_some() {
+            return Ok(true);
+        }
         uia::can_press(el)
     }
 
     fn has_action(&self, el: &ElementHandle, action: &str) -> Result<bool> {
         // UI Automation has a press; a context menu is a real right-click.
-        Ok(action == "AXPress" && uia::can_press(el)?)
+        Ok(action == "AXPress" && self.can_press(el)?)
+    }
+
+    /// The control a plain click at `at` would press, so the click needs no
+    /// pointer (as on macOS). Never for a context menu. A second click at
+    /// the same place is left to the real pointer: a control can report a
+    /// press that did nothing, and this is the way out.
+    fn actionable_at(&self, at: Point, action: &str) -> Result<Option<ActionTarget>> {
+        if action != "AXPress" {
+            return Ok(None);
+        }
+        let (x, y) = to_pixel(at);
+        if LAST_PRESS.lock().unwrap().is_repeat(x, y, Instant::now()) {
+            return Ok(None);
+        }
+        let Some((handle, role, name)) = uia::pressable_at(x, y)? else { return Ok(None) };
+        // The app as the window list names it (a store app's frame belongs
+        // to another process than its content).
+        let Some(hit) = self.element_at(at)? else { return Ok(None) };
+        Ok(Some(ActionTarget { handle, pid: hit.pid, role, name }))
     }
 
     fn perform(&self, el: &ElementHandle, action: &str) -> Result<()> {
-        if action == "AXPress" { uia::press(el) } else { Err(PlatformError::Unsupported(NO_ACTION)) }
+        if action == "AXPress" { self.press(el) } else { Err(PlatformError::Unsupported(NO_ACTION)) }
     }
 
     fn element_at(&self, at: Point) -> Result<Option<HitElement>> {
-        let displays: Vec<DisplayInfo> = monitors().iter().map(Monitor::info).collect();
-        let (x, y) = to_physical(&displays, at);
+        let (x, y) = to_pixel(at);
         // SAFETY: plain queries.
         let root = unsafe {
             let h = WindowFromPoint(POINT { x, y });

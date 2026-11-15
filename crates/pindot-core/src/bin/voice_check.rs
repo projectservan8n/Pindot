@@ -110,6 +110,17 @@ fn main() -> Result<()> {
                 true
             })?;
             let total = t.elapsed();
+            // The same again: the first utterance of a process pays for
+            // warming the model up, later ones do not.
+            let t2 = Instant::now();
+            let mut again: Option<std::time::Duration> = None;
+            tts.speak(text, &mut |c| {
+                if again.is_none() && !c.is_empty() {
+                    again = Some(t2.elapsed());
+                }
+                again.is_none()
+            })?;
+            println!("first audio of a second utterance: {:?}", again.unwrap_or_default());
             let rate = tts.sample_rate();
             audio::write_wav_mono(&out, &pcm, rate)?;
             let secs = pcm.len() as f32 / rate as f32;

@@ -259,8 +259,16 @@ fn perr(e: PlatformError) -> String {
             "Pindot is missing the macOS {p} permission. Ask the user to grant it in System Settings > Privacy & Security > {p}, then retry."
         ),
         PlatformError::Stale => "That element no longer exists (the window changed). Call read_window again for fresh refs.".into(),
+        PlatformError::Disabled => "That control is disabled (greyed out) right now, so it was not pressed.".into(),
         other => other.to_string(),
     }
+}
+
+/// After a failed press of a closed menu's item: is it worth opening the
+/// menu and pressing again? Not when the item is gone or greyed out; the
+/// menu would only be left open.
+fn retry_with_menu_open(first: &PlatformError) -> bool {
+    !matches!(first, PlatformError::Stale | PlatformError::Disabled)
 }
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
@@ -457,17 +465,15 @@ impl DesktopServer {
         let root = entry.menu_root.clone();
         blocking(move || match ax.press(&h) {
             Ok(()) => Ok(()),
-            Err(PlatformError::Stale) => Err(perr(PlatformError::Stale)),
-            Err(first) => {
+            Err(first) => match root {
                 // A closed menu's item may need its menu opened first.
-                if let Some(root) = root {
+                Some(root) if retry_with_menu_open(&first) => {
                     ax.press(&root).map_err(perr)?;
                     std::thread::sleep(Duration::from_millis(200));
                     ax.press(&h).map_err(perr)
-                } else {
-                    Err(perr(first))
                 }
-            }
+                _ => Err(perr(first)),
+            },
         })
         .await?
     }
@@ -482,7 +488,7 @@ impl DesktopServer {
         if cfg!(windows) {
             // What differs from the tool descriptions, which use Mac examples.
             s.push_str(
-                "This computer runs Windows. Shortcuts use ctrl (\"cmd\" is pressed as ctrl) and \"win\" is the Windows key, e.g. \"ctrl+s\", \"alt+f4\", \"win+r\". Name apps as the Start menu does. If read_window shows little for an app (a canvas, a game, some web pages), take a screenshot and click at x,y. Clicking a row by ref (a file, a list item) selects it; to open it, double-click it (count 2) or press enter.\n\n",
+                "This computer runs Windows. Shortcuts use ctrl (\"cmd\" is pressed as ctrl) and \"win\" is the Windows key, e.g. \"ctrl+s\", \"alt+f4\", \"win+r\". Name apps as the Start menu does. If read_window shows little for an app (a canvas, a game, some web pages), take a screenshot and click at x,y. In a file list a click selects; to open a file or a folder, double-click it (count 2) or press enter. If a click at x,y changed nothing, click the same x,y again: the second click there is a real mouse click.\n\n",
             );
         }
         s.push_str("Displays:\n");
@@ -1445,7 +1451,15 @@ impl ServerHandler for DesktopServer {
 
 #[cfg(test)]
 mod tests {
-    use super::xy;
+    use super::{PlatformError, retry_with_menu_open, xy};
+
+    #[test]
+    fn a_menu_is_not_opened_for_an_item_that_is_gone_or_disabled() {
+        assert!(!retry_with_menu_open(&PlatformError::Stale));
+        assert!(!retry_with_menu_open(&PlatformError::Disabled));
+        // macOS: an item of a closed menu can refuse a press until its menu is open.
+        assert!(retry_with_menu_open(&PlatformError::Other("AXPress failed: -25205".into())));
+    }
 
     #[test]
     fn activity_coordinates_are_plain() {

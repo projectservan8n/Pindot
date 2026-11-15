@@ -30,10 +30,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, WHEEL_DELTA,
 };
 
-use super::capture::{Monitor, monitors};
 use super::keyhook::INPUT_MARKER;
-use crate::platform::windows_logic::{VK_LWIN, VK_MENU, VK_SHIFT, modifier_vks, mouse_abs, to_physical, vk_for_key};
-use crate::platform::{DisplayInfo, Input, KeyCombo, KeyName, MouseButton, PlatformError, Point, Result, drag_steps};
+use crate::platform::windows_logic::{VK_LWIN, VK_MENU, VK_SHIFT, modifier_vks, mouse_abs, to_pixel, vk_for_key};
+use crate::platform::{Input, KeyCombo, KeyName, MouseButton, PlatformError, Point, Result, drag_steps};
 
 const VK_RETURN: u16 = 0x0D;
 const VK_TAB: u16 = 0x09;
@@ -76,14 +75,12 @@ fn send(inputs: &[INPUT]) -> Result<()> {
 /// `Err` if the window at `at` belongs to an administrator's app: Windows
 /// would drop the input and still report success.
 fn check_point(at: Point) -> Result<()> {
-    let displays: Vec<DisplayInfo> = monitors().iter().map(Monitor::info).collect();
-    let (x, y) = to_physical(&displays, at);
+    let (x, y) = to_pixel(at);
     super::apps::check_input_reaches_point(x, y)
 }
 
 fn move_abs(at: Point) -> Result<()> {
-    let displays: Vec<DisplayInfo> = monitors().iter().map(Monitor::info).collect();
-    let (x, y) = to_physical(&displays, at);
+    let (x, y) = to_pixel(at);
     // SAFETY: plain metric queries.
     let virt = unsafe {
         (

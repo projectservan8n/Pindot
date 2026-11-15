@@ -279,16 +279,17 @@ speech and the Claude Code session work, and Claude can see and control the
 desktop: the window and app list, app approval, opening apps, reading a
 window's elements, clicking, typing, shortcuts, scrolling, dragging and
 screenshots. It has been tried on a test window, on web pages in Edge, on
-Paint, on Settings and on File Explorer, and with scripted turns from a
+Paint, on Settings, on File Explorer and on Word, and with scripted turns from a
 spoken request to an action; not yet across many real apps. Limits to know:
 
-- A click on a row by its reference (a file, an item of a list) selects
-  it, as a click does. It is opened with a double-click or Enter.
+- In a file list a click selects, as with the mouse. A file or a folder
+  is opened with a double-click or Enter.
 
 - Windows does not let a normal app click or type in an administrator's
   window. Pindot notices such a window and says so instead of sending
   input that goes nowhere.
-- Items of a closed menu are not listed: the menu has to be opened first.
+- The items of a closed menu are listed for classic menu bars. Ribbons
+  and newer menus show their items only while open.
 - Claude Code must be the native app (`claude.exe`). An npm install
   (`claude.cmd`) is detected and Setup says so.
 - A shortcut written the Mac way is translated: `cmd+s` is pressed as

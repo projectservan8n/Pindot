@@ -17,11 +17,12 @@ use windows_sys::Win32::Graphics::Gdi::{
     MONITORINFO, MONITORINFOEXW, ReleaseDC, SRCCOPY, SelectObject,
 };
 use windows_sys::Win32::UI::HiDpi::{
-    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForMonitor, MDT_EFFECTIVE_DPI, SetProcessDpiAwarenessContext,
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::MONITORINFOF_PRIMARY;
 
-use crate::platform::{Capture, CapturedFrame, DisplayInfo, PlatformError, Rect, Result};
+use crate::platform::windows_logic::display_info;
+use crate::platform::{Capture, CapturedFrame, DisplayInfo, PlatformError, Result};
 
 /// See real pixels on every monitor. The app's manifest already says so;
 /// this covers the command-line tools (the call fails harmlessly when the
@@ -38,27 +39,16 @@ pub(super) fn dpi_aware() {
 pub(super) struct Monitor {
     pub handle: HMONITOR,
     pub rect: RECT,
-    pub scale: f64,
     pub primary: bool,
     pub name: String,
 }
 
 impl Monitor {
+    /// The display as the tools see it: a point is a pixel, on every
+    /// monitor, whatever Windows scales it by (`windows_logic::display_info`).
     pub fn info(&self) -> DisplayInfo {
-        let s = self.scale;
         let r = self.rect;
-        DisplayInfo {
-            id: self.handle as usize as u32,
-            name: self.name.clone(),
-            bounds: Rect::new(
-                f64::from(r.left) / s,
-                f64::from(r.top) / s,
-                f64::from(r.right - r.left) / s,
-                f64::from(r.bottom - r.top) / s,
-            ),
-            scale_factor: s,
-            is_primary: self.primary,
-        }
+        display_info(self.handle as usize as u32, self.name.clone(), (r.left, r.top, r.right, r.bottom), self.primary)
     }
 }
 
@@ -66,17 +56,6 @@ unsafe extern "system" fn collect_monitor(h: HMONITOR, _dc: HDC, _rect: *mut REC
     // SAFETY: `data` is the Vec passed to EnumDisplayMonitors below, alive for the call.
     unsafe { (*(data as *mut Vec<HMONITOR>)).push(h) };
     1
-}
-
-/// The scale (physical pixels per logical point) of a monitor.
-pub(super) fn monitor_scale(h: HMONITOR) -> f64 {
-    let (mut x, mut y) = (96u32, 96u32);
-    // SAFETY: a plain query with valid out-pointers.
-    if !h.is_null() && unsafe { GetDpiForMonitor(h, MDT_EFFECTIVE_DPI, &mut x, &mut y) } == 0 && x > 0 {
-        f64::from(x) / 96.0
-    } else {
-        1.0
-    }
 }
 
 /// Every monitor, primary first.
@@ -98,7 +77,6 @@ pub(super) fn monitors() -> Vec<Monitor> {
             Some(Monitor {
                 handle,
                 rect: mi.monitorInfo.rcMonitor,
-                scale: monitor_scale(handle),
                 primary: mi.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0,
                 name: String::from_utf16_lossy(&mi.szDevice[..len]),
             })

@@ -485,9 +485,16 @@ then 2.1.325). What was run and seen is in
   prompt, an administrator's window) no longer leaves a modifier "held".
 - **Desktop control** (`capture`, `apps`, `input`; all raw Win32 through
   `windows-sys`, no xcap or enigo):
-  - A logical point is a physical pixel divided by the scale of the
-    monitor it is on, the rule the overlay uses to place each monitor.
-    Only 100% monitors were tried.
+  - **A point is a physical pixel**, on every monitor, and each display's
+    scale is reported as 1 (`windows_logic::display_info`). The first rule
+    divided each monitor by its own scale, as the overlay did: a 150%
+    monitor to the right of a 100% one then began at 1280 "points", inside
+    the first one's 0..1920, and a click meant for one could land on the
+    other. The overlay page works in CSS pixels and is told how many
+    points make one on its monitor (`MonitorRect::unit`: 1 on macOS, the
+    monitor's scale on Windows); its window is placed in pixels. Only 100%
+    monitors were tried: there nothing changed, and the scaled case is
+    covered by unit tests alone.
   - Screenshots are one GDI `BitBlt` per monitor; our own windows are left
     out by the compositor (`WDA_EXCLUDEFROMCAPTURE`).
   - The window list is `EnumWindows`, front to back. The desktop
@@ -531,18 +538,17 @@ then 2.1.325). What was run and seen is in
     Worker threads join the multithreaded apartment before their first
     call; element handles are shared between them.
   - **Pressing an element** does what one click would
-    (`windows_logic::press_action`): a row, a tab or a radio button that
-    can be selected is selected and nothing more; anything else is
-    Invoke, else Toggle, Select, Expand/Collapse, else the legacy default
-    action. It runs on a helper thread given two seconds (Invoke can block
-    while the dialog a button opens is up). Invoke came first for
-    everything until a test's click on a file's row in File Explorer
-    opened the file: there Invoke means "open", what a double-click does,
-    and on a program's row it would have run the program. Settings'
-    navigation rows offer only Select, and it navigates. A list that acts
-    only on Invoke will not react to a press by ref; a click at x,y does
-    it. `desktop_context` says a row is opened with a double-click or
-    Enter.
+    (`windows_logic::press_action`): a tab or a radio button is selected;
+    a row that offers only Select is selected (Settings' navigation list,
+    where that navigates); anything else is Invoke, else Toggle, Select,
+    Expand/Collapse, else the legacy default action. A row that offers
+    Invoke as well as Select gets no press and is clicked for real, as
+    every row is on macOS: on a file in File Explorer a click selects and
+    Invoke opens (a test's press opened the file, and would have run a
+    program), on a tile of Word's start page a click opens and Select only
+    marks, and nothing tells the two apart. A press runs on a helper
+    thread given two seconds (Invoke can block while the dialog a button
+    opens is up).
   - **Direction marks are left out** of names and values
     (`windows_logic::visible_text`): File Explorer writes a date with
     U+200E and U+200F between its parts, which `find("15 Nov 2026")` did
@@ -571,11 +577,23 @@ then 2.1.325). What was run and seen is in
     (its token's elevation; a process we may not even open counts too)
     and the tool gets a clear error with nothing sent
     (`input_is_blocked`). `spike_hotkey status` lists such windows.
-  - **A click at x,y stays a real click on Windows, on purpose.** macOS
-    presses the control under the point (`actionable_at`); here that is
-    left out so that a click at a place is the way out when a press by
-    ref does nothing (a control whose Invoke lies). A right-click is
-    always real (`AXShowMenu` has no counterpart).
+  - **A click at x,y presses the control under it** when a click presses
+    that kind of control (`actionable_at`, `click_presses`: buttons,
+    links, checkboxes, radio buttons, menu items; the element at the point
+    or one of its three nearest ancestors), so the user's pointer stays
+    put, as on macOS. A control can report a press that did nothing, so a
+    second click at the same place within 30 s is a real one, and stays
+    one while the clicks keep coming (`LastPress`); `desktop_context` tells
+    Claude. A right-click is always real (`AXShowMenu` has no counterpart).
+  - **A closed menu's items are listed** for a classic menu bar (an
+    `HMENU`: Win32, MFC, WinForms `MainMenu`), with their path, shortcut,
+    and whether they are greyed out or checked, as macOS lists them. One
+    is pressed by posting its command to the window (`MenuCommand`). The
+    menu would refuse a greyed-out item and a posted command would not,
+    so the item's state is read first (`PlatformError::Disabled`; the
+    server does not open the menu to try again). Menus that are not an
+    `HMENU` (ribbons, WinUI and web menus) show their items only while
+    open.
   - Seen: every tool by hand against a test window (by x,y and by ref);
     two real turns (`--test-turn`, haiku): from screenshots, "hello"
     typed and a button pressed in 14.6 s with two screenshots; with the
@@ -598,7 +616,13 @@ then 2.1.325). What was run and seen is in
     refused, rightly. Edge on example.com: the page listed on the first
     read (0.48 s), its link pressed by ref, the next page read (74
     controls). Calculator is not installed on the test PC and `open_app`
-    said so.
+    said so. Word: opened by name, a blank document made from its start
+    page, 126 controls in 0.38 s with the ribbon, text typed, Bold pressed
+    by ref, Alt+F4 and "Don't Save"; nothing saved. In the full app with
+    the overlay up: a click at x,y on a button pressed it and the pointer
+    stayed where it was, the same x,y again was a real click, and the
+    items of a test window's classic menu were listed and run by ref (a
+    greyed-out one refused).
 - **The overlay is a tool window** titled "Pindot cursor". The window
   library makes it an "app window", which Windows forces into Alt+Tab and
   the taskbar; `platform::windows::window::hide_from_switcher` changes
@@ -638,7 +662,10 @@ then 2.1.325). What was run and seen is in
   through `--config`, not `tauri.conf.json`, because a resource listed
   there must exist for every `cargo build` on every OS. See
   `docs/release.md`, which also says what a silent install, a start of
-  the installed copy and a silent uninstall showed. Two instances that ask
+  the installed copy and a silent uninstall showed. The installer carries
+  Microsoft's C++ runtime too (four DLLs, 14.40 or later, the newest on
+  the build PC): `onnxruntime.dll` needs it and a fresh PC may not have
+  it, so Pindot would not start there. Two instances that ask
   WebView2 for different options
   (one with a remote-debugging port) cannot share the app's WebView2 data
   folder: the second fails at startup.
@@ -681,6 +708,17 @@ then 2.1.325). What was run and seen is in
   without moving the user's pointer. Never set it in normal use.
 - **Speed**: a debug build takes 11.5 s to the first spoken audio (ptts
   unoptimised); a release build 0.75 s. Test voice in release builds only.
+- **The speech model is warmed up when it loads** (`PhononTts::load`
+  speaks one throwaway chunk; nothing is played). The 0.75 s was a cold
+  start: the first utterance of a process took about 0.5 s to begin and
+  later ones 66 ms (the Mac's figures: 124 ms, then 43 ms). Now the first
+  reply starts in 35 to 70 ms and loading takes 0.6 s instead of 0.1 s.
+  `voice_check tts` prints the first audio of a second utterance too. The
+  change is in shared code and was not run on macOS.
+- **Measured against the Mac's figures** (`docs/phase3`), release builds: a
+  screenshot 66 ms median (Mac 51 back to back, 86 spaced), `read_window`
+  30 ms and a press by ref 16 ms on a small window, `claude` ready in
+  2.5 s (Mac 2.1 s). See `docs/windows-test-checklist.md`.
 
 ## Known risks (open)
 
@@ -729,13 +767,14 @@ then 2.1.325). What was run and seen is in
 - **Windows**: `find_claude` looks only for `claude.exe`; an npm install
   gives `claude.cmd` (see the checklist).
 - **Windows, tried on few apps**: a test window, Edge (a local page and
-  one public site), Paint, Settings and File Explorer on a test folder.
-  Not Office, a chat or mail app, or a heavy web app. Items of a closed
-  menu are not listed (macOS lists them
-  with `menu_path`); the menu has to be opened and the window read again.
+  one public site), Paint, Settings, File Explorer on a test folder and
+  Word on a blank document. Not a chat or mail app, or a heavy web app.
+  The items of a closed menu are listed only for a classic menu bar.
 - **Windows, not checked**: a person answering the approval window and
-  using the tray menu by hand, the physical Esc key, a monitor above 100%,
-  sleep and wake, a click refused on an administrator's window (the check
+  using the tray menu by hand, the physical Esc key, a monitor above 100%
+  (the mapping is unit-tested, not run), sleep and wake (nothing is held
+  open across it: the microphone and the speaker are opened for each use,
+  and the key hook is put back every half second), a click refused on an administrator's window (the check
   flags such windows; no click was aimed at one), a window that is
   invisible but not click-through (it would block clicks under it), and
   the installer's pages (it was only run silently). The token and config files

@@ -135,10 +135,15 @@ signed with the same certificate.
    `pindot.exe` is the built one except for three bytes, the bundle type
    Tauri writes into it (`NSS` for `UNK`). A silent install
    (`Pindot_<version>_x64-setup.exe /S /D=<folder>`) took 2 s and left the
-   two files and `uninstall.exe`, a Start-menu and a desktop shortcut to
+   app's files and `uninstall.exe`, a Start-menu and a desktop shortcut to
    the installed `pindot.exe`, and "Pindot 0.0.1" under Installed apps.
    The installed copy started, its server answered (401 without the
-   token), a second start of it ended at once, and it quit cleanly. A
+   token), a second start of it ended at once, and it quit cleanly. It
+   loaded `onnxruntime.dll` and Microsoft's C++ runtime (`msvcp140.dll`,
+   `msvcp140_1.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`, 14.51 here)
+   from its own folder. The installer carries those four because
+   `onnxruntime.dll` needs them and a fresh PC may not have them; the
+   script takes the newest set on the build PC and wants 14.40 or later. A
    silent uninstall (`uninstall.exe /S`) removed the files, both shortcuts
    and the Installed-apps entry. It keeps the install folder's path under
    `HKCU\Software\pindot` for the next install. By its script, the

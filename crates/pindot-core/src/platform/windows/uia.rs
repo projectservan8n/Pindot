@@ -39,7 +39,8 @@ use windows::Win32::UI::Accessibility::{
 };
 
 use crate::platform::windows_logic::{
-    Patterns, PressAction, UIA_MENU_BAR, press_action, uia_has_value, uia_role, visible_text, web_tree_pending,
+    Patterns, PressAction, UIA_MENU_BAR, click_presses, press_action, uia_has_value, uia_role, visible_text,
+    web_tree_pending,
 };
 use crate::platform::{AxNode, AxTree, ElementHandle, PlatformError, Rect, Result, TreeLimits};
 
@@ -104,16 +105,15 @@ fn el_of(h: &ElementHandle) -> Result<&IUIAutomationElement> {
         .ok_or_else(|| PlatformError::Other("not an element of this window".into()))
 }
 
-fn logical(r: windows::Win32::Foundation::RECT, scale: f64) -> Rect {
-    let (w, h) = (r.right - r.left, r.bottom - r.top);
-    Rect::new(f64::from(r.left) / scale, f64::from(r.top) / scale, f64::from(w) / scale, f64::from(h) / scale)
+/// A rectangle in global points: on Windows a point is a pixel.
+fn frame(r: windows::Win32::Foundation::RECT) -> Rect {
+    Rect::new(f64::from(r.left), f64::from(r.top), f64::from(r.right - r.left), f64::from(r.bottom - r.top))
 }
 
 struct Walk<'a> {
     cache: IUIAutomationCacheRequest,
     children: IUIAutomationCondition,
     limits: &'a TreeLimits,
-    scale: f64,
     started: Instant,
     nodes: Vec<AxNode>,
     /// Control type and depth of each node, for `web_tree_pending`.
@@ -153,7 +153,7 @@ impl Walk<'_> {
                 value,
                 // An element with no place on screen reports an empty
                 // rectangle; it keeps it, so the listing leaves it out.
-                bounds: el.CachedBoundingRectangle().ok().map(|r| logical(r, self.scale)),
+                bounds: el.CachedBoundingRectangle().ok().map(frame),
                 enabled: el.CachedIsEnabled().map_or(true, |b| b.as_bool()),
                 focused: el.CachedHasKeyboardFocus().is_ok_and(|b| b.as_bool()),
                 shortcut: el.CachedAcceleratorKey().ok().map(|k| k.to_string()).filter(|k| !k.is_empty()),
@@ -194,14 +194,14 @@ impl Walk<'_> {
 static NO_PAGE: Mutex<Option<HashMap<usize, Instant>>> = Mutex::new(None);
 
 /// The element tree of the window `hwnd` (of window class `class`).
-/// `scale` is its monitor's scale. A browser window is walked again, a
-/// few times, until its page is in the tree.
-pub fn window_tree(hwnd: usize, class: &str, scale: f64, limits: &TreeLimits) -> Result<AxTree> {
+/// A browser window is walked again, a few times, until its page is in
+/// the tree.
+pub fn window_tree(hwnd: usize, class: &str, limits: &TreeLimits) -> Result<AxTree> {
     let gave_up = NO_PAGE.lock().unwrap().as_ref().and_then(|m| m.get(&hwnd).copied()).is_some_and(|t| t.elapsed() < WEB_GIVE_UP);
     let started = Instant::now();
     let mut tries = 0;
     loop {
-        let (tree, kinds) = walk_window(hwnd, scale, limits)?;
+        let (tree, kinds) = walk_window(hwnd, limits)?;
         if !web_tree_pending(class, &kinds) {
             if let Some(m) = NO_PAGE.lock().unwrap().as_mut() {
                 m.remove(&hwnd);
@@ -217,7 +217,7 @@ pub fn window_tree(hwnd: usize, class: &str, scale: f64, limits: &TreeLimits) ->
     }
 }
 
-fn walk_window(hwnd: usize, scale: f64, limits: &TreeLimits) -> Result<(AxTree, Vec<(i32, u16)>)> {
+fn walk_window(hwnd: usize, limits: &TreeLimits) -> Result<(AxTree, Vec<(i32, u16)>)> {
     let ui = automation()?;
     // SAFETY: COM calls on valid interface pointers; errors are returned.
     unsafe {
@@ -239,7 +239,6 @@ fn walk_window(hwnd: usize, scale: f64, limits: &TreeLimits) -> Result<(AxTree, 
             cache,
             children,
             limits,
-            scale,
             started: Instant::now(),
             nodes: Vec::new(),
             kinds: Vec::new(),
@@ -252,13 +251,13 @@ fn walk_window(hwnd: usize, scale: f64, limits: &TreeLimits) -> Result<(AxTree, 
 
 /// Where an element is now. `Err(Stale)` if it is gone, `Ok(None)` if it
 /// has no place on screen.
-pub fn element_frame(h: &ElementHandle, scale: f64) -> Result<Option<Rect>> {
+pub fn element_frame(h: &ElementHandle) -> Result<Option<Rect>> {
     let el = el_of(h)?;
     // SAFETY: a COM call on a valid interface pointer.
     let rect = unsafe { el.CurrentBoundingRectangle() }.map_err(err)?;
     // An empty rectangle: the element has no place on screen.
     let empty = rect.right <= rect.left && rect.bottom <= rect.top;
-    Ok((!empty).then(|| logical(rect, scale)))
+    Ok((!empty).then(|| frame(rect)))
 }
 
 /// The element's kind and what it offers. An element that is gone fails
@@ -333,6 +332,35 @@ pub fn press(h: &ElementHandle) -> Result<()> {
         // Still inside the press: a dialog it opened is up. It was pressed.
         Err(_) => Ok(()),
     }
+}
+
+/// The control at a screen pixel that one plain click would press, with
+/// its role and name: the element there or one of its three nearest
+/// ancestors (`windows_logic::click_presses`). `None`: click for real.
+pub fn pressable_at(x: i32, y: i32) -> Result<Option<(ElementHandle, String, String)>> {
+    let ui = automation()?;
+    // SAFETY: COM calls on valid interface pointers. An element that
+    // vanishes on the way simply ends the search.
+    unsafe {
+        let Ok(mut el) = ui.ElementFromPoint(windows::Win32::Foundation::POINT { x, y }) else { return Ok(None) };
+        let walker = ui.ControlViewWalker().map_err(err)?;
+        for _ in 0..4 {
+            let Ok((control_type, can)) = offers(&el) else { return Ok(None) };
+            let enabled = el.CurrentIsEnabled().is_ok_and(|b| b.as_bool());
+            let covers =
+                el.CurrentBoundingRectangle().is_ok_and(|r| x >= r.left && x < r.right && y >= r.top && y < r.bottom);
+            if covers && click_presses(control_type, can, enabled) {
+                let (role, _) = uia_role(control_type, false, false);
+                let name = el.CurrentName().map(|n| visible_text(&n.to_string())).unwrap_or_default();
+                return Ok(Some((handle_of(el), role.to_string(), name)));
+            }
+            match walker.GetParentElement(&el) {
+                Ok(parent) => el = parent,
+                Err(_) => break,
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Is keyboard focus in a password field (of any kind of app)?
