@@ -7,7 +7,7 @@ was seen on that PC; a note after a box says how far an unticked one got.
 
 On Windows today:
 
-- **Works**: the build (see "Build"), `cargo test --workspace` (196 + 24 + 6
+- **Works**: the build (see "Build"), `cargo test --workspace` (197 + 24 + 6
   tests), the app with Setup, Settings and Activity, the MCP server and its
   guards, the overlay on both monitors, the microphone check, hold-to-talk
   (`Hotkey`, self-healing), the Esc stop key (`StopKey`), speech to text,

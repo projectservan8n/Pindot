@@ -264,6 +264,19 @@ fn perr(e: PlatformError) -> String {
     }
 }
 
+/// What `find` says when nothing matches. On Windows only a classic menu
+/// bar lists its items while closed (macOS lists every menu's), so the way
+/// to a ribbon's or a newer menu's item is to open the menu first.
+fn no_match(query: &str, windows: bool) -> String {
+    let mut s = format!("No element matches \"{query}\". Try other words, read_window, or (last resort) a screenshot.");
+    if windows {
+        s.push_str(
+            " If it is an item of a menu or a ribbon tab: many menus here list their items only while open, so click the menu's title (File, Edit, ...) or the tab, then find again.",
+        );
+    }
+    s
+}
+
 /// After a failed press of a closed menu's item: is it worth opening the
 /// menu and pressing again? Not when the item is gone or greyed out; the
 /// menu would only be left open.
@@ -914,10 +927,7 @@ impl DesktopServer {
         hits.sort_by(|a, b| b.0.cmp(&a.0));
         hits.truncate(MAX_FIND);
         if hits.is_empty() {
-            return text(format!(
-                "No element matches \"{}\". Try other words, read_window, or (last resort) a screenshot.",
-                args.query
-            ));
+            return text(no_match(&args.query, cfg!(windows)));
         }
         let mut s = format!(
             "{} match(es) for \"{}\", best first. Bounds in pixels of a {}.\n{UNTRUSTED}\n",
@@ -1451,7 +1461,16 @@ impl ServerHandler for DesktopServer {
 
 #[cfg(test)]
 mod tests {
-    use super::{PlatformError, retry_with_menu_open, xy};
+    use super::{PlatformError, no_match, retry_with_menu_open, xy};
+
+    #[test]
+    fn find_says_how_to_reach_a_menu_item_that_is_not_listed_on_windows() {
+        let mac = no_match("save as", false);
+        assert_eq!(mac, "No element matches \"save as\". Try other words, read_window, or (last resort) a screenshot.");
+        let win = no_match("save as", true);
+        assert!(win.starts_with(&mac), "{win}");
+        assert!(win.contains("click the menu's title") && win.contains("find again"), "{win}");
+    }
 
     #[test]
     fn a_menu_is_not_opened_for_an_item_that_is_gone_or_disabled() {
