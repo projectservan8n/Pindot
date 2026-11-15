@@ -17,7 +17,7 @@ use anyhow::{Context, Result, bail};
 use deskhand_core::voice::{
     VoiceSettings,
     audio::{self, AudioSink},
-    engines::{MoonshineStt, PhononTts, STT_SAMPLE_RATE, SpeechToText, TextToSpeech},
+    engines::{PhononTts, STT_SAMPLE_RATE, TextToSpeech, load_stt},
     models::{self, ModelKind, Progress},
 };
 
@@ -79,7 +79,7 @@ fn main() -> Result<()> {
         Some("stt") => {
             let wav = PathBuf::from(args.get(1).context("stt <in.wav>")?);
             let t = Instant::now();
-            let mut stt = MoonshineStt::load(&stt_dir(&s)?)?;
+            let mut stt = load_stt(&stt_dir(&s)?)?;
             let load = t.elapsed();
             let (pcm, rate) = audio::read_wav_mono(&wav)?;
             let pcm = audio::resample(&pcm, rate, STT_SAMPLE_RATE);
@@ -96,7 +96,8 @@ fn main() -> Result<()> {
             let text = args.get(1).context("tts <text> <out.wav>")?;
             let out = PathBuf::from(args.get(2).context("tts <text> <out.wav>")?);
             let t = Instant::now();
-            let tts = PhononTts::load(&tts_dir(&s)?, s.tts_voice.as_deref())?;
+            let voice = deskhand_core::voice::phonon_voices::present(s.tts_voice.as_deref(), &models::models_dir()?)?;
+            let tts = PhononTts::load(&tts_dir(&s)?, voice.as_ref().map(|(n, p)| (*n, p.as_path())))?;
             let load = t.elapsed();
             let t = Instant::now();
             let mut first: Option<std::time::Duration> = None;
@@ -121,7 +122,7 @@ fn main() -> Result<()> {
             if secs < 0.3 || level < 0.005 {
                 bail!("speech looks silent or empty");
             }
-            let mut stt = MoonshineStt::load(&stt_dir(&s)?)?;
+            let mut stt = load_stt(&stt_dir(&s)?)?;
             let back = stt.transcribe(&audio::resample(&pcm, rate, STT_SAMPLE_RATE))?;
             println!("transcribed back: {back}");
         }

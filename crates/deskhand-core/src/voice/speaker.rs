@@ -15,7 +15,11 @@ use super::engines::TextToSpeech;
 #[derive(Debug, Clone, PartialEq)]
 pub enum SpeakerEvent {
     /// The first audio of `seq` went to the device, `after` the `say` call.
-    FirstAudio { seq: u64, after: Duration },
+    /// `text` is what is being said (for captions).
+    FirstAudio { seq: u64, after: Duration, text: String },
+    /// All of `seq`'s audio is generated: `secs` long. Generation runs ahead
+    /// of playback, so this usually comes early (captions pace to it).
+    Generated { seq: u64, secs: f32 },
     /// `seq` ended (played out, or cut by `stop`).
     Finished { seq: u64, interrupted: bool },
     Error { seq: u64, error: String },
@@ -110,12 +114,20 @@ fn speak_one(
     let mut play_result = Ok(());
     std::thread::scope(|s| {
         let generator = s.spawn(|| {
-            let r = tts.speak(&job.text, &mut |chunk| !stopped() && ctx.send(chunk.to_vec()).is_ok());
+            let mut samples = 0usize;
+            let r = tts.speak(&job.text, &mut |chunk| {
+                samples += chunk.len();
+                !stopped() && ctx.send(chunk.to_vec()).is_ok()
+            });
             drop(ctx);
+            if r.is_ok() && !stopped() {
+                let secs = samples as f32 / tts.sample_rate().max(1) as f32;
+                on_event(SpeakerEvent::Generated { seq: job.seq, secs });
+            }
             r
         });
         play_result = sink.play(tts.sample_rate(), &mut || crx.recv().ok(), &stopped, &mut || {
-            on_event(SpeakerEvent::FirstAudio { seq: job.seq, after: job.at.elapsed() })
+            on_event(SpeakerEvent::FirstAudio { seq: job.seq, after: job.at.elapsed(), text: job.text.clone() })
         });
         gen_result = generator.join().unwrap_or_else(|_| Err(anyhow::anyhow!("speech generator panicked")));
     });
@@ -221,6 +233,8 @@ pub(crate) mod tests {
             ev.extend(until_idle(&rx));
         }
         assert!(ev.iter().any(|e| matches!(e, SpeakerEvent::FirstAudio { seq: 1, .. })));
+        // The full length is known once generated (captions pace to it).
+        assert!(ev.iter().any(|e| matches!(e, SpeakerEvent::Generated { seq: 1, secs } if *secs > 0.0)), "{ev:?}");
         assert!(ev.contains(&SpeakerEvent::Finished { seq: 1, interrupted: false }));
         assert!(ev.contains(&SpeakerEvent::Finished { seq: 2, interrupted: false }));
         assert_eq!(*sink.samples.lock().unwrap(), vec![1000, 1000]);

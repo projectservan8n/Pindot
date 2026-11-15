@@ -195,6 +195,9 @@ impl Settings {
                 problems.push(format!("{what}: unknown model \"{id}\""));
             }
         }
+        if !crate::voice::phonon_voices::setting_ok(self.voice.tts_voice.as_deref()) {
+            problems.push(format!("Voice: unknown voice \"{}\"", self.voice.tts_voice.as_deref().unwrap_or_default()));
+        }
         if let Some(m) = self.voice.model.as_deref().filter(|m| !crate::brain::config::model_ok(m)) {
             problems.push(format!("Claude model: unknown model \"{m}\""));
         }
@@ -341,10 +344,17 @@ mod tests {
         let d = Settings::default();
         assert_eq!((d.voice.model.as_deref(), d.voice.effort.as_deref()), (None, None));
         assert_eq!(d.voice.permission_mode, crate::brain::config::PermissionMode::Ask);
+        // Clicky-style features: on by default.
+        assert!(d.voice.tap_to_talk && d.voice.companion && d.voice.captions);
+        // An old "assist" field (a setting for a while) is simply ignored.
+        let s2: Settings =
+            serde_json::from_str(r#"{"voice":{"assist":"show","tap_to_talk":false,"companion":false}}"#).unwrap();
+        assert!(!s2.voice.tap_to_talk && !s2.voice.companion && s2.voice.captions);
         let mut bad = s.clone();
         bad.voice.model = Some("gpt-5".into());
         bad.voice.effort = Some("turbo".into());
-        assert_eq!(bad.validate().unwrap_err().len(), 2);
+        bad.voice.tts_voice = Some("Nobody".into());
+        assert_eq!(bad.validate().unwrap_err().len(), 3);
     }
 
     #[test]

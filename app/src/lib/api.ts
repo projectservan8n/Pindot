@@ -19,6 +19,12 @@ export interface VoiceSettings {
   /** `claude --effort`; null = Claude Code's default. */
   effort: string | null;
   permission_mode: PermissionMode;
+  /** A quick tap listens hands-free until the next tap. */
+  tap_to_talk: boolean;
+  /** The AI cursor sits by the user's pointer during a voice request. */
+  companion: boolean;
+  /** What Claude says appears beside the cursor. */
+  captions: boolean;
 }
 
 export interface Settings {
@@ -29,6 +35,15 @@ export interface Settings {
   onboarding_done: boolean;
   voice: VoiceSettings;
   [extra: string]: unknown;
+}
+
+export interface PhononVoice {
+  name: string;
+  /** 'en-us', 'en-gb' or 'characters'. */
+  locale: string;
+  gender: string;
+  age: string;
+  description: string;
 }
 
 export interface ModelChoice {
@@ -43,6 +58,7 @@ export interface SettingsView {
   overrides: string[];
   stt_models: ModelChoice[];
   tts_models: ModelChoice[];
+  tts_voices: PhononVoice[];
   default_port: number;
   running_port: number | null;
   os: 'macos' | 'windows';
@@ -174,6 +190,8 @@ export const api = {
   permissionRequest: (permission: Permission) => invoke<PermissionState>('permission_request', { permission }),
   permissionOpenSettings: (permission: Permission) => invoke<void>('permission_open_settings', { permission }),
   modelsStatus: () => invoke<ModelInfo[]>('models_status'),
+  voiceDownload: (name: string) => invoke<void>('voice_download', { name }),
+  voicePreview: (name: string | null, volume: number) => invoke<void>('voice_preview', { name, volume }),
   modelsDownload: (ids: string[]) => invoke<void>('models_download', { ids }),
   modelsCancel: () => invoke<void>('models_cancel'),
   connectStatus: () => invoke<ConnectView>('connect_status'),

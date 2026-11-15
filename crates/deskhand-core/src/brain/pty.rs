@@ -88,6 +88,8 @@ pub struct SpawnOptions {
     pub tools: Vec<String>,
     /// `--effort` (unset = Claude Code's default).
     pub effort: Option<String>,
+    /// `--disallowedTools`: removed from the model's tool list.
+    pub disallowed_tools: Vec<String>,
     /// `--permission-mode` (unset = Claude Code's own default).
     pub permission_mode: Option<String>,
     pub model: Option<String>,
@@ -109,6 +111,7 @@ impl SpawnOptions {
             allowed_tools: vec![],
             tools: vec![],
             effort: None,
+            disallowed_tools: vec![],
             permission_mode: None,
             model: None,
             append_system_prompt: None,
@@ -152,6 +155,10 @@ impl SpawnOptions {
         a.push(self.tools.join(","));
         a.push("--no-chrome".into());
         a.push("--disable-slash-commands".into());
+        if !self.disallowed_tools.is_empty() {
+            a.push("--disallowedTools".into());
+            a.push(self.disallowed_tools.join(","));
+        }
         if let Some(s) = &self.append_system_prompt {
             a.push("--append-system-prompt".into());
             a.push(s.clone());
@@ -522,6 +529,12 @@ mod tests {
         assert_eq!(a.last().unwrap(), "mcp__desktop");
         // The user's own CLAUDE.md files stay out too.
         assert!(CHILD_ENV.contains(&("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1")));
+        // Disallowed tools go in one argument, never last (`--allowedTools` is).
+        o.disallowed_tools = vec!["mcp__desktop__click".into(), "mcp__desktop__key".into()];
+        let a = o.args();
+        let i = a.iter().position(|x| x == "--disallowedTools").unwrap();
+        assert_eq!(a[i + 1], "mcp__desktop__click,mcp__desktop__key");
+        assert_eq!(a.last().unwrap(), "mcp__desktop");
         assert!(CHILD_ENV.contains(&("ANTHROPIC_API_KEY", "")));
     }
 

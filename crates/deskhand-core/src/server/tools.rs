@@ -45,7 +45,7 @@ use super::shot::{self, Target};
 use super::tree::{self, Filter, MAX_FIND, PAGE_LINES};
 use crate::coords::{ShotGeometry, display_for_point};
 use crate::platform::{
-    CursorAction, KeyCombo, MouseButton, PlatformError, Point, TreeLimits, WindowInfo, drag_travel_ms,
+    CursorAction, ElementHandle, KeyCombo, MouseButton, PlatformError, Point, TreeLimits, WindowInfo, drag_travel_ms,
 };
 
 /// How long the user has to answer an approval prompt.
@@ -994,42 +994,56 @@ impl DesktopServer {
         let guard = self.begin()?;
         match aim {
             Aim::At { point, label } => {
-                // A plain left click on a ref that offers AXPress is a press:
-                // the AI cursor glides there, but the user's pointer stays put.
-                // No real click follows a failed press: the press may have
-                // worked anyway (a button that opens a modal reports an error),
-                // and a click at the same spot could hit the new dialog.
-                if let Some(r) = args.element.as_deref().filter(|_| button == MouseButton::Left && count == 1) {
+                // Without the user's pointer when accessibility can: a plain
+                // left click is AXPress, a right-click AXShowMenu. First on
+                // the ref itself, then on the control under the point (an
+                // approved app's only). No real click follows a failed
+                // accessibility action: it may have worked anyway (a button
+                // that opens a modal reports an error), and a click at the
+                // same spot could hit the new dialog.
+                let action = match (button, count) {
+                    (MouseButton::Left, 1) => Some("AXPress"),
+                    (MouseButton::Right, 1) => Some("AXShowMenu"),
+                    _ => None,
+                };
+                if let (Some(r), Some(action)) = (args.element.as_deref(), action) {
                     let entry = self.lookup_ref(r)?;
                     let ax = self.state.accessibility.clone();
                     let h = entry.handle.clone();
-                    if blocking(move || ax.can_press(&h)).await?.unwrap_or(false) {
-                        self.glide(point, &label, &guard).await?;
-                        if guard.is_cancelled() {
-                            return Err(STOPPED.into());
-                        }
-                        let ax = self.state.accessibility.clone();
-                        let h = entry.handle.clone();
-                        blocking(move || ax.press(&h)).await?.map_err(|e| match e {
-                            PlatformError::Stale => perr(e),
-                            e => format!(
-                                "{} It may still have worked: use read_window to check before trying again.",
-                                perr(e)
-                            ),
-                        })?;
-                        self.state.overlay.action(&CursorAction::Press);
-                        return text(format!(
-                            "Pressed {r} \"{label}\" via accessibility (the user's pointer did not move). Use read_window or find to see the result."
-                        ));
+                    let offers = blocking(move || {
+                        if action == "AXPress" { ax.can_press(&h) } else { ax.has_action(&h, action) }
+                    })
+                    .await?
+                    .unwrap_or(false);
+                    if offers {
+                        self.ax_act(point, &label, &guard, entry.handle.clone(), action).await?;
+                        return text(ax_done(action, &format!("{r} \"{label}\"")));
                     }
                 }
                 self.check_point(point).await?;
+                if let Some(action) = action {
+                    let ax = self.state.accessibility.clone();
+                    if let Ok(Some(t)) = blocking(move || ax.actionable_at(point, action)).await?
+                        && self.session.is_approved_pid(t.pid, self.state.own_pid, &*self.state.accessibility)
+                    {
+                        self.ax_act(point, &label, &guard, t.handle.clone(), action).await?;
+                        let kind = t.role.trim_start_matches("AX").to_lowercase();
+                        let what = if t.name.is_empty() { format!("the {kind}") } else { format!("\"{}\" ({kind})", t.name) };
+                        return text(ax_done(action, &format!("{what} at that point")));
+                    }
+                }
+                // The fallback: a real click, then the user's pointer goes back.
                 self.glide(point, &label, &guard).await?;
+                let orig = self.state.input.pointer();
                 let input = self.state.input.clone();
                 blocking(move || input.click(point, button, count)).await?.map_err(perr)?;
                 self.state.overlay.action(&CursorAction::Click { button, count });
+                let back = self.put_pointer_back(orig, point).await;
                 let what = args.element.as_deref().map(|r| format!("{r} \"{label}\"")).unwrap_or(label);
-                text(format!("Clicked {what} ({button:?}, x{count}). Use read_window or find to see the result."))
+                text(format!(
+                    "Clicked {what} ({button:?}, x{count}){}. Use read_window or find to see the result.",
+                    if back { "; the user's pointer was put back" } else { "" }
+                ))
             }
             Aim::Press { entry, cursor, label } => {
                 if button != MouseButton::Left || count != 1 {
@@ -1050,6 +1064,52 @@ impl DesktopServer {
                 ))
             }
         }
+    }
+
+    /// Glide there, then perform the accessibility action: no pointer.
+    async fn ax_act(
+        &self,
+        point: Point,
+        label: &str,
+        guard: &ActionGuard,
+        handle: ElementHandle,
+        action: &'static str,
+    ) -> Result<(), String> {
+        self.glide(point, label, guard).await?;
+        if guard.is_cancelled() {
+            return Err(STOPPED.into());
+        }
+        let ax = self.state.accessibility.clone();
+        blocking(move || if action == "AXPress" { ax.press(&handle) } else { ax.perform(&handle, action) })
+            .await?
+            .map_err(|e| match e {
+                PlatformError::Stale => perr(e),
+                e => format!("{} It may still have worked: use read_window to check before trying again.", perr(e)),
+            })?;
+        self.state.overlay.action(&match action {
+            "AXPress" => CursorAction::Press,
+            _ => CursorAction::Click { button: MouseButton::Right, count: 1 },
+        });
+        Ok(())
+    }
+
+    /// After a real click, scroll or drag, put the user's pointer back where
+    /// it was, unless they moved it meanwhile (it is no longer where the
+    /// action left it). True if it was put back.
+    async fn put_pointer_back(&self, orig: Option<Point>, left_at: Point) -> bool {
+        let Some(o) = orig else { return false };
+        if o.distance(left_at) < 2.0 {
+            return false;
+        }
+        // Let the app take the events at the target first.
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        let input = self.state.input.clone();
+        blocking(move || match input.pointer() {
+            Some(now) if now.distance(left_at) < 3.0 => input.move_to(o).is_ok(),
+            _ => false,
+        })
+        .await
+        .unwrap_or(false)
     }
 
     async fn do_type_text(&self, args: TypeTextArgs) -> Out {
@@ -1120,10 +1180,16 @@ impl DesktopServer {
             Direction::Left => (-amount, 0),
             Direction::Right => (amount, 0),
         };
+        let orig = self.state.input.pointer();
         let input = self.state.input.clone();
         blocking(move || input.scroll(point, dx, dy)).await?.map_err(perr)?;
         self.state.overlay.action(&CursorAction::Scroll { dx, dy });
-        text(format!("Scrolled {:?} {amount} lines.", args.direction).to_lowercase())
+        let back = self.put_pointer_back(orig, point).await;
+        text(format!(
+            "Scrolled {} {amount} lines{}.",
+            format!("{:?}", args.direction).to_lowercase(),
+            if back { "; the user's pointer was put back" } else { "" }
+        ))
     }
 
     async fn do_drag(&self, args: DragArgs) -> Out {
@@ -1139,6 +1205,7 @@ impl DesktopServer {
         self.check_point(from).await?;
         self.check_point(to).await?;
         self.glide(from, "drag", &guard).await?;
+        let orig = self.state.input.pointer();
         let input = self.state.input.clone();
         let stop = guard.stop_flag();
         // The overlay follows the real drag as it happens.
@@ -1147,7 +1214,8 @@ impl DesktopServer {
         if guard.is_cancelled() {
             return Err(format!("{STOPPED} (The drag was cut short; the mouse button was released.)"));
         }
-        text("Dragged.")
+        let back = self.put_pointer_back(orig, to).await;
+        text(if back { "Dragged; the user's pointer was put back." } else { "Dragged." })
     }
 
     async fn do_wait(&self, args: WaitArgs) -> Out {
@@ -1168,6 +1236,18 @@ impl DesktopServer {
         self.state.overlay.move_cursor(p, args.label.clone());
         self.state.overlay.action(&CursorAction::Point);
         text("Pointed (the AI cursor moved; nothing was clicked).")
+    }
+}
+
+/// The result text of an accessibility click.
+fn ax_done(action: &str, what: &str) -> String {
+    match action {
+        "AXShowMenu" => format!(
+            "Opened the context menu of {what} via accessibility (the user's pointer did not move). Use read_window to see the menu."
+        ),
+        _ => format!(
+            "Pressed {what} via accessibility (the user's pointer did not move). Use read_window or find to see the result."
+        ),
     }
 }
 
@@ -1257,7 +1337,7 @@ impl DesktopServer {
     }
 
     #[tool(
-        description = "Click an element by ref (preferred) or at x,y pixels of the latest screenshot. The user sees the AI cursor glide there first. A plain left click on a ref that supports it is done through accessibility, so the user's own pointer does not move; other clicks move the real pointer. Only lands on approved apps. Ask the user first before anything destructive (deleting, overwriting, discarding work), purchases, or sending messages or emails."
+        description = "Click an element by ref (preferred) or at x,y pixels of the latest screenshot. The user sees the AI cursor glide there first. Deskhand clicks without the user's own pointer whenever accessibility can: a plain left click on a button, link, checkbox or menu item (by ref or at x,y) is pressed, and a right-click opens the element's context menu. Otherwise it falls back to a real click and puts the user's pointer back afterwards. Only lands on approved apps. Ask the user first before anything destructive (deleting, overwriting, discarding work), purchases, or sending messages or emails."
     )]
     async fn click(&self, Parameters(args): Parameters<ClickArgs>) -> Result<CallToolResult, ErrorData> {
         let a = match &args.element {

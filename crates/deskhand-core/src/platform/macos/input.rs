@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
 
@@ -88,6 +90,10 @@ fn key_of(k: KeyName) -> Key {
 }
 
 impl Input for MacInput {
+    fn pointer(&self) -> Option<Point> {
+        pointer_location()
+    }
+
     fn click(&self, at: Point, b: MouseButton, count: u32) -> Result<()> {
         let mut e = enigo()?;
         move_abs(&mut e, at)?;
@@ -131,22 +137,18 @@ impl Input for MacInput {
     }
 
     fn key(&self, combo: &KeyCombo) -> Result<()> {
-        let mut e = enigo()?;
-        let m = combo.mods;
-        let mods: Vec<Key> = [(m.cmd, Key::Meta), (m.ctrl, Key::Control), (m.alt, Key::Alt), (m.shift, Key::Shift)]
-            .into_iter()
-            .filter_map(|(on, k)| on.then_some(k))
-            .collect();
-        for k in &mods {
-            e.key(*k, Direction::Press).map_err(err)?;
+        // For a character key enigo looks up its keycode in the current
+        // keyboard layout (TSMGetInputSourceProperty). macOS 26 asserts that
+        // this runs on the main queue and kills the process otherwise
+        // (SIGTRAP in dispatch_assert_queue: two crashes on 2026-11-15, the
+        // first on a voice turn's cmd+key). Named keys need no lookup.
+        if matches!(combo.key, KeyName::Char(_)) {
+            let combo = *combo;
+            return on_main(MAIN_THREAD_WAIT, move || press_combo(&combo))?;
         }
-        let res = e.key(key_of(combo.key), Direction::Click).map_err(err);
-        // Always release the modifiers, even if the key failed.
-        for k in mods.iter().rev() {
-            let _ = e.key(*k, Direction::Release);
-        }
-        res
+        press_combo(combo)
     }
+
 
     fn scroll(&self, at: Point, dx: i32, dy: i32) -> Result<()> {
         let mut e = enigo()?;
@@ -187,5 +189,99 @@ impl Input for MacInput {
         // Always let go of the button.
         e.button(Button::Left, Direction::Release).map_err(err)?;
         result
+    }
+}
+
+
+/// Where the user's pointer is now, in global points (top-left origin).
+/// Reads the position only; nothing is posted.
+pub fn pointer_location() -> Option<Point> {
+    let e = objc2_core_graphics::CGEvent::new(None)?;
+    let p = objc2_core_graphics::CGEvent::location(Some(&e));
+    Some(Point::new(p.x, p.y))
+}
+
+/// Hold the modifiers, press the key, release the modifiers.
+fn press_combo(combo: &KeyCombo) -> Result<()> {
+    let mut e = enigo()?;
+    let m = combo.mods;
+    let mods: Vec<Key> = [(m.cmd, Key::Meta), (m.ctrl, Key::Control), (m.alt, Key::Alt), (m.shift, Key::Shift)]
+        .into_iter()
+        .filter_map(|(on, k)| on.then_some(k))
+        .collect();
+    for k in &mods {
+        e.key(*k, Direction::Press).map_err(err)?;
+    }
+    let res = e.key(key_of(combo.key), Direction::Click).map_err(err);
+    // Always release the modifiers, even if the key failed.
+    for k in mods.iter().rev() {
+        let _ = e.key(*k, Direction::Release);
+    }
+    res
+}
+
+/// How long `key` waits for the main thread before giving up.
+const MAIN_THREAD_WAIT: Duration = Duration::from_secs(2);
+
+/// Run `f` on the main thread and return its result: inline if this is
+/// the main thread, else queued on the main dispatch queue. If the main
+/// thread doesn't start it within `wait` (busy, or no run loop, as in a
+/// test or a CLI binary), the work is cancelled and never runs late: a key
+/// pressed seconds later could land in another window.
+fn on_main<R: Send + 'static>(wait: Duration, f: impl FnOnce() -> R + Send + 'static) -> Result<R> {
+    if objc2::MainThreadMarker::new().is_some() {
+        return Ok(f());
+    }
+    const PENDING: u8 = 0;
+    const STARTED: u8 = 1;
+    const CANCELLED: u8 = 2;
+    let state = Arc::new(AtomicU8::new(PENDING));
+    let (tx, rx) = mpsc::sync_channel(1);
+    let s = state.clone();
+    dispatch2::DispatchQueue::main().exec_async(move || {
+        if s.compare_exchange(PENDING, STARTED, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+            let _ = tx.send(f());
+        }
+    });
+    match rx.recv_timeout(wait) {
+        Ok(r) => Ok(r),
+        Err(_) if state.compare_exchange(PENDING, CANCELLED, Ordering::SeqCst, Ordering::SeqCst).is_ok() => {
+            Err(PlatformError::Other(format!(
+                "not done: the app's main thread did not respond within {} ms",
+                wait.as_millis()
+            )))
+        }
+        // It started just as we gave up: let it finish.
+        Err(_) => rx.recv().map_err(|_| PlatformError::Other("main thread work failed".into())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicBool;
+
+    use super::*;
+
+    #[test]
+    fn the_pointer_position_can_be_read_without_moving_it() {
+        let a = pointer_location().expect("a pointer position");
+        let b = pointer_location().unwrap();
+        assert!(a.x.is_finite() && a.y.is_finite());
+        // Reading twice in a row does not move it (no event is posted).
+        assert!((a.x - b.x).abs() < 50.0 && (a.y - b.y).abs() < 50.0);
+    }
+
+    #[test]
+    fn main_thread_work_is_skipped_not_run_late_when_the_main_thread_is_busy() {
+        // Nothing runs the main dispatch queue in a test binary, which is
+        // the "main thread busy" case.
+        let ran = Arc::new(AtomicBool::new(false));
+        let r = ran.clone();
+        let res = thread::spawn(move || on_main(Duration::from_millis(150), move || r.store(true, Ordering::SeqCst)))
+            .join()
+            .unwrap();
+        assert!(matches!(res, Err(PlatformError::Other(ref m)) if m.contains("main thread")), "{res:?}");
+        thread::sleep(Duration::from_millis(200));
+        assert!(!ran.load(Ordering::SeqCst), "cancelled work must never run");
     }
 }

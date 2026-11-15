@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use deskhand_core::platform::mock::{
-    InputAction, MockAccessibility, MockCapture, MockInput, MockNode, MockOverlay, MockStopKey,
+    InputAction, MockAccessibility, MockCapture, MockInput, MockNode, MockOverlay, MockStopKey, MockTarget,
 };
 use deskhand_core::platform::{AppInfo, CursorAction, KeyCombo, MouseButton, Point, Rect, WindowInfo};
 use deskhand_core::server::activity::ActivityLog;
@@ -494,6 +494,73 @@ async fn a_pressable_ref_is_pressed_without_moving_the_users_pointer() {
     assert_eq!(h.ax.pressed.lock().unwrap().clone(), vec![2]);
     assert!(h.input.clicks().is_empty(), "the user's pointer must not move: {:?}", h.input.clicks());
     assert_eq!(h.overlay.moves.lock().unwrap().last(), Some(&Point::new(245.0, 210.0)), "AI cursor still glides there");
+}
+
+/// TextEdit approved and a screenshot taken, so x,y clicks are allowed.
+async fn ready_for_points(h: &Harness) -> String {
+    let (sid, _) = open(&h.app).await;
+    ok(&h.app, &sid, "request_access", json!({"apps": ["TextEdit"], "reason": "test"})).await;
+    ok(&h.app, &sid, "screenshot", json!({})).await;
+    sid
+}
+
+fn target(id: u64, pid: i32, role: &str, name: &str, action: &str) -> MockTarget {
+    MockTarget { id, pid, role: role.into(), name: name.into(), action: action.into() }
+}
+
+#[tokio::test]
+async fn a_point_click_presses_the_control_under_it_without_moving_the_pointer() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    h.ax.targets.lock().unwrap().push(target(2, TEXTEDIT, "AXButton", "New Document", "AXPress"));
+    let sid = ready_for_points(&h).await;
+    let t = ok(&h.app, &sid, "click", json!({"x": 356, "y": 356})).await;
+    assert!(t.contains("via accessibility") && t.contains("New Document"), "{t}");
+    assert_eq!(h.ax.pressed.lock().unwrap().clone(), vec![2]);
+    assert!(h.input.clicks().is_empty(), "the user's pointer must not move: {:?}", h.input.clicks());
+    assert_eq!(h.overlay.actions.lock().unwrap().last(), Some(&CursorAction::Press));
+}
+
+#[tokio::test]
+async fn a_control_of_another_app_under_the_point_is_not_pressed() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    h.ax.targets.lock().unwrap().push(target(2, CHROME, "AXButton", "Buy now", "AXPress"));
+    let sid = ready_for_points(&h).await;
+    ok(&h.app, &sid, "click", json!({"x": 356, "y": 356})).await;
+    assert!(h.ax.pressed.lock().unwrap().is_empty());
+    assert_eq!(h.input.clicks().len(), 1, "falls back to the (gated) real click");
+}
+
+#[tokio::test]
+async fn a_right_click_opens_the_context_menu_through_accessibility() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    h.ax.targets.lock().unwrap().push(target(2, TEXTEDIT, "AXTextArea", "Body", "AXShowMenu"));
+    let sid = ready_for_points(&h).await;
+    let t = ok(&h.app, &sid, "click", json!({"x": 356, "y": 356, "button": "right"})).await;
+    assert!(t.contains("context menu") && t.contains("via accessibility"), "{t}");
+    assert_eq!(h.ax.performed.lock().unwrap().clone(), vec![(2, "AXShowMenu".to_string())]);
+    assert!(h.input.clicks().is_empty(), "{:?}", h.input.clicks());
+}
+
+#[tokio::test]
+async fn a_real_click_puts_the_users_pointer_back() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    *h.input.pointer.lock().unwrap() = Some(Point::new(900.0, 700.0));
+    let sid = ready_for_points(&h).await;
+    let t = ok(&h.app, &sid, "click", json!({"x": 356, "y": 356, "count": 2})).await;
+    assert!(t.contains("pointer was put back"), "{t}");
+    let acts = h.input.actions.lock().unwrap().clone();
+    assert_eq!(acts.last(), Some(&InputAction::Move(Point::new(900.0, 700.0))), "{acts:?}");
+}
+
+#[tokio::test]
+async fn the_pointer_is_left_alone_if_the_user_moved_it_meanwhile() {
+    let h = harness_with(fixture(), &["TextEdit"]);
+    *h.input.pointer.lock().unwrap() = Some(Point::new(900.0, 700.0));
+    *h.input.user_moves_to.lock().unwrap() = Some(Point::new(50.0, 60.0));
+    let sid = ready_for_points(&h).await;
+    ok(&h.app, &sid, "click", json!({"x": 356, "y": 356, "count": 2})).await;
+    let acts = h.input.actions.lock().unwrap().clone();
+    assert!(matches!(acts.last(), Some(InputAction::Click(..))), "no move back: {acts:?}");
 }
 
 #[tokio::test]

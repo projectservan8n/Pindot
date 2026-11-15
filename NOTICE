@@ -30,6 +30,13 @@ Moonshine v2 Small streaming, English (speech to text)
   Moonshine's LICENSE before adding any other Moonshine file.
   Full text shown in the app: crates/deskhand-core/licenses/moonshine-MIT.txt
 
+Parakeet TDT 0.6B v3 (speech to text, optional), by NVIDIA
+  License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+  ONNX export by istupakov, used unmodified (int8 files):
+  Source: https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx
+          commit 8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce (4 files, 670.6 MB)
+  Full text shown in the app: crates/deskhand-core/licenses/cc-by-4.0.txt
+
 Phonon 31m, English (text to speech), by Gradium
   License: Apache License 2.0 (weights, tokenizer and default voice)
   Source: https://huggingface.co/gradium/phonon-31m-en

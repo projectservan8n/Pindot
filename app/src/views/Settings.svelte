@@ -15,6 +15,54 @@
   let problems = $state<string[]>([]);
   let tokenConfirm = $state(false);
   let tokenNote = $state('');
+  let previewing = $state(false);
+  let voiceNote = $state('');
+  let voiceBad = $state(false);
+
+  const voiceGroups = $derived.by(() => {
+    const all = view?.tts_voices ?? [];
+    return [
+      { label: 'American', voices: all.filter((v) => v.locale === 'en-us') },
+      { label: 'British', voices: all.filter((v) => v.locale === 'en-gb') },
+      { label: 'Characters', voices: all.filter((v) => v.locale === 'characters') },
+    ].filter((g) => g.voices.length > 0);
+  });
+  const chosenVoice = $derived(
+    view?.tts_voices.find((v) => v.name.toLowerCase() === (view?.settings.voice.tts_voice ?? '').toLowerCase()),
+  );
+
+  // Picking a voice downloads it at once (256 KB), so Save and Preview
+  // never wait on the network.
+  async function pickVoice(name: string) {
+    if (!view) return;
+    view.settings.voice.tts_voice = name || null;
+    voiceNote = '';
+    voiceBad = false;
+    if (!name) return;
+    voiceNote = `Downloading ${name}…`;
+    try {
+      await api.voiceDownload(name);
+      voiceNote = `${name} is ready. Preview it, or Save to use it.`;
+    } catch (e) {
+      voiceNote = errorText(e);
+      voiceBad = true;
+    }
+  }
+
+  async function preview() {
+    if (!view) return;
+    previewing = true;
+    voiceBad = false;
+    try {
+      await api.voicePreview(view.settings.voice.tts_voice, view.settings.voice.volume);
+    } catch (e) {
+      voiceNote = errorText(e);
+      voiceBad = true;
+    } finally {
+      previewing = false;
+    }
+  }
+
   // The Auto warning is open; Auto is only set from its button.
   let autoConfirm = $state(false);
 
@@ -163,6 +211,10 @@
     {#if check}
       {#if check.ok}
         <p class="small ok">Hold <strong>{check.label}</strong> to talk. Other keys pressed with it cancel the hold.</p>
+        <label class="row">
+          <input type="checkbox" bind:checked={view.settings.voice.tap_to_talk} />
+          Or tap {check.label} to talk hands-free, and tap again to send (stops by itself after a minute)
+        </label>
         {#if check.caution}<p class="small warn-text">{check.caution}</p>{/if}
       {:else}
         <p class="small bad">{check.error}</p>
@@ -188,6 +240,30 @@
         {/each}
       </select>
     </div>
+    <div class="row">
+      <label for="ttsv">Voice</label>
+      <select
+        id="ttsv"
+        value={chosenVoice?.name ?? ''}
+        onchange={(e) => pickVoice((e.currentTarget as HTMLSelectElement).value)}
+      >
+        <option value="">Default</option>
+        {#each voiceGroups as g (g.label)}
+          <optgroup label={g.label}>
+            {#each g.voices as v (v.name)}
+              <option value={v.name}>{v.name}{v.gender ? ` · ${v.gender}, ${v.age.toLowerCase()}` : ''}</option>
+            {/each}
+          </optgroup>
+        {/each}
+      </select>
+      <button onclick={preview} disabled={previewing}>{previewing ? 'Playing…' : 'Preview'}</button>
+    </div>
+    {#if chosenVoice}<p class="small muted voice-desc">{chosenVoice.description}</p>{/if}
+    {#if voiceNote}<p class="small {voiceBad ? 'bad' : 'ok'}">{voiceNote}</p>{/if}
+    <p class="small muted">
+      Extra voices are Apache-2.0, from huggingface.co/gradium/phonon-voices: 256 KB each, downloaded when you pick
+      one.
+    </p>
     <fieldset>
       <legend>Speak</legend>
       <label class="row">
@@ -199,6 +275,14 @@
         Only the final reply
       </label>
     </fieldset>
+    <label class="row">
+      <input type="checkbox" bind:checked={view.settings.voice.companion} />
+      Keep the AI cursor next to mine while I talk: it shows my voice, then flies off to act and comes back
+    </label>
+    <label class="row">
+      <input type="checkbox" bind:checked={view.settings.voice.captions} />
+      Show what Claude says in a bubble next to the cursor
+    </label>
     <div class="row">
       <label for="vol">Volume</label>
       <input id="vol" type="range" min="0" max="1" step="0.05" bind:value={view.settings.voice.volume} />
@@ -323,6 +407,10 @@
 {/if}
 
 <style>
+  .voice-desc {
+    max-width: 62ch;
+    margin-top: 0;
+  }
   .disclaimer {
     margin: 8px 0 4px;
     padding: 12px 14px;

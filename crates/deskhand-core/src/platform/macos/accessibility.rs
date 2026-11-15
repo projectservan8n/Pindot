@@ -21,7 +21,8 @@ use objc2_core_graphics::{
 };
 
 use crate::platform::{
-    Accessibility, AppInfo, AxNode, AxTree, ElementHandle, HitElement, PlatformError, Point, Rect, ResolvedApp,
+    Accessibility, ActionTarget, AppInfo, AxNode, AxTree, ElementHandle, HitElement, PRESS_ROLES, PlatformError, Point, Rect,
+    ResolvedApp,
     Result, TreeLimits, WindowInfo,
 };
 
@@ -44,6 +45,21 @@ pub fn ax_is_trusted() -> bool {
 pub struct AxEl(pub CFRetained<AXUIElement>);
 unsafe impl Send for AxEl {}
 unsafe impl Sync for AxEl {}
+
+/// The AX action names an element offers (`Err(Stale)` once it is gone).
+fn action_names(el: &AXUIElement) -> Result<Vec<String>> {
+    set_global_timeout();
+    let mut out: *const CFArray = std::ptr::null();
+    let err = unsafe { el.copy_action_names(NonNull::from(&mut out)) };
+    if err == AXError::InvalidUIElement {
+        return Err(PlatformError::Stale);
+    }
+    let Some(arr) = NonNull::new(out as *mut CFArray).map(|p| unsafe { CFRetained::from_raw(p) }) else {
+        return Ok(Vec::new());
+    };
+    let names: &CFArray<CFType> = unsafe { arr.cast_unchecked() };
+    Ok((0..names.len()).filter_map(|i| names.get(i)).filter_map(|n| as_string(&n)).collect())
+}
 
 fn handle_of(el: CFRetained<AXUIElement>) -> ElementHandle {
     Arc::new(AxEl(el))
@@ -641,18 +657,55 @@ impl Accessibility for MacAccessibility {
     }
 
     fn can_press(&self, el: &ElementHandle) -> Result<bool> {
+        Ok(action_names(el_of(el)?)?.iter().any(|n| n == "AXPress"))
+    }
+
+    fn has_action(&self, el: &ElementHandle, action: &str) -> Result<bool> {
+        Ok(action_names(el_of(el)?)?.iter().any(|n| n == action))
+    }
+
+    fn perform(&self, el: &ElementHandle, action: &str) -> Result<()> {
         let el = el_of(el)?;
         set_global_timeout();
-        let mut out: *const CFArray = std::ptr::null();
-        let err = unsafe { el.copy_action_names(NonNull::from(&mut out)) };
-        if err == AXError::InvalidUIElement {
-            return Err(PlatformError::Stale);
+        match unsafe { el.perform_action(&cfstr(action)) } {
+            AXError::Success => Ok(()),
+            AXError::InvalidUIElement => Err(PlatformError::Stale),
+            e => Err(PlatformError::Other(format!("{action} failed (AXError {})", e.0))),
         }
-        let Some(arr) = NonNull::new(out as *mut CFArray).map(|p| unsafe { CFRetained::from_raw(p) }) else {
-            return Ok(false);
-        };
-        let names: &CFArray<CFType> = unsafe { arr.cast_unchecked() };
-        Ok((0..names.len()).filter_map(|i| names.get(i)).any(|n| as_string(&n).as_deref() == Some("AXPress")))
+    }
+
+    fn actionable_at(&self, at: Point, action: &str) -> Result<Option<ActionTarget>> {
+        set_global_timeout();
+        let sys = unsafe { AXUIElement::new_system_wide() };
+        let mut out: *const AXUIElement = std::ptr::null();
+        let err = unsafe { sys.copy_element_at_position(at.x as f32, at.y as f32, NonNull::from(&mut out)) };
+        if err != AXError::Success {
+            return Ok(None);
+        }
+        let mut cur = NonNull::new(out as *mut AXUIElement).map(|p| unsafe { CFRetained::from_raw(p) });
+        // The deepest element, then up to three ancestors (a label inside a
+        // button, an image inside a link).
+        for _ in 0..4 {
+            let Some(el) = cur.take() else { break };
+            let role = attr_opt(&el, "AXRole").and_then(|v| as_string(&v)).unwrap_or_default();
+            if role == "AXWindow" || role == "AXApplication" {
+                break;
+            }
+            let role_ok = action != "AXPress" || PRESS_ROLES.contains(&role.as_str());
+            let covers = frame_of(attr_opt(&el, "AXPosition").as_deref(), attr_opt(&el, "AXSize").as_deref())
+                .is_some_and(|r| r.contains(at));
+            if role_ok && covers && action_names(&el).unwrap_or_default().iter().any(|n| n == action) {
+                let Some(pid) = element_pid(&el) else { return Ok(None) };
+                let name = attr_opt(&el, "AXTitle")
+                    .and_then(|v| as_string(&v))
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| attr_opt(&el, "AXDescription").and_then(|v| as_string(&v)))
+                    .unwrap_or_default();
+                return Ok(Some(ActionTarget { handle: handle_of(el), pid, role, name }));
+            }
+            cur = attr_opt(&el, "AXParent").and_then(|v| v.downcast::<AXUIElement>().ok());
+        }
+        Ok(None)
     }
 
     fn element_at(&self, at: Point) -> Result<Option<HitElement>> {

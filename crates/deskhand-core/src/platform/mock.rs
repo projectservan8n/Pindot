@@ -58,6 +58,11 @@ pub enum InputAction {
 #[derive(Default)]
 pub struct MockInput {
     pub actions: Mutex<Vec<InputAction>>,
+    /// The pretend pointer (`None`: unknown, as on Windows today). Real
+    /// actions move it; `user_moves_to` puts it somewhere else right after
+    /// a click, as if the user moved the mouse meanwhile.
+    pub pointer: Mutex<Option<Point>>,
+    pub user_moves_to: Mutex<Option<Point>>,
 }
 
 impl MockInput {
@@ -73,6 +78,20 @@ impl MockInput {
             .collect()
     }
     fn push(&self, a: InputAction) -> Result<()> {
+        let at = match &a {
+            InputAction::Click(p, ..) | InputAction::Move(p) | InputAction::Scroll(p, ..) => Some(*p),
+            InputAction::Drag(_, to) => Some(*to),
+            _ => None,
+        };
+        let mut ptr = self.pointer.lock().unwrap();
+        if let (Some(p), Some(at)) = (ptr.as_mut(), at) {
+            *p = at;
+            if matches!(a, InputAction::Click(..))
+                && let Some(u) = *self.user_moves_to.lock().unwrap()
+            {
+                *p = u;
+            }
+        }
         self.actions.lock().unwrap().push(a);
         Ok(())
     }
@@ -96,6 +115,9 @@ impl Input for MockInput {
     }
     fn drag(&self, from: Point, to: Point, _should_stop: &(dyn Fn() -> bool + Sync)) -> Result<()> {
         self.push(InputAction::Drag(from, to))
+    }
+    fn pointer(&self) -> Option<Point> {
+        *self.pointer.lock().unwrap()
     }
 }
 
@@ -173,6 +195,17 @@ impl MockNode {
 }
 
 /// Scripted windows, apps and trees.
+/// What `actionable_at` finds (whatever the point): element `id` of app
+/// `pid` offering `action`.
+#[derive(Debug, Clone)]
+pub struct MockTarget {
+    pub id: u64,
+    pub pid: i32,
+    pub role: String,
+    pub name: String,
+    pub action: String,
+}
+
 pub struct MockAccessibility {
     pub trusted: bool,
     pub windows: Mutex<Vec<WindowInfo>>,
@@ -191,6 +224,9 @@ pub struct MockAccessibility {
     pub raised: Mutex<Vec<u64>>,
     pub secure_focus: AtomicBool,
     pub hit: Mutex<Option<HitElement>>,
+    pub targets: Mutex<Vec<MockTarget>>,
+    /// AX actions performed, as (element id, action).
+    pub performed: Mutex<Vec<(u64, String)>>,
 }
 
 impl Default for MockAccessibility {
@@ -210,6 +246,8 @@ impl Default for MockAccessibility {
             raised: Mutex::new(vec![]),
             secure_focus: AtomicBool::new(false),
             hit: Mutex::new(None),
+            targets: Mutex::new(Vec::new()),
+            performed: Mutex::new(Vec::new()),
         }
     }
 }
@@ -308,6 +346,29 @@ impl Accessibility for MockAccessibility {
         }
         Ok(self.pressable.lock().unwrap().contains(&id))
     }
+    fn actionable_at(&self, _at: Point, action: &str) -> Result<Option<ActionTarget>> {
+        Ok(self.targets.lock().unwrap().iter().find(|t| t.action == action).map(|t| ActionTarget {
+            handle: Arc::new(MockElement(t.id)),
+            pid: t.pid,
+            role: t.role.clone(),
+            name: t.name.clone(),
+        }))
+    }
+
+    fn has_action(&self, el: &ElementHandle, action: &str) -> Result<bool> {
+        let id = Self::mock_id(el)?;
+        Ok(self.targets.lock().unwrap().iter().any(|t| t.id == id && t.action == action))
+    }
+
+    fn perform(&self, el: &ElementHandle, action: &str) -> Result<()> {
+        let id = Self::mock_id(el)?;
+        if action == "AXPress" {
+            self.pressed.lock().unwrap().push(id);
+        }
+        self.performed.lock().unwrap().push((id, action.to_string()));
+        Ok(())
+    }
+
     fn element_at(&self, _at: Point) -> Result<Option<HitElement>> {
         Ok(self.hit.lock().unwrap().clone())
     }

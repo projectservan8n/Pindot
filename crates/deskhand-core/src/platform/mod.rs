@@ -212,6 +212,10 @@ pub trait Input: Send + Sync {
     /// Press the left button at `from`, move to `to` in small steps, release.
     /// `should_stop` is checked between steps; the button is always released.
     fn drag(&self, from: Point, to: Point, should_stop: &(dyn Fn() -> bool + Sync)) -> Result<()>;
+    /// Where the user's pointer is now (`None` where unknown). Read only.
+    fn pointer(&self) -> Option<Point> {
+        None
+    }
 }
 
 /// What a hold-to-talk hook reports.
@@ -358,6 +362,29 @@ pub struct AxTree {
 }
 
 /// What sits under a screen point, from the accessibility hit test.
+/// An element found under a point that offers an AX action (see
+/// `Accessibility::actionable_at`).
+#[derive(Clone)]
+pub struct ActionTarget {
+    pub handle: ElementHandle,
+    pub pid: i32,
+    pub role: String,
+    pub name: String,
+}
+
+/// Roles whose AXPress is a click. Pressing a list, row or window is not.
+pub const PRESS_ROLES: &[&str] = &[
+    "AXButton",
+    "AXCheckBox",
+    "AXRadioButton",
+    "AXMenuItem",
+    "AXMenuBarItem",
+    "AXMenuButton",
+    "AXPopUpButton",
+    "AXLink",
+    "AXDisclosureTriangle",
+];
+
 #[derive(Debug, Clone)]
 pub struct HitElement {
     pub pid: i32,
@@ -391,6 +418,20 @@ pub trait Accessibility: Send + Sync {
     /// True if the element offers AXPress, so it can be clicked without
     /// moving the user's pointer. `Err(Stale)` if it no longer exists.
     fn can_press(&self, el: &ElementHandle) -> Result<bool>;
+    /// The element under `at`, or one of its three nearest ancestors, that
+    /// offers the AX `action` ("AXPress", "AXShowMenu") and whose frame
+    /// covers the point. For "AXPress" only `PRESS_ROLES` count.
+    fn actionable_at(&self, _at: Point, _action: &str) -> Result<Option<ActionTarget>> {
+        Ok(None)
+    }
+    /// True if the element offers the AX `action`.
+    fn has_action(&self, _el: &ElementHandle, _action: &str) -> Result<bool> {
+        Ok(false)
+    }
+    /// Perform an AX action on the element (no pointer involved).
+    fn perform(&self, _el: &ElementHandle, _action: &str) -> Result<()> {
+        Err(PlatformError::Unsupported("accessibility actions"))
+    }
     /// What is under a screen point.
     fn element_at(&self, at: Point) -> Result<Option<HitElement>>;
     /// Bring a window and its app to the front.
@@ -507,6 +548,18 @@ pub fn native() -> NativePlatform {
         accessibility: Arc::new(windows::WinAccessibility),
         stop_key: Arc::new(windows::WinStopKey),
     }
+}
+
+/// The user's pointer in global points (for the companion cursor); `None`
+/// where unsupported.
+#[cfg(target_os = "macos")]
+pub fn pointer_location() -> Option<Point> {
+    macos::pointer_location()
+}
+
+#[cfg(windows)]
+pub fn pointer_location() -> Option<Point> {
+    None
 }
 
 #[cfg(target_os = "macos")]

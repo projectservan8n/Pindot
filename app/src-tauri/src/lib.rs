@@ -175,6 +175,8 @@ pub fn run() {
             ui::permission_request,
             ui::permission_open_settings,
             ui::models_status,
+            ui::voice_download,
+            ui::voice_preview,
             ui::models_download,
             ui::models_cancel,
             ui::connect_status,
@@ -189,6 +191,14 @@ pub fn run() {
             ui::voice_check,
         ])
         .on_window_event(|window, event| {
+            // The main window closed: the keyboard goes back to the user's app.
+            #[cfg(target_os = "macos")]
+            if let tauri::WindowEvent::Destroyed = event
+                && window.label() == ui::MAIN
+            {
+                // SAFETY: window events arrive on the main thread.
+                unsafe { deskhand_core::platform::macos::window::deactivate_app() };
+            }
             // Closing an approval window is a "Deny".
             if let tauri::WindowEvent::Destroyed = event
                 && window.label().starts_with(approval::LABEL_PREFIX)
@@ -265,7 +275,8 @@ pub fn run() {
                 println!("NOTE: --demo: showing every AI cursor action on each monitor");
                 let ov = ov.clone();
                 let monitors = monitors.clone();
-                std::thread::spawn(move || run_demo(&*ov, &monitors));
+                let handle = app.handle().clone();
+                std::thread::spawn(move || run_demo(&handle, &*ov, &monitors));
             }
             if let Some(secs) = args.exit_after {
                 let handle = app.handle().clone();
@@ -540,9 +551,12 @@ fn spawn_esc_self_test(state: Arc<ServerState>, ms: u64) {
 }
 
 /// Centre, then each corner (inset 60 pt), then centre, on every monitor.
-fn run_demo(ov: &dyn Overlay, monitors: &[MonitorRect]) {
+fn run_demo(app: &tauri::AppHandle, ov: &dyn Overlay, monitors: &[MonitorRect]) {
     std::thread::sleep(Duration::from_millis(1500)); // let the webviews load
     let stamp = || std::time::UNIX_EPOCH.elapsed().map(|d| d.as_secs_f64()).unwrap_or(0.0);
+    if let Some(m) = monitors.first() {
+        demo_companion(app, ov, m, &stamp);
+    }
     // One showcase of every kind of action per monitor; the glide between
     // monitors crosses the edge. Nothing is clicked or typed for real.
     for (i, m) in monitors.iter().enumerate() {
@@ -580,4 +594,55 @@ fn run_demo(ov: &dyn Overlay, monitors: &[MonitorRect]) {
         act("point", CursorAction::Point, 1400);
     }
     println!("demo done");
+}
+
+/// The companion scene of `--demo`: a pretend pointer and voice (nothing
+/// real moves): listening with a waveform, thinking, flying off to press,
+/// coming back, then speaking with a caption.
+fn demo_companion(app: &tauri::AppHandle, ov: &dyn Overlay, m: &MonitorRect, stamp: &dyn Fn() -> f64) {
+    use tauri::Emitter;
+    let at = |fx: f64, fy: f64| Point::new(m.x + m.width * fx, m.y + m.height * fy);
+    let voice = |state: &str| {
+        let _ = app.emit("deskhand:voice", serde_json::json!({ "state": state, "notice": null }));
+    };
+    let mut t = 0.0f64;
+    // Feed the pretend pointer (drifting a little) and level for `secs`.
+    let mut mate = |secs: f64, talking: bool| {
+        let end = t + secs;
+        while t < end {
+            let p = at(0.36 + 0.05 * (t * 0.7).sin(), 0.48 + 0.03 * (t * 1.1).sin());
+            let level = if talking { 0.01 + 0.09 * (t * 9.0).sin().abs() * (0.5 + 0.5 * (t * 2.3).sin()) } else { 0.0 };
+            let _ = app.emit("deskhand:companion", serde_json::json!({ "x": p.x, "y": p.y, "level": level }));
+            std::thread::sleep(Duration::from_millis(16));
+            t += 0.016;
+        }
+    };
+    println!("{:.3} demo: companion listening", stamp());
+    voice("listening");
+    mate(2.6, true);
+    println!("{:.3} demo: companion thinking", stamp());
+    voice("thinking");
+    mate(1.4, false);
+    println!("{:.3} demo: companion acting", stamp());
+    voice("acting");
+    let d = ov.move_cursor(at(0.62, 0.3), Some("Send".into()));
+    mate(d.as_secs_f64(), false);
+    ov.set_acting(true);
+    ov.action(&CursorAction::Press);
+    mate(0.6, false);
+    ov.set_acting(false);
+    println!("{:.3} demo: companion returning", stamp());
+    mate(1.8, false);
+    println!("{:.3} demo: companion speaking", stamp());
+    voice("speaking");
+    let _ = app.emit(
+        "deskhand:caption",
+        serde_json::json!({ "seq": 1, "text": "Done. I pressed Send, so your message to Maya is on its way." }),
+    );
+    mate(4.2, false);
+    let _ = app.emit("deskhand:caption-end", serde_json::json!({ "seq": 1, "interrupted": false }));
+    voice("idle");
+    println!("{:.3} demo: companion idle", stamp());
+    mate(2.5, false);
+    std::thread::sleep(Duration::from_millis(1800));
 }

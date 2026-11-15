@@ -17,7 +17,10 @@ use deskhand_core::platform::{self, HotkeyBinding, Os, Permission, PermissionSta
 use deskhand_core::server::activity::{self, ActivityEntry, ActivityFilter};
 use deskhand_core::server::{RunningServer, ServerState};
 use deskhand_core::settings::Settings;
+use deskhand_core::voice::audio::{AudioSink, CpalSpeaker};
+use deskhand_core::voice::engines::{PhononTts, TextToSpeech};
 use deskhand_core::voice::models::{self, DownloadOptions, ModelKind, Progress};
+use deskhand_core::voice::phonon_voices::{self, PhononVoice};
 use serde::Serialize;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -109,7 +112,7 @@ pub fn open_main(app: &AppHandle, view: &str, focus: bool) -> tauri::Result<()> 
         let _ = app.emit_to(MAIN, NAVIGATE_EVENT, view);
         w.show()?;
         if focus {
-            w.set_focus()?;
+            front_with_focus(app);
         } else {
             front_without_focus(app);
         }
@@ -129,10 +132,34 @@ pub fn open_main(app: &AppHandle, view: &str, focus: bool) -> tauri::Result<()> 
         let (p, z) = (p.to_logical::<f64>(scale), z.to_logical::<f64>(scale));
         println!("window {MAIN} ({view}) at ({:.0}, {:.0}) size {:.0}x{:.0} pt", p.x, p.y, z.width, z.height);
     }
-    if !focus {
+    if focus {
+        front_with_focus(app);
+    } else {
         front_without_focus(app);
     }
     Ok(())
+}
+
+/// The user asked for the window (tray menu): activate Deskhand and give the
+/// window the keyboard. Queued on the main thread, so it runs after the
+/// tray menu has closed.
+fn front_with_focus(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        let h = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Some(w) = h.get_webview_window(MAIN)
+                && let Ok(ns) = w.ns_window()
+            {
+                // SAFETY: Tauri's live NSWindow, on the main thread.
+                unsafe { deskhand_core::platform::macos::window::activate_and_focus(ns) };
+            }
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    if let Some(w) = app.get_webview_window(MAIN) {
+        let _ = w.set_focus();
+    }
 }
 
 /// Show the main window above other apps' windows without taking the
@@ -424,6 +451,8 @@ pub struct SettingsView {
     overrides: Vec<String>,
     stt_models: Vec<ModelChoice>,
     tts_models: Vec<ModelChoice>,
+    /// Extra Phonon voices (downloaded when picked).
+    tts_voices: &'static [PhononVoice],
     default_port: u16,
     running_port: Option<u16>,
     os: &'static str,
@@ -454,6 +483,7 @@ pub fn settings_get(app: AppHandle) -> SettingsView {
         overrides: OVERRIDE_VARS.iter().filter(|k| std::env::var_os(k).is_some()).map(|k| k.to_string()).collect(),
         stt_models: choices(ModelKind::SpeechToText),
         tts_models: choices(ModelKind::TextToSpeech),
+        tts_voices: phonon_voices::VOICES,
         default_port: deskhand_core::DEFAULT_PORT,
         running_port: app.try_state::<RunningServer>().map(|s| s.addr.port()),
         os: if cfg!(target_os = "macos") { "macos" } else { "windows" },
@@ -900,4 +930,48 @@ mod tests {
             assert_eq!(url, "ms-settings:privacy-microphone");
         }
     }
+}
+
+/// Download a Phonon voice (256 KB, Apache-2.0, pinned and checked) when the
+/// user picks it in Settings.
+#[tauri::command]
+pub async fn voice_download(name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = models::models_dir().map_err(|e| format!("{e:#}"))?;
+        phonon_voices::ensure(Some(&name), &root).map(|_| ()).map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+static PREVIEWING: AtomicBool = AtomicBool::new(false);
+
+/// Speak a short sample with a voice (downloading it first if needed), at
+/// the volume on screen, with the saved speech model.
+#[tauri::command]
+pub async fn voice_preview(app: AppHandle, name: Option<String>, volume: f32) -> Result<(), String> {
+    if PREVIEWING.swap(true, Ordering::SeqCst) {
+        return Err("A preview is already playing.".into());
+    }
+    let settings = app.state::<Ui>().settings().voice;
+    let res = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<()> {
+        let root = models::models_dir()?;
+        let voice = phonon_voices::ensure(name.as_deref(), &root)?;
+        let tts_dir = models::resolve(&settings.tts_model, ModelKind::TextToSpeech, &root)?;
+        let tts = PhononTts::load(&tts_dir, voice.as_ref().map(|(n, p)| (*n, p.as_path())))?;
+        let text = match &voice {
+            Some((n, _)) => format!("Hi, I'm {n}. This is how I'll sound when I answer you."),
+            None => "Hi, this is the default voice. This is how I'll sound when I answer you.".to_string(),
+        };
+        let mut pcm = Vec::new();
+        tts.speak(&text, &mut |c| {
+            pcm.extend_from_slice(c);
+            true
+        })?;
+        let mut once = Some(pcm);
+        CpalSpeaker { volume: volume.clamp(0.0, 1.0) }.play(tts.sample_rate(), &mut || once.take(), &|| false, &mut || {})
+    })
+    .await;
+    PREVIEWING.store(false, Ordering::SeqCst);
+    res.map_err(|e| e.to_string())?.map_err(|e| format!("{e:#}"))
 }

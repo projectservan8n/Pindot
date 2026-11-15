@@ -11,7 +11,7 @@ pub mod window;
 pub use accessibility::{MacAccessibility, ax_is_trusted};
 pub use capture::MacCapture;
 pub use hotkey::MacHotkey;
-pub use input::{INPUT_MARKER, MacInput};
+pub use input::{INPUT_MARKER, MacInput, pointer_location};
 pub use stopkey::MacStopKey;
 
 use super::{Permission, PermissionStatus};

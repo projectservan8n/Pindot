@@ -74,6 +74,12 @@ pub struct ArchiveSource {
 
 pub const MIT_MOONSHINE: &str = include_str!("../../licenses/moonshine-MIT.txt");
 pub const APACHE_2_0: &str = include_str!("../../licenses/apache-2.0.txt");
+pub const CC_BY_4_0_PARAKEET: &str = concat!(
+    "Parakeet TDT 0.6B v3 by NVIDIA, licensed under CC BY 4.0.\n",
+    "ONNX export by istupakov (huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx).\n",
+    "Deskhand downloads the int8 files unmodified.\n\n",
+    include_str!("../../licenses/cc-by-4.0.txt")
+);
 
 impl ModelSpec {
     pub fn total_size(&self) -> u64 {
@@ -146,7 +152,27 @@ pub const PHONON_31M_EN: ModelSpec = ModelSpec {
     fallback: None,
 };
 
-pub const CATALOG: &[&ModelSpec] = &[&MOONSHINE_SMALL_STREAMING_EN, &PHONON_31M_EN];
+/// Optional, more accurate speech to text (about 4x Moonshine's size).
+/// transcribe-rs loads it from these four files (`Quantization::Int8`).
+pub const PARAKEET_TDT_06B_V3: ModelSpec = ModelSpec {
+    id: "parakeet-tdt-0.6b-v3-int8",
+    kind: ModelKind::SpeechToText,
+    display: "Parakeet TDT 0.6B v3 (more accurate, larger)",
+    license: "CC-BY-4.0",
+    license_url: "https://creativecommons.org/licenses/by/4.0/",
+    license_text: CC_BY_4_0_PARAKEET,
+    source: "huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx@8f23f0c",
+    base_url: "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce/",
+    files: &[
+        ModelFile { name: "vocab.txt", size: 93_939, sha256: "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d" },
+        ModelFile { name: "nemo128.onnx", size: 139_764, sha256: "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f" },
+        ModelFile { name: "decoder_joint-model.int8.onnx", size: 18_202_004, sha256: "eea7483ee3d1a30375daedc8ed83e3960c91b098812127a0d99d1c8977667a70" },
+        ModelFile { name: "encoder-model.int8.onnx", size: 652_183_999, sha256: "6139d2fa7e1b086097b277c7149725edbab89cc7c7ae64b23c741be4055aff09" },
+    ],
+    fallback: None,
+};
+
+pub const CATALOG: &[&ModelSpec] = &[&MOONSHINE_SMALL_STREAMING_EN, &PARAKEET_TDT_06B_V3, &PHONON_31M_EN];
 
 pub const DEFAULT_STT_MODEL: &str = MOONSHINE_SMALL_STREAMING_EN.id;
 pub const DEFAULT_TTS_MODEL: &str = PHONON_31M_EN.id;
@@ -565,9 +591,10 @@ mod tests {
         }
         assert_eq!(find(DEFAULT_STT_MODEL).unwrap().kind, ModelKind::SpeechToText);
         assert_eq!(find(DEFAULT_TTS_MODEL).unwrap().kind, ModelKind::TextToSpeech);
-        // About 230 MB in total.
-        let total: u64 = CATALOG.iter().map(|s| s.total_size()).sum();
+        // The defaults are about 230 MB; Parakeet (optional) about 670 MB.
+        let total = find(DEFAULT_STT_MODEL).unwrap().total_size() + find(DEFAULT_TTS_MODEL).unwrap().total_size();
         assert!(total < 300_000_000);
+        assert!(PARAKEET_TDT_06B_V3.total_size() < 700_000_000);
     }
 
     #[test]

@@ -108,7 +108,19 @@ pub struct Machine {
     last_active: Instant,
     shown: Display,
     armed: bool,
+    /// A quick tap of the hotkey starts hands-free listening; the next press
+    /// sends. Holding works as before.
+    tap_to_talk: bool,
+    hands_free: bool,
+    pressed_at: Option<Instant>,
+    /// The press that ended hands-free listening: ignore its release.
+    swallow_up: bool,
 }
+
+/// A press shorter than this is a tap.
+pub const TAP: Duration = Duration::from_millis(300);
+/// Hands-free listening sends by itself after this long.
+pub const HANDS_FREE_MAX: Duration = Duration::from_secs(60);
 
 fn norm(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
@@ -131,7 +143,23 @@ impl Machine {
             last_active: now,
             shown: Display::Idle,
             armed: false,
+            tap_to_talk: false,
+            hands_free: false,
+            pressed_at: None,
+            swallow_up: false,
         }
+    }
+
+    pub fn with_tap_to_talk(mut self, on: bool) -> Self {
+        self.tap_to_talk = on;
+        self
+    }
+
+    fn end_hands_free(&mut self, fx: &mut Vec<Effect>) {
+        self.hands_free = false;
+        self.listening = false;
+        self.transcribing = true;
+        fx.push(Effect::FinishRecording { utterance: self.utterance });
     }
 
     pub fn display(&self) -> Display {
@@ -164,7 +192,12 @@ impl Machine {
         }
         match input {
             Input::HotkeyDown => {
-                if !self.listening {
+                if self.hands_free && self.listening {
+                    // The second tap sends what was said.
+                    self.swallow_up = true;
+                    self.end_hands_free(&mut fx);
+                } else if !self.listening {
+                    self.pressed_at = Some(now);
                     if self.speaking {
                         fx.push(Effect::StopSpeech);
                         self.speaking = false;
@@ -180,7 +213,13 @@ impl Machine {
                 }
             }
             Input::HotkeyUp => {
-                if self.listening {
+                let quick = self.pressed_at.is_some_and(|p| now.duration_since(p) < TAP);
+                if self.swallow_up {
+                    self.swallow_up = false;
+                } else if self.listening && self.tap_to_talk && quick && !self.hands_free {
+                    // A tap: keep listening, hands-free.
+                    self.hands_free = true;
+                } else if self.listening {
                     self.listening = false;
                     self.transcribing = true;
                     fx.push(Effect::FinishRecording { utterance: self.utterance });
@@ -193,6 +232,8 @@ impl Machine {
                 }
             }
             Input::Esc => {
+                self.hands_free = false;
+                self.swallow_up = false;
                 if self.listening {
                     self.listening = false;
                     fx.push(Effect::DiscardRecording);
@@ -302,6 +343,12 @@ impl Machine {
                 }
             }
             Input::Tick => {
+                if self.hands_free
+                    && self.listening
+                    && self.pressed_at.is_some_and(|p| now.duration_since(p) >= HANDS_FREE_MAX)
+                {
+                    self.end_hands_free(&mut fx);
+                }
                 if self.display() == Display::Idle
                     && self.session_used
                     && now.duration_since(self.last_active) >= self.idle_reset
@@ -378,6 +425,67 @@ mod tests {
         m.handle(Input::HotkeyUp, t);
         let u = m.utterance;
         m.handle(Input::Transcribed { utterance: u, text: text.into() }, t)
+    }
+
+    fn finishes(fx: &[Effect]) -> bool {
+        fx.iter().any(|e| matches!(e, Effect::FinishRecording { .. }))
+    }
+
+    #[test]
+    fn a_quick_tap_listens_hands_free_until_the_next_tap() {
+        let (m, t) = ready(SpeakMode::EachMessage);
+        let mut m = m.with_tap_to_talk(true);
+        m.handle(Input::HotkeyDown, t);
+        let fx = m.handle(Input::HotkeyUp, t + Duration::from_millis(120));
+        assert!(!finishes(&fx), "{fx:?}");
+        assert_eq!(m.display(), Display::Listening);
+        let fx = m.handle(Input::HotkeyDown, t + Duration::from_secs(3));
+        assert!(has(&fx, &Effect::FinishRecording { utterance: 1 }), "{fx:?}");
+        assert_eq!(m.display(), Display::Thinking);
+        // Letting go of that second tap changes nothing.
+        let fx = m.handle(Input::HotkeyUp, t + Duration::from_millis(3100));
+        assert!(!finishes(&fx) && !fx.iter().any(|e| matches!(e, Effect::StartRecording { .. })), "{fx:?}");
+        assert_eq!(m.display(), Display::Thinking);
+    }
+
+    #[test]
+    fn a_hold_still_sends_on_release_with_tap_to_talk_on() {
+        let (m, t) = ready(SpeakMode::EachMessage);
+        let mut m = m.with_tap_to_talk(true);
+        m.handle(Input::HotkeyDown, t);
+        let fx = m.handle(Input::HotkeyUp, t + Duration::from_millis(800));
+        assert!(has(&fx, &Effect::FinishRecording { utterance: 1 }), "{fx:?}");
+    }
+
+    #[test]
+    fn hands_free_listening_stops_by_itself_after_a_minute() {
+        let (m, t) = ready(SpeakMode::EachMessage);
+        let mut m = m.with_tap_to_talk(true);
+        m.handle(Input::HotkeyDown, t);
+        m.handle(Input::HotkeyUp, t + Duration::from_millis(100));
+        assert!(!finishes(&m.handle(Input::Tick, t + Duration::from_secs(30))));
+        let fx = m.handle(Input::Tick, t + Duration::from_secs(61));
+        assert!(has(&fx, &Effect::FinishRecording { utterance: 1 }), "{fx:?}");
+    }
+
+    #[test]
+    fn esc_ends_hands_free_listening_and_the_next_press_starts_fresh() {
+        let (m, t) = ready(SpeakMode::EachMessage);
+        let mut m = m.with_tap_to_talk(true);
+        m.handle(Input::HotkeyDown, t);
+        m.handle(Input::HotkeyUp, t + Duration::from_millis(100));
+        let fx = m.handle(Input::Esc, t + Duration::from_secs(1));
+        assert!(has(&fx, &Effect::DiscardRecording), "{fx:?}");
+        let fx = m.handle(Input::HotkeyDown, t + Duration::from_secs(2));
+        assert!(has(&fx, &Effect::StartRecording { utterance: 2 }), "{fx:?}");
+    }
+
+    #[test]
+    fn without_tap_to_talk_a_tap_is_a_short_hold() {
+        let (mut m, t) = ready(SpeakMode::EachMessage);
+        m.handle(Input::HotkeyDown, t);
+        let fx = m.handle(Input::HotkeyUp, t + Duration::from_millis(100));
+        assert!(has(&fx, &Effect::FinishRecording { utterance: 1 }), "{fx:?}");
     }
 
     #[test]

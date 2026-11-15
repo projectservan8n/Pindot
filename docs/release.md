@@ -68,7 +68,9 @@ then `npx tauri build --target universal-apple-darwin`. Not tried.
    environment. On a CI machine without the keychain, also set
    `APPLE_CERTIFICATE` (the .p12 exported and base64-encoded) and
    `APPLE_CERTIFICATE_PASSWORD`.
-4. `npx tauri build`, then check:
+4. `scripts/build-mac.sh` (it finds the identity in the keychain and sets
+   `APPLE_SIGNING_IDENTITY`; steps 2 and 3 are done in the repo, without
+   the identity), or `npx tauri build` with the variable set, then check:
 
    ```sh
    codesign --verify --deep --strict --verbose=2 target/release/bundle/macos/Deskhand.app

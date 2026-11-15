@@ -8,6 +8,10 @@
 //   deskhand:action  {kind: click|press|scroll|drag|key|type|point, ...}
 //   deskhand:acting  bool         deskhand:stopped        deskhand:hide
 //   deskhand:voice   {state, notice}
+//   deskhand:companion {x, y, level}   the user's pointer and mic level, ~60 Hz
+//                    while a voice request is in progress: the cursor sits beside the user's pointer
+//   deskhand:caption {seq, text}       deskhand:caption-end {seq, interrupted}
+//   deskhand:caption-timing {seq, secs}  the reply's real audio length
 (function () {
   'use strict';
   const M = window.__DESKHAND_MONITOR__ || { index: 0, x: 0, y: 0, width: innerWidth, height: innerHeight };
@@ -26,6 +30,9 @@
   const trailGrad = $('trail-grad');
   const dragPath = $('drag-path');
   const dragUnder = $('drag-under');
+  const bars = $('buddy').children;
+  const caption = $('caption');
+  const captionText = $('caption-text');
 
   const motionPref = matchMedia('(prefers-reduced-motion: reduce)');
   let reduced = motionPref.matches;
@@ -52,6 +59,17 @@
   let tagW = 0;
   let raf = 0;
   let last = 0;
+
+  // Companion: during a voice request the cursor sits beside the user's pointer, flies
+  // off to act, holds on the target a moment, then comes back.
+  const OFF = { x: 16, y: 18 };
+  let mate = null;          // the user's pointer, global points
+  let mateOn = false;
+  let mateTimer = null;
+  let holdUntil = 0;
+  let following = false;
+  let level = 0;            // smoothed mic level, 0..1
+  let voiceState = 'idle';
 
   // A hand moves in an arc, not along a ruler: bow the path upwards by up to
   // 14% of its length (90 px at most).
@@ -92,7 +110,13 @@
       const s = settle(t, glide.len);
       pos = { x: p.x + glide.dir.x * s, y: p.y + glide.dir.y * s };
       moving = true;
-      if (t >= 1) { pos = glide.b; glide = null; land(); }
+      if (t >= 1) {
+        // An action follows a glide to a target: stay there for it.
+        if (!glide.home) holdUntil = now + 1500;
+        pos = glide.b;
+        glide = null;
+        land();
+      }
     } else if (drag) {
       // The real pointer moves in a straight line at a steady pace; follow it.
       const t = (now - drag.t0) / drag.ms;
@@ -102,6 +126,29 @@
         pos = { x: drag.a.x + (drag.b.x - drag.a.x) * k, y: drag.a.y + (drag.b.y - drag.a.y) * k };
         drawDragPath(drag.a, pos);
         if (t >= 1) { drag = null; release(); }
+      }
+    }
+
+    let chasing = false;
+    const nowFollowing = !!(mateOn && mate && pos && !glide && !drag && now >= holdUntil
+      && !body.classList.contains('acting'));
+    if (nowFollowing !== following) {
+      following = nowFollowing;
+      if (following) setLabel('');
+      updateBuddy();
+    }
+    if (following) {
+      const tgt = { x: mate.x + OFF.x, y: mate.y + OFF.y };
+      const d = Math.hypot(tgt.x - pos.x, tgt.y - pos.y);
+      if (d > 140 && !reduced) {
+        // A long way back from a target: fly home on an arc.
+        startGlide(pos, tgt, clamp(d * 0.55, 260, 520));
+        glide.home = true;
+        moving = true;
+      } else {
+        const k = reduced ? 1 : 1 - Math.exp(-dt / 60);
+        pos = { x: pos.x + (tgt.x - pos.x) * k, y: pos.y + (tgt.y - pos.y) * k };
+        chasing = d > 0.4;
       }
     }
 
@@ -119,7 +166,7 @@
     drawTrail(now);
 
     const still = Math.abs(vel.x) + Math.abs(vel.y) < 0.004;
-    if (glide || drag || trail.length || springing || !still) raf = requestAnimationFrame(tick);
+    if (glide || drag || trail.length || springing || chasing || !still) raf = requestAnimationFrame(tick);
   }
 
   // Draws the cursor at `pos`; returns true while the tag is still swinging.
@@ -143,6 +190,7 @@
     tagOff = { x: tagOff.x + (goal.x - tagOff.x) * 0.24, y: tagOff.y + (goal.y - tagOff.y) * 0.24 };
     const tilt = reduced ? 0 : clamp(-vel.x * 6, -8, 8);
     tag.style.transform = 'translate3d(' + tagOff.x.toFixed(1) + 'px,' + tagOff.y.toFixed(1) + 'px,0) rotate(' + tilt.toFixed(2) + 'deg)';
+    placeCaption();
     return Math.abs(goal.x - tagOff.x) + Math.abs(goal.y - tagOff.y) > 0.3;
   }
 
@@ -238,6 +286,11 @@
       return;
     }
     if (!pos) showCursor(start);
+    startGlide(start, to, p.ms);
+    kick();
+  }
+
+  function startGlide(start, to, ms) {
     const c = arcControl(start, to);
     const tx = to.x - c.x;
     const ty = to.y - c.y;
@@ -247,9 +300,8 @@
       dir: { x: tx / tl, y: ty / tl },
       len: Math.hypot(to.x - start.x, to.y - start.y),
       t0: performance.now(),
-      ms: Math.max(p.ms, 1),
+      ms: Math.max(ms, 1),
     };
-    kick();
   }
 
   function land() {
@@ -281,7 +333,7 @@
   }
 
   function refreshTag() {
-    const empty = !verbEl.textContent && !nameEl.textContent;
+    const empty = !verbEl.textContent && !nameEl.textContent && !tag.dataset.buddy;
     tag.classList.toggle('empty', empty);
     tag.classList.toggle('no-verb', !verbEl.textContent);
     body.classList.remove('resting');
@@ -297,6 +349,9 @@
   }
 
   function play(a) {
+    // Stay on the target after the action; a point stays long enough to find.
+    holdUntil = Math.max(holdUntil, performance.now() + (a.kind === 'point' ? 4000 : 900));
+    setTimeout(kick, a.kind === 'point' ? 4020 : 920);
     switch (a.kind) {
       case 'click': return click(a);
       case 'press': return press();
@@ -506,6 +561,125 @@
       { duration: 200, easing: SNAP });
   }
 
+  // ------------------------------------------------------------- companion
+  // The tag shows the user's voice while they talk and three dots while
+  // Claude thinks; action labels take it back when the cursor flies off.
+  function updateBuddy() {
+    const mode = following ? (voiceState === 'listening' ? 'listening' : voiceState === 'thinking' ? 'thinking' : '') : '';
+    if ((tag.dataset.buddy || '') === mode) return;
+    if (mode) tag.dataset.buddy = mode;
+    else delete tag.dataset.buddy;
+    for (const b of bars) b.style.height = '';
+    refreshTag();
+  }
+
+  const SHAPE = [0.55, 0.85, 1, 0.8, 0.5];
+  function drawLevel(rms) {
+    // Speech sits around -40..-18 dBFS on a laptop mic.
+    const db = 20 * Math.log10(rms + 1e-5);
+    const goal = clamp((db + 54) / 36, 0, 1);
+    level += (goal - level) * (goal > level ? 0.6 : 0.15);
+    if (tag.dataset.buddy !== 'listening') return;
+    const t = performance.now();
+    for (let i = 0; i < bars.length; i++) {
+      const wob = reduced ? 1 : 0.75 + 0.25 * Math.sin(t * 0.011 + i * 1.7);
+      bars[i].style.height = (3 + level * 13 * SHAPE[i] * wob).toFixed(1) + 'px';
+    }
+  }
+
+  function endMate() {
+    mateOn = false;
+    following = false;
+    updateBuddy();
+    if (!body.classList.contains('acting') && !glide && !drag) hideCursor();
+  }
+
+  // ------------------------------------------------------------- captions
+  // What Claude says, revealed in step with the speech: from its first sound,
+  // in proportion to the audio's real length once the speaker knows it (it
+  // generates ahead of playback), a little ahead so reading never trails
+  // the voice; until then at a brisk estimated pace. Beside the cursor, or
+  // above the voice pill on the main display when there is no cursor.
+  const CPS = 14; // Phonon measured about 13 chars/s
+  const LEAD = 0.12;
+  const timings = new Map(); // seq -> audio seconds (may come before the caption)
+  let capSecs = null;
+  let capShown = 0;
+  let capSeq = null;
+  let capText = '';
+  let capT0 = 0;
+  let capRaf = 0;
+  let capTimer = null;
+
+  function setCaption(n) {
+    captionText.textContent = capText.slice(0, n);
+    caption.classList.toggle('short', caption.scrollHeight <= caption.clientHeight + 1);
+    caption.scrollTop = caption.scrollHeight;
+    placeCaption();
+  }
+
+  function showCaption(seq, text) {
+    capSeq = seq;
+    capText = text;
+    capT0 = performance.now();
+    capSecs = timings.get(seq) || null;
+    capShown = 0;
+    for (const k of timings.keys()) if (k < seq) timings.delete(k);
+    if (capTimer) { clearTimeout(capTimer); capTimer = null; }
+    caption.getAnimations().forEach((a) => a.cancel());
+    caption.classList.add('show');
+    cancelAnimationFrame(capRaf);
+    if (reduced) { setCaption(capText.length); return; }
+    const step = () => {
+      const t = (performance.now() - capT0) / 1000 + LEAD;
+      let goal = capSecs ? Math.ceil(capText.length * Math.min(1, t / capSecs)) : Math.floor(t * CPS) + 1;
+      // Whole words: a word appears as it starts being said, not letter by
+      // letter behind the voice.
+      const sp = capText.indexOf(' ', Math.max(goal - 1, 0));
+      goal = sp === -1 ? capText.length : sp;
+      const n = Math.min(capText.length, Math.max(capShown, goal));
+      if (n !== capShown) { capShown = n; setCaption(n); }
+      if (n < capText.length) capRaf = requestAnimationFrame(step);
+    };
+    setCaption(0);
+    capRaf = requestAnimationFrame(step);
+  }
+
+  function hideCaption(ms) {
+    cancelAnimationFrame(capRaf);
+    if (!caption.classList.contains('show')) return;
+    const out = caption.animate([{ opacity: 1 }, { opacity: 0 }], { duration: ms, easing: 'ease-in', fill: 'forwards' });
+    out.onfinish = () => { caption.classList.remove('show'); out.cancel(); };
+  }
+
+  function placeCaption() {
+    if (!caption.classList.contains('show')) return;
+    const w = caption.offsetWidth;
+    const h = caption.offsetHeight;
+    let x;
+    let y;
+    if (pos && onMonitor(pos, 0) && body.classList.contains('cursor-on')) {
+      const l = local(pos);
+      const tagH = tag.classList.contains('empty') ? 0 : tag.offsetHeight + 6;
+      const flipX = l.x + 20 + w > M.width - 12;
+      const below = l.y + 24 + tagH + h <= M.height - 12;
+      caption.classList.toggle('flip-x', flipX);
+      caption.classList.toggle('flip-y', !below);
+      x = flipX ? l.x - w - 8 : l.x + 20;
+      y = below ? l.y + 24 + tagH : l.y - 14 - h;
+    } else if (M.index === 0) {
+      caption.classList.remove('flip-x', 'flip-y');
+      x = M.width / 2 - w / 2;
+      y = M.height - 112 - h;
+    } else {
+      caption.style.visibility = 'hidden';
+      return;
+    }
+    caption.style.visibility = '';
+    caption.style.transform = 'translate(' + clamp(x, 8, M.width - w - 8).toFixed(1) + 'px,' +
+      clamp(y, 8, M.height - h - 8).toFixed(1) + 'px)';
+  }
+
   // ------------------------------------------------------------- events
   const ev = window.__TAURI__ && window.__TAURI__.event;
   if (!ev) return;
@@ -524,7 +698,10 @@
     } else {
       // Between actions the cursor stays but rests: dimmer, tag tucked away.
       if (restTimer) clearTimeout(restTimer);
-      restTimer = setTimeout(() => { if (!glide && !drag) body.classList.add('resting'); }, 1600);
+      restTimer = setTimeout(() => { if (!glide && !drag && !mateOn) body.classList.add('resting'); }, 1600);
+      // With the companion on: hold on the target a moment, then come back.
+      holdUntil = performance.now() + 900;
+      setTimeout(kick, 920);
     }
     body.classList.toggle('acting', !!e.payload);
   });
@@ -534,6 +711,7 @@
     body.classList.add('stopped');
     bannerText.textContent = 'Stopped · Claude no longer controls input';
     hideCursor();
+    hideCaption(150);
     stoppedTimer = setTimeout(() => body.classList.remove('stopped'), 2500);
   });
   ev.listen('deskhand:hide', hideCursor);
@@ -543,7 +721,6 @@
   const pill = $('voice');
   const pillText = $('voice-text');
   const LABELS = { listening: 'Listening', thinking: 'Thinking', acting: 'Working', speaking: 'Speaking' };
-  let voiceState = 'idle';
   let notice = null;
   let noticeTimer = null;
   function renderVoice() {
@@ -564,6 +741,39 @@
     }
     voiceState = state;
     renderVoice();
+    updateBuddy();
+  });
+
+  ev.listen('deskhand:companion', (e) => {
+    const p = e.payload || {};
+    mate = { x: p.x, y: p.y };
+    if (!mateOn) {
+      mateOn = true;
+      body.classList.remove('resting');
+      if (!pos) showCursor({ x: mate.x + OFF.x, y: mate.y + OFF.y });
+    }
+    drawLevel(p.level || 0);
+    if (mateTimer) clearTimeout(mateTimer);
+    mateTimer = setTimeout(endMate, 1200);
+    kick();
+  });
+
+  ev.listen('deskhand:caption', (e) => {
+    const p = e.payload || {};
+    if (p.text) showCaption(p.seq, String(p.text));
+  });
+  ev.listen('deskhand:caption-timing', (e) => {
+    const p = e.payload || {};
+    if (!(p.secs > 0)) return;
+    timings.set(p.seq, p.secs);
+    if (p.seq === capSeq) capSecs = p.secs;
+  });
+  ev.listen('deskhand:caption-end', (e) => {
+    const p = e.payload || {};
+    if (p.seq !== capSeq) return;
+    cancelAnimationFrame(capRaf);
+    if (!p.interrupted) setCaption(capText.length);
+    capTimer = setTimeout(() => hideCaption(260), p.interrupted ? 200 : 2400);
   });
   ev.emit('deskhand:overlay-ready', { index: M.index });
 })();

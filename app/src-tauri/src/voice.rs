@@ -21,11 +21,12 @@ use deskhand_core::platform::{HotkeyBinding, HotkeyEvent, ListenerHandle};
 use deskhand_core::server::ServerState;
 use deskhand_core::server::control::ControlEvent;
 use deskhand_core::voice::audio::{self, AudioSink, CpalMicrophone, CpalSpeaker, Microphone, WavMicrophone, WavSink};
-use deskhand_core::voice::engines::{MoonshineStt, PhononTts, STT_SAMPLE_RATE, SpeechToText, TextToSpeech};
+use deskhand_core::voice::engines::{PhononTts, STT_SAMPLE_RATE, TextToSpeech, load_stt};
 use deskhand_core::voice::machine::{Display, Input, Machine};
 use deskhand_core::voice::models::{self, ModelKind};
+use deskhand_core::voice::phonon_voices;
 use deskhand_core::voice::runner::{self, LiveIo, Metric, Recorder, StatusSink, VoiceHandle, VoiceRunner, VoiceStatus};
-use deskhand_core::voice::speaker::Speaker;
+use deskhand_core::voice::speaker::{Speaker, SpeakerEvent};
 use deskhand_core::voice::{VOICE_SYSTEM_PROMPT, VoiceSettings};
 use tauri::{AppHandle, Emitter};
 
@@ -71,6 +72,66 @@ pub struct VoiceApp {
 struct Running {
     hotkey: Option<ListenerHandle>,
     runner: VoiceRunner,
+    /// Feeds the companion cursor; `None` when that setting is off.
+    _companion: Option<Companion>,
+}
+
+/// While a voice request is in progress (and a moment after), sends the user's pointer
+/// and the mic level to the overlay about 60 times a second, so the AI cursor can sit beside
+/// the user's pointer and show a live waveform. Idle, it only checks the
+/// state 10 times a second and sends nothing.
+struct Companion {
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+const COMPANION_LINGER: Duration = Duration::from_millis(2500);
+
+impl Companion {
+    fn start(app: AppHandle, shown: Arc<Mutex<Display>>) -> std::io::Result<Self> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let s = stop.clone();
+        let thread = std::thread::Builder::new().name("deskhand-companion".into()).spawn(move || {
+            let mut active_until: Option<Instant> = None;
+            let mut sent: Option<(f64, f64, f32)> = None;
+            let mut sent_at = Instant::now();
+            while !s.load(Ordering::SeqCst) {
+                let state = *shown.lock().unwrap();
+                let now = Instant::now();
+                if state != Display::Idle {
+                    active_until = Some(now + COMPANION_LINGER);
+                }
+                if !active_until.is_some_and(|t| now < t) {
+                    sent = None;
+                    std::thread::sleep(Duration::from_millis(100));
+                    continue;
+                }
+                if let Some(p) = deskhand_core::platform::pointer_location() {
+                    let level = if state == Display::Listening { audio::mic_level() } else { 0.0 };
+                    let same = sent.is_some_and(|(x, y, l)| {
+                        (x - p.x).abs() < 0.5 && (y - p.y).abs() < 0.5 && (l - level).abs() < 0.002
+                    });
+                    // Only changes, plus a heartbeat so a new panel catches up.
+                    if !same || sent_at.elapsed() > Duration::from_millis(500) {
+                        let _ = app.emit("deskhand:companion", serde_json::json!({ "x": p.x, "y": p.y, "level": level }));
+                        sent = Some((p.x, p.y, level));
+                        sent_at = Instant::now();
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(16));
+            }
+        })?;
+        Ok(Self { stop, thread: Some(thread) })
+    }
+}
+
+impl Drop for Companion {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
 }
 
 impl VoiceApp {
@@ -162,8 +223,14 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
     let stt_dir = models::resolve(&settings.stt_model, ModelKind::SpeechToText, &root)?;
     let tts_dir = models::resolve(&settings.tts_model, ModelKind::TextToSpeech, &root)?;
     println!("voice: models checked in {:.2} s ({} and {})", t0.elapsed().as_secs_f64(), settings.stt_model, settings.tts_model);
-    let stt = MoonshineStt::load(&stt_dir)?;
-    let tts: Arc<dyn TextToSpeech> = Arc::new(PhononTts::load(&tts_dir, settings.tts_voice.as_deref())?);
+    let stt = load_stt(&stt_dir)?;
+    // The chosen voice, if it was downloaded in Settings; else the default.
+    let tts_voice = phonon_voices::present(settings.tts_voice.as_deref(), &root).unwrap_or_else(|e| {
+        println!("voice: {e:#}; speaking with the default voice");
+        None
+    });
+    let tts: Arc<dyn TextToSpeech> =
+        Arc::new(PhononTts::load(&tts_dir, tts_voice.as_ref().map(|(n, p)| (*n, p.as_path())))?);
 
     let (handle, inbox) = runner::channel();
     let probe = opts.test_wav.as_ref().map(|_| Arc::new(Probe::default()));
@@ -172,7 +239,7 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
         Some(p) => Box::new(WavMicrophone { path: p.clone() }),
         None => Box::new(CpalMicrophone::new()),
     };
-    let recorder = Recorder::start(mic, Box::new(stt), handle.clone())?;
+    let recorder = Recorder::start(mic, stt, handle.clone())?;
 
     let wav_sink = match &opts.test_wav {
         Some(_) => {
@@ -186,8 +253,30 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
         Some(w) => w.clone(),
         None => Arc::new(CpalSpeaker { volume: settings.volume }),
     };
-    let h = handle.clone();
-    let speaker = Speaker::new(tts, sink, Arc::new(move |e| h.speaker_event(e)))?;
+    let (h, capt_app, captions) = (handle.clone(), app.clone(), settings.captions);
+    let speaker = Speaker::new(
+        tts,
+        sink,
+        Arc::new(move |e: SpeakerEvent| {
+            // Captions: what is being said, from its first sound to its end.
+            if captions {
+                match &e {
+                    SpeakerEvent::FirstAudio { seq, text, .. } => {
+                        let _ = capt_app.emit("deskhand:caption", serde_json::json!({ "seq": seq, "text": text }));
+                    }
+                    SpeakerEvent::Generated { seq, secs } => {
+                        let _ = capt_app.emit("deskhand:caption-timing", serde_json::json!({ "seq": seq, "secs": secs }));
+                    }
+                    SpeakerEvent::Finished { seq, interrupted } => {
+                        let _ = capt_app
+                            .emit("deskhand:caption-end", serde_json::json!({ "seq": seq, "interrupted": interrupted }));
+                    }
+                    _ => {}
+                }
+            }
+            h.speaker_event(e)
+        }),
+    )?;
 
     let config = BrainConfig {
         claude_bin: None,
@@ -212,17 +301,19 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
         }),
     )?;
 
+    let shown = Arc::new(Mutex::new(Display::Idle));
     let status: StatusSink = {
-        let (app, p) = (app.clone(), probe.clone());
+        let (app, p, shown) = (app.clone(), probe.clone(), shown.clone());
         Arc::new(move |s: &VoiceStatus| {
             if let Some(p) = &p {
                 p.status(s);
             }
+            *shown.lock().unwrap() = s.state;
             let _ = app.emit("deskhand:voice", s);
         })
     };
     let io = LiveIo { recorder, speaker, brain, control: Some(state.control.clone()), status, shown: Display::Idle };
-    let machine = Machine::new(settings.speak_mode, settings.idle_reset(), Instant::now());
+    let machine = Machine::new(settings.speak_mode, settings.idle_reset(), Instant::now()).with_tap_to_talk(settings.tap_to_talk);
     let runner = VoiceRunner::start(handle.clone(), inbox, machine, Box::new(io))?;
 
     forward_esc(&state, handle.clone(), Arc::downgrade(voice));
@@ -242,7 +333,12 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
             // The app quit while the models loaded.
             return Ok(());
         }
-        *running = Some(Running { hotkey, runner });
+        let companion = if settings.companion {
+            Companion::start(app.clone(), shown).map_err(|e| println!("voice: no companion cursor: {e}")).ok()
+        } else {
+            None
+        };
+        *running = Some(Running { hotkey, runner, _companion: companion });
     }
     println!(
         "voice: ready (speak mode {:?}, idle reset {} s). Hold {hotkey_label} to talk; Esc stops everything.",
@@ -606,7 +702,7 @@ impl TestRun {
         }
         let files: Vec<PathBuf> = self.sink.written.lock().unwrap().iter().skip(files_before).cloned().collect();
         let mut spoken_ok = !files.is_empty();
-        let mut stt = match MoonshineStt::load(&self.stt_dir) {
+        let mut stt = match load_stt(&self.stt_dir) {
             Ok(s) => Some(s),
             Err(e) => {
                 println!("test-voice: no transcribe-back ({e:#})");

@@ -192,6 +192,18 @@ pub fn rms(samples: &[f32]) -> f32 {
 
 // ---------------------------------------------------------------- microphone
 
+/// The microphone's latest level (RMS of the last callback, 0..1), for the
+/// overlay's waveform. One microphone is open at a time, so one value.
+static MIC_LEVEL: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub fn mic_level() -> f32 {
+    f32::from_bits(MIC_LEVEL.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+fn set_mic_level(v: f32) {
+    MIC_LEVEL.store(v.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
 /// The default input device through cpal. Each `start` opens a fresh stream
 /// on a dedicated thread; `stop` closes it.
 #[derive(Default)]
@@ -262,6 +274,7 @@ impl Microphone for CpalMicrophone {
     }
 
     fn stop(&mut self) -> Result<Vec<f32>> {
+        set_mic_level(0.0);
         let Some((stop, handle)) = self.running.take() else {
             return Ok(vec![]);
         };
@@ -293,9 +306,17 @@ fn build_input(
             config,
             move |data: &[T], _| {
                 let mut b = buf.lock().unwrap();
+                let mut energy = 0.0f32;
+                let mut n = 0usize;
                 for frame in data.chunks(channels.max(1)) {
                     let sum: f32 = frame.iter().map(|s| f32::from_sample(*s)).sum();
-                    b.push(sum / frame.len() as f32);
+                    let v = sum / frame.len() as f32;
+                    energy += v * v;
+                    n += 1;
+                    b.push(v);
+                }
+                if n > 0 {
+                    set_mic_level((energy / n as f32).sqrt());
                 }
             },
             err,

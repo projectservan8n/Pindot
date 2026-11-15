@@ -53,6 +53,8 @@ objc2-application-services = { version = "0.3.2", default-features = false, feat
 # NSRunningApplication: pid -> app name and bundle id, activation.
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "libc", "NSRunningApplication", "NSWorkspace"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSArray"] }
+# The main dispatch queue: macOS asserts that keyboard-layout lookups run there.
+dispatch2 = "0.3.1"
 
 # Windows: stubs only (Phase 0 and 1). The Windows implementation adds xcap and enigo here
 # (see docs/windows-test-checklist.md).

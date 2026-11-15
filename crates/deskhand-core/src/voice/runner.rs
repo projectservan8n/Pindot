@@ -61,12 +61,12 @@ impl VoiceHandle {
     /// The speaker's events, as the runner wants them.
     pub fn speaker_event(&self, e: SpeakerEvent) {
         match e {
-            SpeakerEvent::FirstAudio { seq, after } => {
+            SpeakerEvent::FirstAudio { seq, after, .. } => {
                 let _ = self.tx.send(Event::FirstAudio { seq, after });
             }
             SpeakerEvent::Idle { seq } => self.input(Input::SpeechIdle { seq }),
             SpeakerEvent::Error { seq, error } => tracing::warn!("speech {seq} failed: {error}"),
-            SpeakerEvent::Finished { .. } => {}
+            SpeakerEvent::Finished { .. } | SpeakerEvent::Generated { .. } => {}
         }
     }
 }
@@ -406,7 +406,7 @@ mod tests {
         }
         fn speak(&mut self, seq: u64, text: &str) {
             self.log(format!("speak {text}"));
-            self.handle.speaker_event(SpeakerEvent::FirstAudio { seq, after: Duration::from_millis(5) });
+            self.handle.speaker_event(SpeakerEvent::FirstAudio { seq, after: Duration::from_millis(5), text: String::new() });
             self.handle.speaker_event(SpeakerEvent::Idle { seq });
         }
         fn stop_speech(&mut self) {

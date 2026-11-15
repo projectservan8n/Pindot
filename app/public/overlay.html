@@ -91,6 +91,33 @@
   #name:empty { display: none; }
   #name.coords { font-family: var(--mono); font-size: 11px; opacity: 0.88; letter-spacing: 0; }
 
+  /* ---- companion: while you talk the tag shows your voice; while Claude
+     thinks, three dots. Bars and dots are the same five <i>s. */
+  #buddy { display: none; align-items: center; gap: 2px; height: 16px; padding: 0 2px; }
+  #tag[data-buddy="listening"] #buddy, #tag[data-buddy="thinking"] #buddy { display: flex; }
+  #buddy i { display: block; width: 3px; height: 4px; border-radius: 2px; background: #fff;
+             transition: height 70ms linear; }
+  #tag[data-buddy="thinking"] #buddy i:nth-child(n+4) { display: none; }
+  #tag[data-buddy="thinking"] #buddy i { width: 5px; height: 5px; border-radius: 50%;
+             animation: hop 900ms ease-in-out infinite; }
+  #tag[data-buddy="thinking"] #buddy i:nth-child(2) { animation-delay: 120ms; }
+  #tag[data-buddy="thinking"] #buddy i:nth-child(3) { animation-delay: 240ms; }
+  @keyframes hop { 0%, 60%, 100% { transform: translateY(0); opacity: 0.55; }
+                   30% { transform: translateY(-3px); opacity: 1; } }
+  #tag[data-buddy] { padding: 4px 9px; }
+
+  /* ---- what Claude says, typed out beside the cursor as it is spoken */
+  #caption { position: absolute; left: 0; top: 0; display: none; max-width: 320px;
+             max-height: 90px; overflow: hidden; padding: 9px 13px; border-radius: 4px 14px 14px 14px;
+             background: var(--glass); border: 1px solid var(--glass-edge); box-shadow: var(--lift);
+             font: 500 13px/18px var(--ui); letter-spacing: 0; color: var(--paper);
+             -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px);
+             mask-image: linear-gradient(to bottom, transparent 0, #000 14px); }
+  #caption.short { -webkit-mask-image: none; mask-image: none; }
+  #caption.show { display: block; }
+  #caption.flip-x { border-radius: 14px 4px 14px 14px; }
+  #caption.flip-y { border-radius: 14px 14px 14px 4px; }
+
   /* ---- keys and typing, shown beside the cursor */
   #hud { position: absolute; left: 0; top: 0; display: none; }
   #hud.show { display: block; }
@@ -149,7 +176,8 @@
 
   @media (prefers-reduced-motion: reduce) {
     #banner { transform: translate(-50%, 0); transition: opacity 200ms ease; }
-    body.acting #halo, body.acting #banner .dot, #voice .vdot, .chip .caret { animation: none !important; }
+    body.acting #halo, body.acting #banner .dot, #voice .vdot, .chip .caret,
+    #tag[data-buddy="thinking"] #buddy i { animation: none !important; }
     #grip { transition: opacity 120ms ease; transform: none; }
   }
 </style>
@@ -191,9 +219,10 @@
       </div>
       <div id="grip"></div>
     </div>
-    <div id="tag" class="empty"><span id="verb"></span><span id="name"></span></div>
+    <div id="tag" class="empty"><span id="buddy" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span id="verb"></span><span id="name"></span></div>
   </div>
   <div id="hud"></div>
+  <div id="caption" aria-live="polite"><span id="caption-text"></span></div>
   <script src="overlay.js"></script>
 </body>
 </html>

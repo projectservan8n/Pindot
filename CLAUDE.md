@@ -144,13 +144,14 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   that carries on-screen text says it is untrusted data. Descriptions tell
   Claude to ask the user before destructive actions, purchases, sending
   messages or typing credentials; `type_text` refuses a focused secure field.
-- **Clicks leave the user's pointer alone when they can** (Tony's choice): a
-  plain left click on a ref whose element offers AXPress
-  (`Accessibility::can_press`) is an accessibility press; the AI cursor
-  still glides there. Right, double and triple clicks, x,y clicks and
-  elements without AXPress are real clicks: the pointer moves and is not put
-  back (putting it back was offered and not chosen). A failed press is
-  reported, never retried as a real click: a press that opens a modal can
+- **Clicks leave the user's pointer alone whenever they can** (Tony: "it
+  has its own cursor"): a plain left click is AXPress, on the ref
+  (`can_press`) or on the control under the point (`actionable_at`, only
+  `PRESS_ROLES`, up to three ancestors, an approved app's only); a
+  right-click is AXShowMenu the same way. The fallback is a real click,
+  scroll or drag, after which the user's pointer is put back
+  (`put_pointer_back`) unless they moved it meanwhile. A failed
+  accessibility action is reported, never retried as a real click: it can
   report an error after it worked, and a click at the same spot could land
   on the new dialog.
 - **Approval is answered by a human in our UI** (Tony's decision). Each app
@@ -163,6 +164,14 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
 - **`DESKHAND_TEST_AUTO_APPROVE=TextEdit` is test-only** (Tony's decision):
   off by default, prints a loud warning at start and on every use, and is
   never read in the normal path.
+- **Character keys go through the main thread**: for `key` with a letter
+  (`cmd+v`, `h`), enigo looks the keycode up in the keyboard layout
+  (`TSMGetInputSourceProperty`), and macOS 26 kills the process (SIGTRAP in
+  `dispatch_assert_queue`) unless that runs on the main queue. `MacInput::key`
+  queues such combos on the main dispatch queue; if the main thread doesn't
+  start them within 2 s they are cancelled, never pressed late. Named keys
+  (return, arrows) stay on the worker thread. A binary without a main run
+  loop (tests, CLIs) gets the timeout error for letter keys.
 - **The gate**: actions only touch approved apps. Refs carry their app;
   `click`/`scroll`/`drag` at x,y run a hit test on the window list first
   (Deskhand's own prompt/activity windows block, the menu bar needs an
@@ -272,6 +281,44 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   a size and SHA-256 per file (`voice/models.rs`), downloaded on first use to
   `<data dir>/models/<id>`, verified on every load. Moonshine v2 Small
   streaming EN (MIT, 165.5 MB) and Phonon 31m EN (Apache-2.0, 65.1 MB).
+- **Phonon voices** (Tony's request): `voice/phonon_voices.rs` pins the 37
+  English voices of huggingface.co/gradium/phonon-voices@da6c9ec
+  (Apache-2.0, 256 KB each, size + SHA-256 from the Hub's LFS ids). Each
+  is a one-file `ModelSpec`, so the model downloader fetches and checks it
+  into `<models>/phonon-voices/`. Settings downloads a voice when the user
+  picks it and has Preview; the voice loop never downloads one and falls
+  back to the default voice if the file is missing or damaged.
+- **Parakeet** (optional STT, Tony's request): Parakeet TDT 0.6B v3 int8
+  (NVIDIA, CC BY 4.0, ONNX by istupakov@8f23f0c, 4 files, 670.6 MB),
+  through transcribe-rs's `onnx::parakeet`. `engines::load_stt` picks the
+  engine by the files in the folder (`nemo128.onnx` = Parakeet). Measured on
+  the test phrase: Moonshine "Open text edit n type hello", 108 ms, 0.7 GB
+  peak; Parakeet "Open text edit and type hello.", 80 ms, 1.9 GB peak, 1.7 s
+  load (with the hash check). Moonshine stays the default.
+- **Clicky features** (Tony's request, after reading farzaa/clicky and
+  jasonkneen/openclicky, both MIT; ideas only, no code copied):
+  - Companion cursor (`voice.companion`): while a voice request is in progress, the app
+    sends `deskhand:companion {x, y, level}` (pointer from
+    `platform::pointer_location`, mic RMS from `audio::mic_level`) at
+    ~60 Hz, changes only, until 2.5 s after idle. The AI cursor springs
+    beside the user's pointer, the tag shows a waveform (listening) or
+    dots (thinking), it flies off for an action, holds 1.5 s on the target
+    (4 s after `point`), then flies home on an arc.
+  - Captions (`voice.captions`): `SpeakerEvent::FirstAudio` carries the
+    text and `SpeakerEvent::Generated` the audio's real length (generation
+    runs ahead of playback); the overlay reveals whole words in proportion
+    to playback time, 0.12 s ahead (14 chars/s until the length is known;
+    Phonon speaks about 13). Beside the cursor, or above the voice pill.
+    Letter-by-letter typing felt behind the voice (Tony).
+  - Tap-to-talk (`voice.tap_to_talk`, in `Machine`): a press under 300 ms
+    listens hands-free; the next press sends; 60 s cap; Esc cancels.
+  - Do or teach, decided per request (Tony: "no checkboxes, the best of
+    both worlds"): the voice prompt says a command is done, while "teach
+    me", "show me how" or "how do I..." means point and explain one step
+    at a time without clicking or typing. A "Show me" setting existed
+    briefly and was removed; an old `assist` field is ignored.
+  - `--demo` starts with a companion scene (made-up pointer, nothing real
+    moves).
 - **Test path** (off by default, loud banner): `--test-voice WAV` replaces
   the mic with a WAV and presses Fn synthetically through the real tap;
   `--test-voice-esc` adds an Esc mid-turn and a second request; replies go
@@ -380,9 +427,14 @@ Windows is stubs plus `docs/windows-test-checklist.md`.
   release build takes 54 ms median, 91 ms p95, 94 ms max over 70 shots
   (capture 31-54 ms, mask 1-5 ms, resize 9-18 ms), no spikes; details in
   `docs/phase3/README.md`. Measure screenshot speed in release builds only.
-- **Unsigned builds lose permission grants on every rebuild**: macOS ties
-  them to the code signature. Signing is documented in `docs/release.md`,
-  not set up.
+- **Build with `scripts/build-mac.sh`**, not plain `npx tauri build`: it
+  signs with the Developer ID (or Apple Development) identity found in the
+  keychain (`APPLE_SIGNING_IDENTITY` overrides), with the hardened runtime
+  and `Entitlements.plist` (microphone). The designated requirement is
+  then the bundle id plus the team id, so macOS keeps the four permission
+  grants across rebuilds. An ad-hoc build changes signature every time
+  and loses them; `tccutil reset All dev.deskhand.app` clears stale
+  entries. The identity is never written into the repo.
 - **macOS 26 menu bar**: status items are drawn by Control Center, not by
   our process, and move when the frontmost app changes. Tests must re-read
   the tray position and confirm our menu window is open before clicking.

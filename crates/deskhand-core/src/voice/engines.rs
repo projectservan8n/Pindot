@@ -27,6 +27,41 @@ pub trait TextToSpeech: Send + Sync {
     fn speak(&self, text: &str, on_chunk: &mut dyn FnMut(&[f32]) -> bool) -> Result<()>;
 }
 
+/// Load the speech-to-text engine that matches the files in `dir`: Parakeet
+/// has `nemo128.onnx`, anything else is treated as Moonshine.
+pub fn load_stt(dir: &Path) -> Result<Box<dyn SpeechToText>> {
+    if dir.join("nemo128.onnx").exists() {
+        Ok(Box::new(ParakeetStt::load(dir)?))
+    } else {
+        Ok(Box::new(MoonshineStt::load(dir)?))
+    }
+}
+
+pub struct ParakeetStt {
+    model: transcribe_rs::onnx::parakeet::ParakeetModel,
+}
+
+impl ParakeetStt {
+    pub fn load(dir: &Path) -> Result<Self> {
+        let t0 = Instant::now();
+        let model = transcribe_rs::onnx::parakeet::ParakeetModel::load(dir, &transcribe_rs::onnx::Quantization::Int8)
+            .map_err(|e| anyhow!("loading Parakeet from {}: {e}", dir.display()))?;
+        tracing::info!("Parakeet loaded from {} in {:?}", dir.display(), t0.elapsed());
+        Ok(Self { model })
+    }
+}
+
+impl SpeechToText for ParakeetStt {
+    fn transcribe(&mut self, samples: &[f32]) -> Result<String> {
+        if samples.is_empty() {
+            return Ok(String::new());
+        }
+        let params = transcribe_rs::onnx::parakeet::ParakeetParams::default();
+        let r = self.model.transcribe_with(samples, &params).map_err(|e| anyhow!("Parakeet: {e}"))?;
+        Ok(r.text.trim().to_string())
+    }
+}
+
 pub struct MoonshineStt {
     model: transcribe_rs::onnx::moonshine::StreamingModel,
 }
@@ -63,8 +98,9 @@ pub struct PhononTts {
 }
 
 impl PhononTts {
-    /// `voice`: a voice name registered by the checkpoint (`None` = its default).
-    pub fn load(dir: &Path, voice: Option<&str>) -> Result<Self> {
+    /// `voice`: an extra voice (its name and embedding file, see
+    /// `phonon_voices`); `None` = the checkpoint's own default voice.
+    pub fn load(dir: &Path, voice: Option<(&str, &Path)>) -> Result<Self> {
         use ptts::checkpoint::{Checkpoint, ResolveOptions};
         let t0 = Instant::now();
         let checkpoint = Checkpoint::resolve(dir, ResolveOptions { quant: ptts::synth::Quant::Q80, weights: None })
@@ -76,8 +112,9 @@ impl PhononTts {
             .map_err(|e| anyhow!("loading Phonon: {e}"))?;
         checkpoint.register_voices(&mut synth);
         let mut options = ptts::synth::SpeechOptions::default();
-        if let Some(v) = voice {
-            options = options.voice(v);
+        if let Some((name, path)) = voice {
+            synth.add_voice_file(name, path).map_err(|e| anyhow!("Phonon voice {name}: {e}"))?;
+            options = options.voice(name);
         }
         tracing::info!("Phonon loaded from {} in {:?}", dir.display(), t0.elapsed());
         Ok(Self { synth, options })
