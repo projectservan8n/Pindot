@@ -278,14 +278,16 @@ Settings, Activity, the overlay, hold-to-talk (`Ctrl+Win`), the Esc stop key,
 speech and the Claude Code session work, and Claude can see and control the
 desktop: the window and app list, app approval, opening apps, reading a
 window's elements, clicking, typing, shortcuts, scrolling, dragging and
-screenshots. It has been tried on a small test window and with scripted
-turns, not yet across real apps. Limits to know:
+screenshots. It has been tried on a test window, on a web page in Edge and
+on Paint, and with scripted turns from a spoken request to an action; not
+yet across many real apps. Limits to know:
 
-- The password check (Pindot never types into a password field) was tried
-  on a classic Windows password box only, not in a browser. Until that is
-  checked, do not ask Pindot to work on a sign-in page.
-- Windows drops input sent to an administrator's window; Pindot cannot
-  control those.
+- Windows does not let a normal app click or type in an administrator's
+  window. Pindot notices such a window and says so instead of sending
+  input that goes nowhere.
+- Items of a closed menu are not listed: the menu has to be opened first.
+- Claude Code must be the native app (`claude.exe`). An npm install
+  (`claude.cmd`) is detected and Setup says so.
 - A shortcut written the Mac way is translated: `cmd+s` is pressed as
   Ctrl+S. `win` is the Windows key.
 

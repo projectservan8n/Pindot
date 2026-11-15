@@ -540,10 +540,64 @@ then 2.1.325). What was run and seen is in
     `IsPassword` on the focused element, and keeps the classic check (an
     Edit control with `ES_PASSWORD`) in case UI Automation fails. Tried on
     a classic password box only, not in a browser.
-  - Seen: every tool by hand against a test window (by x,y and by ref),
-    and two real turns (`--test-turn`, haiku): from screenshots, "hello"
+  - **A browser's page is not in the tree until asked for.** Chromium and
+    Firefox build a page's accessibility tree only once a client asks, so
+    the first walk of such a window found the browser's frame and no page
+    (Edge: 6 elements, then 11 a second later). `uia::window_tree` walks a
+    browser window again, up to four times 350 ms apart, until a document
+    has content (`web_tree_pending`); a window whose page never comes is
+    not waited for again for 30 s. The first read of a fresh Edge window
+    now lists the page (0.45 s).
+  - **A dialog is seen twice**: Windows shows an owned dialog as its own
+    window and again inside its owner's tree, so `find` listed "Don't
+    save" twice. `find` keeps the first of two hits with the same role,
+    name and place in one app (`tree::same_element`).
+  - **An administrator's window**: Windows drops input a normal process
+    sends to it, and `SendInput` still reports success. Before a click,
+    scroll, drag, key or text, the process that owns the target is checked
+    (its token's elevation; a process we may not even open counts too)
+    and the tool gets a clear error with nothing sent
+    (`input_is_blocked`). `spike_hotkey status` lists such windows.
+  - **A click at x,y stays a real click on Windows, on purpose.** macOS
+    presses the control under the point (`actionable_at`); here that is
+    left out so that a click at a place is the way out when a press by
+    ref does nothing (a control whose Invoke lies). A right-click is
+    always real (`AXShowMenu` has no counterpart).
+  - Seen: every tool by hand against a test window (by x,y and by ref);
+    two real turns (`--test-turn`, haiku): from screenshots, "hello"
     typed and a button pressed in 14.6 s with two screenshots; with the
     tree, text typed and the button pressed twice in 18.1 s with none.
+    Edge with its own profile on a local page: a field typed into, a
+    checkbox, a button and a link pressed by ref, and typing into the
+    page's password field refused. Paint: opened from the Start menu,
+    104 controls in 0.46 s, the pencil picked by ref, two lines drawn by
+    drag where they were aimed, Alt+F4, "Don't save" pressed. And the
+    whole loop: a synthesised spoken request through `--test-voice`
+    (Parakeet, haiku) opened a test window's app, typed and pressed, and
+    said so: RESULT PASS, 14.7 s from key release to the first sound.
+- **The overlay is a tool window** titled "Pindot cursor". The window
+  library makes it an "app window", which Windows forces into Alt+Tab and
+  the taskbar; `platform::windows::window::hide_from_switcher` changes
+  that after the window is built (`overlay_ex_style`).
+- **No console windows.** A console program started by a windowed app gets
+  a new, visible console on Windows, so `claude --version`, `claude auth
+  status` (at start, on every Setup refresh and voice restart) and `claude
+  mcp add/remove` each flashed a black window in a release build. They
+  start with `CREATE_NO_WINDOW` now (`brain::hidden`). Launching from a
+  terminal hides the flash, so test a release build from Explorer.
+- **Finding `claude`**: `claude.exe` on the PATH, then under the home
+  folder's usual places (a windowed app may get a shorter PATH). An npm
+  install is a `claude.cmd` script: Pindot cannot start a script in its
+  terminal, and `cmd /c` would hand the prompt to cmd's quoting rules, so
+  Setup says to install the native app instead of "not installed".
+- **Checked without the user's pointer or keys**: the Esc stop key
+  (`spike_hotkey esc` with a test window in front and unmarked Esc presses:
+  armed, both reported and none reached the window; disarmed, the press
+  reached it); the approval window in a release build (answered with Deny
+  over CDP, never Allow); the tray icon and its menu (UI Automation finds
+  the icon in the hidden-icons flyout and presses it; the menu is read
+  with `MN_GETHMENU` because UI Automation shows it empty; "Quit Pindot"
+  exited cleanly).
 - **The pseudo-console asks a question first**: portable-pty 0.9 opens
   ConPTY with `PSEUDOCONSOLE_INHERIT_CURSOR`, so the first thing it sends
   is `ESC[6n` (where is the cursor?), and it passes on nothing `claude`
@@ -617,17 +671,19 @@ then 2.1.325). What was run and seen is in
   the tray position and confirm our menu window is open before clicking.
 - **Windows**: `find_claude` looks only for `claude.exe`; an npm install
   gives `claude.cmd` (see the checklist).
-- **Windows, tried only on a small test window**: the element tree, the
-  press and the password check have not met a real app (a browser, Office,
-  a store app), whose trees are larger and odder. Menus that are closed
-  are not listed (macOS lists them with `menu_path`).
-- **Windows, not checked**: the approval window answered by a human, the
-  tray menu, a real Esc press against the stop hook, a monitor above 100%,
-  sleep and wake, an elevated window in front (input sent to it is dropped
-  while `SendInput` reports success, and nothing says so), a window that is
-  invisible but not click-through (it would block clicks under it), and
-  the installer. The token and config files get no ACL (they rely on
-  `%APPDATA%` being per-user).
+- **Windows, tried on few apps**: a test window, Edge on a local page and
+  Paint. Not Office, File Explorer, a store app other than Paint, or a
+  real web site. Items of a closed menu are not listed (macOS lists them
+  with `menu_path`); the menu has to be opened and the window read again.
+- **Windows, not checked**: a person answering the approval window and
+  using the tray menu by hand, the physical Esc key, a monitor above 100%,
+  sleep and wake, a click refused on an administrator's window (the check
+  flags such windows; no click was aimed at one), a window that is
+  invisible but not click-through (it would block clicks under it), a
+  release build started from Explorer (for console flashes), and the
+  installer. The token and config files get no ACL (they rely on
+  `%APPDATA%` being per-user). Quitting `claude` with Ctrl+C and the `win`
+  modifier also changed the macOS path, which was not run.
 - `scripts/check-windows.sh` type-checks `pindot-core` and the app for
   `x86_64-pc-windows-msvc` from the Mac, with stand-ins for the C compiler,
   archiver and `llvm-rc` (ring and the icon resource need Windows headers),
