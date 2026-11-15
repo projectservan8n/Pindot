@@ -13,7 +13,15 @@ printed.
 """
 import base64, json, os, sys, time, urllib.request, urllib.error
 
-DATA = os.environ.get("PINDOT_DATA_DIR") or os.path.expanduser("~/Library/Application Support/Pindot")
+# A tool result can hold any Unicode (a File Explorer date carries U+200E).
+# Windows gives a pipe a legacy code page, where printing that would fail.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+DATA =os.environ.get("PINDOT_DATA_DIR") or os.path.expanduser("~/Library/Application Support/Pindot")
 SESSION_FILE = "/tmp/pindot-mcp-session"
 IMG_DIR = os.environ.get("MCP_IMG_DIR", "/tmp/pindot-mcp-img")
 

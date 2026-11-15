@@ -530,10 +530,23 @@ then 2.1.325). What was run and seen is in
     mapping to `tree::is_interactive`). A password's value is never read.
     Worker threads join the multithreaded apartment before their first
     call; element handles are shared between them.
-  - **Pressing an element** is Invoke, else Toggle, Select,
-    Expand/Collapse, else the legacy default action, on a helper thread
-    given two seconds (Invoke can block while the dialog a button opens is
-    up). `AXShowMenu` has no equivalent: a right-click is always real. A
+  - **Pressing an element** does what one click would
+    (`windows_logic::press_action`): a row, a tab or a radio button that
+    can be selected is selected and nothing more; anything else is
+    Invoke, else Toggle, Select, Expand/Collapse, else the legacy default
+    action. It runs on a helper thread given two seconds (Invoke can block
+    while the dialog a button opens is up). Invoke came first for
+    everything until a test's click on a file's row in File Explorer
+    opened the file: there Invoke means "open", what a double-click does,
+    and on a program's row it would have run the program. Settings'
+    navigation rows offer only Select, and it navigates. A list that acts
+    only on Invoke will not react to a press by ref; a click at x,y does
+    it. `desktop_context` says a row is opened with a double-click or
+    Enter.
+  - **Direction marks are left out** of names and values
+    (`windows_logic::visible_text`): File Explorer writes a date with
+    U+200E and U+200F between its parts, which `find("15 Nov 2026")` did
+    not match. `AXShowMenu` has no equivalent: a right-click is always real. A
     click at x,y is always a real click too (`actionable_at` is not built),
     so the pointer-free click is only for refs.
   - **Password fields**: `focused_is_secure` asks UI Automation's
@@ -575,6 +588,17 @@ then 2.1.325). What was run and seen is in
     whole loop: a synthesised spoken request through `--test-voice`
     (Parakeet, haiku) opened a test window's app, typed and pressed, and
     said so: RESULT PASS, 14.7 s from key release to the first sound.
+    Later, by hand through the tools: Settings (a store app whose frame is
+    an `ApplicationFrameWindow`) opened by name, 39 controls in 0.2 s, a
+    navigation row pressed by ref and its page read, Alt+F4. File Explorer
+    on a test folder: 70 controls in 0.17 s, with each file's name, date,
+    type and size, the folders of the side pane and the toolbar with what
+    is disabled; a file selected by ref (Cut, Copy, Rename and Delete came
+    alive); a double-click on a row that another app's window covered was
+    refused, rightly. Edge on example.com: the page listed on the first
+    read (0.48 s), its link pressed by ref, the next page read (74
+    controls). Calculator is not installed on the test PC and `open_app`
+    said so.
 - **The overlay is a tool window** titled "Pindot cursor". The window
   library makes it an "app window", which Windows forces into Alt+Tab and
   the taskbar; `platform::windows::window::hide_from_switcher` changes
@@ -584,7 +608,10 @@ then 2.1.325). What was run and seen is in
   status` (at start, on every Setup refresh and voice restart) and `claude
   mcp add/remove` each flashed a black window in a release build. They
   start with `CREATE_NO_WINDOW` now (`brain::hidden`). Launching from a
-  terminal hides the flash, so test a release build from Explorer.
+  terminal hides the flash, so test a release build from Explorer. Seen:
+  the release build started through `explorer.exe`, every new visible
+  window watched for 25 s (start, the two `claude` checks, the voice
+  brain): only Pindot's own windows appeared.
 - **Held while off**: when hold-to-talk is off for a reason (a model is
   missing, Setup is not finished) nothing listened for the key, so holding
   it did nothing at all, which read as "the hotkey is broken". On Windows a
@@ -701,17 +728,17 @@ then 2.1.325). What was run and seen is in
   the tray position and confirm our menu window is open before clicking.
 - **Windows**: `find_claude` looks only for `claude.exe`; an npm install
   gives `claude.cmd` (see the checklist).
-- **Windows, tried on few apps**: a test window, Edge on a local page and
-  Paint. Not Office, File Explorer, a store app other than Paint, or a
-  real web site. Items of a closed menu are not listed (macOS lists them
+- **Windows, tried on few apps**: a test window, Edge (a local page and
+  one public site), Paint, Settings and File Explorer on a test folder.
+  Not Office, a chat or mail app, or a heavy web app. Items of a closed
+  menu are not listed (macOS lists them
   with `menu_path`); the menu has to be opened and the window read again.
 - **Windows, not checked**: a person answering the approval window and
   using the tray menu by hand, the physical Esc key, a monitor above 100%,
   sleep and wake, a click refused on an administrator's window (the check
   flags such windows; no click was aimed at one), a window that is
-  invisible but not click-through (it would block clicks under it), a
-  release build started from Explorer (for console flashes), and the
-  installer's pages (it was only run silently). The token and config files
+  invisible but not click-through (it would block clicks under it), and
+  the installer's pages (it was only run silently). The token and config files
   get no ACL (they rely on
   `%APPDATA%` being per-user). Quitting `claude` with Ctrl+C and the `win`
   modifier also changed the macOS path, which was not run.

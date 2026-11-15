@@ -278,9 +278,12 @@ Settings, Activity, the overlay, hold-to-talk (`Ctrl+Win`), the Esc stop key,
 speech and the Claude Code session work, and Claude can see and control the
 desktop: the window and app list, app approval, opening apps, reading a
 window's elements, clicking, typing, shortcuts, scrolling, dragging and
-screenshots. It has been tried on a test window, on a web page in Edge and
-on Paint, and with scripted turns from a spoken request to an action; not
-yet across many real apps. Limits to know:
+screenshots. It has been tried on a test window, on web pages in Edge, on
+Paint, on Settings and on File Explorer, and with scripted turns from a
+spoken request to an action; not yet across many real apps. Limits to know:
+
+- A click on a row by its reference (a file, an item of a list) selects
+  it, as a click does. It is opened with a double-click or Enter.
 
 - Windows does not let a normal app click or type in an administrator's
   window. Pindot notices such a window and says so instead of sending

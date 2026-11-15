@@ -7,7 +7,7 @@ was seen on that PC; a note after a box says how far an unticked one got.
 
 On Windows today:
 
-- **Works**: the build (see "Build"), `cargo test --workspace` (180 + 24 + 3
+- **Works**: the build (see "Build"), `cargo test --workspace` (187 + 24 + 3
   tests), the app with Setup, Settings and Activity, the MCP server and its
   guards, the overlay on both monitors, the microphone check, hold-to-talk
   (`Hotkey`, self-healing), the Esc stop key (`StopKey`), speech to text,
@@ -19,9 +19,9 @@ On Windows today:
   clicked in a test window (`--test-turn`, TURN COMPLETED).
 - **Also works, on few apps**: the element tree through UI Automation
   (`read_window`, `find`, click by ref, press without the pointer) and the
-  password-field check (`IsPassword`): on a test window, on a local page
-  in Edge and on Paint. Not yet on Office, File Explorer or a real web
-  site.
+  password-field check (`IsPassword`): on a test window, in Edge (a local
+  page and one public site), on Paint, on Settings and on File Explorer.
+  Not yet on Office, a chat or mail app, or a heavy web app.
 - **Installing**: `scripts\build-windows.ps1` makes the app and a per-user
   installer. A silent install, a start of the installed copy and a silent
   uninstall were run. Starting Pindot twice opens the running one's
@@ -177,6 +177,25 @@ Only click and type in windows you opened for the test.
       only once asked); a field typed into; a checkbox, a button and a link
       pressed by ref without the pointer; typing into the page's password
       field refused, the field left empty.
+- [x] A public site: Edge with its own profile on example.com. The page was
+      listed on the first read (0.48 s); its link pressed by ref; the page
+      it leads to read (74 controls, 32 links).
+- [x] A store app: Settings (its frame is an `ApplicationFrameWindow`, the
+      app is the process behind it). `open_app("Settings")` opened it and
+      named it; 39 controls in 0.2 s; the row "Personalization" pressed by
+      ref without the pointer and its page read (Background, Colors,
+      Themes, ...); `find("Colors")`; Alt+F4 closed it. Nothing was changed
+      in Settings. `open_app("Calculator")` said, rightly, that no such app
+      is installed on this PC.
+- [x] File Explorer, on a test folder in a window the test opened: 70
+      controls in 0.17 s (each file with its name, date, type and size,
+      the side pane, the toolbar with what is disabled). A click on a
+      file's row by ref selects it: Cut, Copy, Rename and Delete came
+      alive and nothing opened. Before the fix it opened the file (UI
+      Automation's Invoke on a file is "open"); see `press_action`. A
+      double-click on a row covered by another app's window was refused.
+      Dates read "15 Nov 2026 10:04 pm" and `find` matches them (Explorer
+      puts invisible direction marks between the parts).
 - [x] Secure fields: a password box (UIA `IsPassword`) is reported as
       `securetextfield` and `type_text` refuses to type into it.
       (A classic password box. Still to try: a password field on a web
@@ -259,6 +278,11 @@ Only click and type in windows you opened for the test.
       Setup..., Settings..., Activity..., the checked Hold-to-talk
       (Ctrl+Win) and Quit Pindot. Quit exited cleanly: no `pindot`, no
       WebView2 process, the port free. Not used by hand.)
+- [x] No console window flashes when the release build is started the way
+      Explorer starts it (`explorer.exe <path>`, so no console anywhere):
+      every new visible window was watched for 25 s, through the start,
+      `claude --version`, `claude auth status` and the voice brain, and
+      only Pindot's own windows appeared.
 - [x] First start opens Setup without stealing focus from the app in front.
       (A private instance that needed Setup: its window came up first in
       the z-order and the foreground window stayed another app's.)

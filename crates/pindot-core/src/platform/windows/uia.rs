@@ -38,7 +38,9 @@ use windows::Win32::UI::Accessibility::{
     UIA_SelectionItemPatternId, UIA_TogglePatternId, UIA_ValuePatternId,
 };
 
-use crate::platform::windows_logic::{UIA_MENU_BAR, uia_has_value, uia_role, web_tree_pending};
+use crate::platform::windows_logic::{
+    Patterns, PressAction, UIA_MENU_BAR, press_action, uia_has_value, uia_role, visible_text, web_tree_pending,
+};
 use crate::platform::{AxNode, AxTree, ElementHandle, PlatformError, Rect, Result, TreeLimits};
 
 /// How long a press may take before it counts as done.
@@ -139,7 +141,7 @@ impl Walk<'_> {
                 .then(|| el.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId).ok())
                 .flatten()
                 .and_then(|p| p.CurrentValue().ok())
-                .map(|v| v.to_string())
+                .map(|v| visible_text(&v.to_string()))
                 .filter(|v| !v.is_empty())
                 .map(|v| v.chars().take(VALUE_MAX).collect());
             let node = AxNode {
@@ -147,7 +149,7 @@ impl Walk<'_> {
                 depth,
                 role: role.into(),
                 subrole: subrole.map(String::from),
-                name: el.CachedName().map(|n| n.to_string()).unwrap_or_default(),
+                name: el.CachedName().map(|n| visible_text(&n.to_string())).unwrap_or_default(),
                 value,
                 // An element with no place on screen reports an empty
                 // rectangle; it keeps it, so the listing leaves it out.
@@ -259,42 +261,59 @@ pub fn element_frame(h: &ElementHandle, scale: f64) -> Result<Option<Rect>> {
     Ok((!empty).then(|| logical(rect, scale)))
 }
 
-/// Does the element offer an action that amounts to a press?
-pub fn can_press(h: &ElementHandle) -> Result<bool> {
-    let el = el_of(h)?;
-    // SAFETY: COM calls on a valid interface pointer. An element that is
-    // gone fails the first query.
+/// The element's kind and what it offers. An element that is gone fails
+/// the first query.
+fn offers(el: &IUIAutomationElement) -> Result<(i32, Patterns)> {
+    // SAFETY: COM calls on a valid interface pointer.
     unsafe {
-        el.CurrentControlType().map_err(err)?;
-        Ok(el.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId).is_ok()
-            || el.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId).is_ok()
-            || el.GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId).is_ok()
-            || el.GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId).is_ok())
+        let control_type = el.CurrentControlType().map_err(err)?.0;
+        let can = Patterns {
+            invoke: el.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId).is_ok(),
+            toggle: el.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId).is_ok(),
+            select: el.GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId).is_ok(),
+            expand: el.GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId).is_ok(),
+            legacy: el
+                .GetCurrentPatternAs::<IUIAutomationLegacyIAccessiblePattern>(UIA_LegacyIAccessiblePatternId)
+                .is_ok(),
+        };
+        Ok((control_type, can))
     }
 }
 
-/// The element's default action: invoke, toggle, select, or open/close.
+/// Does the element offer an action that amounts to a press?
+pub fn can_press(h: &ElementHandle) -> Result<bool> {
+    let (control_type, can) = offers(el_of(h)?)?;
+    // The old default action is a last resort of `press`, not a promise.
+    Ok(press_action(control_type, Patterns { legacy: false, ..can }).is_some())
+}
+
+/// What one click would do, without the pointer: select a row, a tab or a
+/// radio button; invoke a button or a link; toggle; open or close.
 fn press_now(el: &IUIAutomationElement) -> Result<()> {
+    let (control_type, can) = offers(el)?;
+    let Some(action) = press_action(control_type, can) else {
+        return Err(PlatformError::Other("that element cannot be pressed; click it at its position instead".into()));
+    };
     // SAFETY: COM calls on a valid interface pointer.
     unsafe {
-        if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId) {
-            return p.Invoke().map_err(err);
+        match action {
+            PressAction::Invoke => el.GetCurrentPatternAs::<IUIAutomationInvokePattern>(UIA_InvokePatternId).and_then(|p| p.Invoke()),
+            PressAction::Toggle => el.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId).and_then(|p| p.Toggle()),
+            PressAction::Select => el
+                .GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId)
+                .and_then(|p| p.Select()),
+            PressAction::ExpandCollapse => {
+                el.GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId).and_then(|p| {
+                    let collapsed = p.CurrentExpandCollapseState().is_ok_and(|s| s == ExpandCollapseState_Collapsed);
+                    if collapsed { p.Expand() } else { p.Collapse() }
+                })
+            }
+            PressAction::DefaultAction => el
+                .GetCurrentPatternAs::<IUIAutomationLegacyIAccessiblePattern>(UIA_LegacyIAccessiblePatternId)
+                .and_then(|p| p.DoDefaultAction()),
         }
-        if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationTogglePattern>(UIA_TogglePatternId) {
-            return p.Toggle().map_err(err);
-        }
-        if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationSelectionItemPattern>(UIA_SelectionItemPatternId) {
-            return p.Select().map_err(err);
-        }
-        if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationExpandCollapsePattern>(UIA_ExpandCollapsePatternId) {
-            let collapsed = p.CurrentExpandCollapseState().is_ok_and(|s| s == ExpandCollapseState_Collapsed);
-            return if collapsed { p.Expand() } else { p.Collapse() }.map_err(err);
-        }
-        if let Ok(p) = el.GetCurrentPatternAs::<IUIAutomationLegacyIAccessiblePattern>(UIA_LegacyIAccessiblePatternId) {
-            return p.DoDefaultAction().map_err(err);
-        }
+        .map_err(err)
     }
-    Err(PlatformError::Other("that element cannot be pressed; click it at its position instead".into()))
 }
 
 /// Press an element without the pointer (see the module comment on time).

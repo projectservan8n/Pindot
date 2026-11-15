@@ -482,7 +482,7 @@ impl DesktopServer {
         if cfg!(windows) {
             // What differs from the tool descriptions, which use Mac examples.
             s.push_str(
-                "This computer runs Windows. Shortcuts use ctrl (\"cmd\" is pressed as ctrl) and \"win\" is the Windows key, e.g. \"ctrl+s\", \"alt+f4\", \"win+r\". Name apps as the Start menu does. If read_window shows little for an app (a canvas, a game, some web pages), take a screenshot and click at x,y.\n\n",
+                "This computer runs Windows. Shortcuts use ctrl (\"cmd\" is pressed as ctrl) and \"win\" is the Windows key, e.g. \"ctrl+s\", \"alt+f4\", \"win+r\". Name apps as the Start menu does. If read_window shows little for an app (a canvas, a game, some web pages), take a screenshot and click at x,y. Clicking a row by ref (a file, a list item) selects it; to open it, double-click it (count 2) or press enter.\n\n",
             );
         }
         s.push_str("Displays:\n");

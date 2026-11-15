@@ -270,6 +270,66 @@ pub fn uia_has_value(control_type: i32, is_password: bool) -> bool {
     !is_password && matches!(control_type, UIA_EDIT | 50003 | 50015 | 50016)
 }
 
+/// On-screen text without the invisible marks that steer its direction.
+/// File Explorer writes a date as "\u{200e}15 \u{200e}Nov \u{200e}2026", which
+/// `find("15 Nov 2026")` would not match and which reads as noise.
+pub fn visible_text(s: &str) -> String {
+    // Left-to-right and right-to-left marks, embeddings, overrides and
+    // isolates. Not U+200D: it joins the parts of an emoji.
+    let mark = |c: &char| matches!(c, '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}');
+    s.chars().filter(|c| !mark(c)).collect()
+}
+
+/// What a control lets a client do to it without the pointer (the UI
+/// Automation patterns it has).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Patterns {
+    pub invoke: bool,
+    pub toggle: bool,
+    pub select: bool,
+    pub expand: bool,
+    /// The older "default action" (`IAccessible`).
+    pub legacy: bool,
+}
+
+/// The action that stands in for one click.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PressAction {
+    Invoke,
+    Toggle,
+    Select,
+    ExpandCollapse,
+    DefaultAction,
+}
+
+pub const UIA_LIST_ITEM: i32 = 50007;
+pub const UIA_RADIO_BUTTON: i32 = 50013;
+pub const UIA_TAB_ITEM: i32 = 50019;
+pub const UIA_TREE_ITEM: i32 = 50024;
+pub const UIA_DATA_ITEM: i32 = 50029;
+
+/// Which action a press by ref takes in place of one click, if any.
+///
+/// A row, a tab or a radio button that can be selected is selected and
+/// nothing more. For a file in File Explorer, Invoke means "open" (what a
+/// double-click does), so pressing a row by ref opened the file where a
+/// click only selects it; on a program's row it would have run the program.
+pub fn press_action(control_type: i32, can: Patterns) -> Option<PressAction> {
+    let item = matches!(control_type, UIA_LIST_ITEM | UIA_DATA_ITEM | UIA_TREE_ITEM | UIA_TAB_ITEM | UIA_RADIO_BUTTON);
+    if item && can.select {
+        return Some(PressAction::Select);
+    }
+    [
+        (can.invoke, PressAction::Invoke),
+        (can.toggle, PressAction::Toggle),
+        (can.select, PressAction::Select),
+        (can.expand, PressAction::ExpandCollapse),
+        (can.legacy, PressAction::DefaultAction),
+    ]
+    .into_iter()
+    .find_map(|(offered, action)| offered.then_some(action))
+}
+
 // ------------------------------------------------------------- input
 
 /// The virtual key of a named key and whether it is an "extended" key
@@ -749,6 +809,65 @@ mod tests {
         assert!(uia_has_value(50003, false), "a combo box shows its choice");
         assert!(!uia_has_value(50000, false));
         assert!(!uia_has_value(50030, false), "a document can be huge");
+    }
+
+    #[test]
+    fn direction_marks_are_left_out_of_on_screen_text() {
+        let date = "\u{200e}15 \u{200e}Nov \u{200e}2026 \u{200f}\u{200e}10:04 pm";
+        assert_eq!(visible_text(date), "15 Nov 2026 10:04 pm");
+        assert_eq!(visible_text("a\u{202a}b\u{202e}c\u{202c}d\u{2066}e\u{2069}f"), "abcdef");
+    }
+
+    #[test]
+    fn other_text_is_kept_as_it_is() {
+        // Accents, CJK, a space that does not break, and the joiner inside an emoji.
+        let text = "na\u{ef}ve \u{65e5}\u{672c}\u{8a9e} 10:04\u{202f}pm \u{1f469}\u{200d}\u{1f4bb}";
+        assert_eq!(visible_text(text), text);
+        assert_eq!(visible_text(""), "");
+    }
+
+    #[test]
+    fn a_click_on_a_file_row_selects_it_and_never_opens_it() {
+        // File Explorer's rows: Invoke opens the file, SelectionItem selects it.
+        let row = Patterns { invoke: true, select: true, ..Patterns::default() };
+        for item in [UIA_LIST_ITEM, UIA_DATA_ITEM, UIA_TREE_ITEM] {
+            assert_eq!(press_action(item, row), Some(PressAction::Select), "control type {item}");
+        }
+    }
+
+    #[test]
+    fn a_tab_and_a_radio_button_are_selected() {
+        let can = Patterns { invoke: true, select: true, ..Patterns::default() };
+        assert_eq!(press_action(UIA_TAB_ITEM, can), Some(PressAction::Select));
+        assert_eq!(press_action(UIA_RADIO_BUTTON, can), Some(PressAction::Select));
+        // The rows of Settings' navigation list offer nothing else.
+        let only_select = Patterns { select: true, ..Patterns::default() };
+        assert_eq!(press_action(UIA_LIST_ITEM, only_select), Some(PressAction::Select));
+    }
+
+    #[test]
+    fn a_row_that_cannot_be_selected_is_invoked() {
+        let can = Patterns { invoke: true, expand: true, ..Patterns::default() };
+        assert_eq!(press_action(UIA_LIST_ITEM, can), Some(PressAction::Invoke));
+        assert_eq!(press_action(UIA_TREE_ITEM, can), Some(PressAction::Invoke));
+    }
+
+    #[test]
+    fn a_button_a_link_and_a_menu_item_are_invoked() {
+        let can = Patterns { invoke: true, toggle: true, select: true, expand: true, legacy: true };
+        for control in [50000, 50005, UIA_MENU_ITEM] {
+            assert_eq!(press_action(control, can), Some(PressAction::Invoke), "control type {control}");
+        }
+    }
+
+    #[test]
+    fn without_invoke_the_next_best_action_is_taken() {
+        let none = Patterns::default();
+        assert_eq!(press_action(50002, Patterns { toggle: true, ..none }), Some(PressAction::Toggle));
+        assert_eq!(press_action(50003, Patterns { expand: true, ..none }), Some(PressAction::ExpandCollapse));
+        assert_eq!(press_action(50033, Patterns { select: true, expand: true, ..none }), Some(PressAction::Select));
+        assert_eq!(press_action(50000, Patterns { legacy: true, ..none }), Some(PressAction::DefaultAction));
+        assert_eq!(press_action(50000, none), None, "nothing to press: it is clicked for real");
     }
 
     #[test]
