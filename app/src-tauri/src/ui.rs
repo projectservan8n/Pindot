@@ -298,8 +298,8 @@ pub fn voice_blockers(app: &AppHandle) -> Vec<String> {
     }
     for p in platform::permission_report() {
         let needed = matches!(p.permission, Permission::Microphone | Permission::Accessibility | Permission::InputMonitoring);
-        if needed && !p.state.ok() {
-            out.push(format!("{} permission is missing", p.name));
+        if needed && platform::windows_logic::blocks_voice(p.state, cfg!(windows)) {
+            out.push(p.note.clone().unwrap_or_else(|| format!("{} permission is missing", p.name)));
         }
     }
     out

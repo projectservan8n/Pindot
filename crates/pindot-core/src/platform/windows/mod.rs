@@ -1,25 +1,31 @@
-//! Windows implementations. Phases 0 and 1 ship stubs only; see
-//! `docs/windows-test-checklist.md` for what each must do and how to test it.
+//! Windows implementations. See `docs/windows-test-checklist.md` for what
+//! each must do and how to test it.
 //!
-//! Planned: hotkey = low-level keyboard hook (WH_KEYBOARD_LL) for Ctrl+Win,
-//! swallowing the Win key-up so the Start menu does not open; stop key = the
-//! same hook on VK_ESCAPE, ignoring events whose dwExtraInfo carries our
-//! marker; capture = xcap (Windows Graphics Capture); input = enigo
-//! (SendInput) in physical pixels with per-monitor DPI awareness v2;
-//! accessibility = UI Automation (IUIAutomation, TreeWalker over
-//! ControlView, Invoke pattern for press, ElementFromPoint for hit tests,
-//! IsPassword for secure fields); windows = EnumWindows + DWM cloaking
-//! check; app launch = ShellExecute / the Start-menu AppsFolder.
+//! Done: hold-to-talk and the Esc stop key (`keyhook`, a low-level keyboard
+//! hook), the microphone privacy switches and the pointer position
+//! (`permissions`).
+//!
+//! Still stubs: capture = xcap (Windows Graphics Capture); input = enigo
+//! (SendInput, stamped with `keyhook::INPUT_MARKER`) in physical pixels with
+//! per-monitor DPI awareness v2; accessibility = UI Automation
+//! (IUIAutomation, TreeWalker over ControlView, Invoke pattern for press,
+//! ElementFromPoint for hit tests, IsPassword for secure fields); windows =
+//! EnumWindows + DWM cloaking check; app launch = ShellExecute / the
+//! Start-menu AppsFolder.
 
 use super::*;
 
+pub mod keyhook;
+pub mod permissions;
+
+pub use keyhook::{WinHotkey, WinStopKey};
+pub use permissions::{permission_report, pointer_location};
+
 pub struct WinCapture;
 pub struct WinInput;
-pub struct WinHotkey;
 pub struct WinAccessibility;
-pub struct WinStopKey;
 
-const LATER: &str = "Windows support is a stub until Phase 2";
+const LATER: &str = "seeing and controlling the desktop on Windows";
 
 impl Capture for WinCapture {
     fn displays(&self) -> Result<Vec<DisplayInfo>> {
@@ -47,18 +53,6 @@ impl Input for WinInput {
         Err(PlatformError::Unsupported(LATER))
     }
     fn drag(&self, _from: Point, _to: Point, _should_stop: &(dyn Fn() -> bool + Sync)) -> Result<()> {
-        Err(PlatformError::Unsupported(LATER))
-    }
-}
-
-impl Hotkey for WinHotkey {
-    fn start(&self, _binding: HotkeyBinding, _events: std::sync::mpsc::Sender<HotkeyEvent>) -> Result<ListenerHandle> {
-        Err(PlatformError::Unsupported(LATER))
-    }
-}
-
-impl StopKey for WinStopKey {
-    fn start(&self, _on_press: Arc<dyn Fn() + Send + Sync>) -> Result<ListenerHandle> {
         Err(PlatformError::Unsupported(LATER))
     }
 }
@@ -107,12 +101,4 @@ impl Accessibility for WinAccessibility {
     fn focused_is_secure(&self) -> Result<bool> {
         Err(PlatformError::Unsupported(LATER))
     }
-}
-
-pub fn permission_report() -> Vec<PermissionStatus> {
-    // Windows needs no grant for input, UI Automation or capture. The
-    // microphone has a privacy switch (Settings > Privacy > Microphone) that
-    // is NOT checked yet: not tested, no Windows machine.
-    use super::{Permission, PermissionState};
-    vec![PermissionStatus::new(Permission::Microphone, PermissionState::Unknown)]
 }

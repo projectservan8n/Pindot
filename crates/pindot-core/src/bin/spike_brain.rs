@@ -7,7 +7,7 @@
 //! `--mcp-config` / `--settings` files, spawns `claude` (never `-p`) with
 //! ANTHROPIC_API_KEY blanked, waits for the TUI, types the prompt, waits for
 //! the Stop hook for *this* session id, confirms the answer in the
-//! transcript, then sends `/exit`. With `--desktop` the session gets the
+//! transcript, then quits it with Ctrl+C. With `--desktop` the session gets the
 //! screenshot/click tools through `--allowedTools mcp__desktop`.
 
 use std::sync::Arc;
@@ -116,10 +116,12 @@ fn main() -> anyhow::Result<()> {
     println!("transcript tool calls: {:?}", turn.tool_uses);
     println!("hook and transcript agree: {matched}");
 
+    let t2 = Instant::now();
     session.exit(Duration::from_secs(8))?;
+    println!("exit took {:.1}s", t2.elapsed().as_secs_f64());
     std::thread::sleep(Duration::from_millis(300));
-    let alive = pid.map(|p| std::process::Command::new("kill").args(["-0", &p.to_string()]).status().map(|s| s.success()).unwrap_or(false));
-    println!("child claude still running after /exit: {alive:?}");
+    let alive = pid.map(pid_alive);
+    println!("child claude still running after exit: {alive:?}");
     state.control.shutdown();
     server.shutdown();
     drop(rt);
@@ -133,8 +135,31 @@ fn path_display(p: &std::path::Path) -> String {
     p.display().to_string()
 }
 
+#[cfg(unix)]
+fn pid_alive(pid: u32) -> bool {
+    std::process::Command::new("kill").args(["-0", &pid.to_string()]).status().map(|s| s.success()).unwrap_or(false)
+}
+
+#[cfg(windows)]
+fn pid_alive(pid: u32) -> bool {
+    // "INFO: No tasks are running..." when the pid is gone.
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains(&format!("\"{pid}\"")))
+        .unwrap_or(false)
+}
+
+/// Windows has no `ps -E`: check the child's environment by hand with
+/// Process Explorer (see docs/windows-test-checklist.md).
+#[cfg(windows)]
+fn report_child_env(_pid: u32) {
+    println!("child env: not read on Windows (check ANTHROPIC_API_KEY and CLAUDECODE with Process Explorer)");
+}
+
 /// Show (without printing other values) that the child got a blank
 /// ANTHROPIC_API_KEY and none of the parent-session variables.
+#[cfg(unix)]
 fn report_child_env(pid: u32) {
     let Ok(out) = std::process::Command::new("ps").args(["-E", "-ww", "-o", "command=", "-p", &pid.to_string()]).output() else {
         return;

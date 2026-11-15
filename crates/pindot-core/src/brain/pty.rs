@@ -186,7 +186,9 @@ const OUT_KEEP: usize = 512 * 1024;
 pub struct ClaudeSession {
     pub session_id: Uuid,
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    /// Shared with the reader thread, which answers the Windows console's
+    /// cursor query.
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn Child + Send + Sync>,
     out: Arc<Mutex<OutBuf>>,
     reader: Option<JoinHandle<()>>,
@@ -251,6 +253,39 @@ fn squash(s: &str) -> String {
     s.chars().filter(|c| !c.is_whitespace()).flat_map(|c| c.to_lowercase()).collect()
 }
 
+/// The terminal's "where is the cursor?" query (`CSI 6 n`).
+const CURSOR_QUERY: &[u8] = b"\x1b[6n";
+/// The answer: row 1, column 1 (a fresh screen).
+const CURSOR_REPLY: &[u8] = b"\x1b[1;1R";
+
+/// Counts cursor-position queries in the pty output, across read
+/// boundaries. The Windows pseudo-console opens with one and passes on
+/// nothing the program prints until whoever hosts it answers.
+#[derive(Debug, Default)]
+struct CursorQueryScanner {
+    matched: usize,
+}
+
+impl CursorQueryScanner {
+    /// How many queries end in `bytes`.
+    fn feed(&mut self, bytes: &[u8]) -> usize {
+        let mut found = 0;
+        for &b in bytes {
+            if b == CURSOR_QUERY[self.matched] {
+                self.matched += 1;
+                if self.matched == CURSOR_QUERY.len() {
+                    found += 1;
+                    self.matched = 0;
+                }
+            } else {
+                // Only the first byte (ESC) can start a new match.
+                self.matched = usize::from(b == CURSOR_QUERY[0]);
+            }
+        }
+        found
+    }
+}
+
 impl ClaudeSession {
     pub fn spawn(opts: &SpawnOptions) -> Result<Self> {
         let args = opts.args();
@@ -276,7 +311,8 @@ impl ClaudeSession {
         let child = pair.slave.spawn_command(cmd).context("spawning claude in the pty")?;
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().context("pty reader")?;
-        let writer = pair.master.take_writer().context("pty writer")?;
+        let writer = Arc::new(Mutex::new(pair.master.take_writer().context("pty writer")?));
+        let writer_r = writer.clone();
 
         let out = Arc::new(Mutex::new(OutBuf::default()));
         let out_r = out.clone();
@@ -285,6 +321,7 @@ impl ClaudeSession {
             .and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok());
         let reader_thread = thread::Builder::new().name("claude-pty-reader".into()).spawn(move || {
             let mut buf = [0u8; 8192];
+            let mut cursor_queries = CursorQueryScanner::default();
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => {
@@ -294,6 +331,18 @@ impl ClaudeSession {
                     Ok(n) => {
                         if let Some(f) = raw_log.as_mut() {
                             let _ = f.write_all(&buf[..n]);
+                        }
+                        // The Windows pseudo-console (ConPTY) asks where the
+                        // cursor is and holds back everything claude prints
+                        // until we answer. A Unix pty never asks, and there
+                        // a query would be claude's own, so leave it alone.
+                        if cfg!(windows) {
+                            for _ in 0..cursor_queries.feed(&buf[..n]) {
+                                if let Ok(mut w) = writer_r.lock() {
+                                    let _ = w.write_all(CURSOR_REPLY);
+                                    let _ = w.flush();
+                                }
+                            }
                         }
                         let mut o = out_r.lock().unwrap();
                         let now = Instant::now();
@@ -411,8 +460,9 @@ impl ClaudeSession {
     }
 
     fn write_raw(&mut self, bytes: &[u8]) -> Result<()> {
-        self.writer.write_all(bytes)?;
-        self.writer.flush()?;
+        let mut w = self.writer.lock().map_err(|_| anyhow!("the pty writer lock is poisoned"))?;
+        w.write_all(bytes)?;
+        w.flush()?;
         Ok(())
     }
 
@@ -459,24 +509,34 @@ impl ClaudeSession {
             .map_err(|e| anyhow!("{e}"))
     }
 
-    /// Ctrl+C (clears anything left in the input box, or stops a running
-    /// turn), then `/exit`, then kill if it hasn't gone within `grace`.
-    /// Without the Ctrl+C, `/exit` was once appended to an unsent prompt and
-    /// Enter submitted the lot as a new turn.
+    /// Quit with Ctrl+C, the way a user does: the first one clears the input
+    /// box (or stops a running turn) and claude shows "Press Ctrl-C again to
+    /// exit"; the next one exits. Kill if it hasn't gone within `grace`.
+    ///
+    /// Not `/exit`: we start claude with `--disable-slash-commands`, so it
+    /// answers "Unknown command: /exit" and stays (seen on Windows with
+    /// 2.1.323), and typed text can end up appended to an unsent prompt.
     pub fn exit(mut self, grace: Duration) -> Result<()> {
-        let _ = self.write_raw(b"\x03");
-        thread::sleep(Duration::from_millis(400));
-        let _ = self.write_raw(b"/exit");
-        thread::sleep(SUBMIT_DELAY);
-        let _ = self.write_raw(b"\r");
         let start = Instant::now();
+        // Up to four: one to stop a turn, one for the hint, one to exit,
+        // and a spare if a key was lost while the screen redrew.
+        for _ in 0..4 {
+            let _ = self.write_raw(b"\x03");
+            let pressed = Instant::now();
+            while pressed.elapsed() < Duration::from_millis(400) {
+                if !self.is_running() {
+                    return Ok(());
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+        }
         while start.elapsed() < grace {
             if !self.is_running() {
                 return Ok(());
             }
             thread::sleep(Duration::from_millis(100));
         }
-        tracing::warn!("claude did not exit after /exit; killing it");
+        tracing::warn!("claude did not exit after Ctrl+C; killing it");
         self.child.kill()?;
         let _ = self.child.wait();
         Ok(())
@@ -497,6 +557,38 @@ impl Drop for ClaudeSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_the_cursor_query_the_windows_console_opens_with() {
+        let mut s = CursorQueryScanner::default();
+        // What ConPTY really sent before claude drew anything.
+        assert_eq!(s.feed(b"\x1b[6n\x1b[?9001h\x1b[?1004h\x1b[?25l"), 1);
+        assert_eq!(s.feed(b"\x1b[2J\x1b[m\x1b[H"), 0);
+    }
+
+    #[test]
+    fn finds_a_cursor_query_split_across_reads() {
+        let mut s = CursorQueryScanner::default();
+        assert_eq!(s.feed(b"hello\x1b["), 0);
+        assert_eq!(s.feed(b"6nworld"), 1);
+        let mut s = CursorQueryScanner::default();
+        assert_eq!(s.feed(b"\x1b"), 0);
+        assert_eq!(s.feed(b"[6"), 0);
+        assert_eq!(s.feed(b"n"), 1);
+    }
+
+    #[test]
+    fn other_escape_sequences_are_not_a_cursor_query() {
+        let mut s = CursorQueryScanner::default();
+        assert_eq!(s.feed(b"\x1b[6;1H\x1b[16n\x1b[?6n\x1b[6m 6n"), 0);
+    }
+
+    #[test]
+    fn counts_every_cursor_query_even_after_a_broken_start() {
+        let mut s = CursorQueryScanner::default();
+        assert_eq!(s.feed(b"\x1b[\x1b[6n"), 1);
+        assert_eq!(s.feed(b"\x1b[6n\x1b[6n"), 2);
+    }
 
     #[test]
     fn strips_csi_osc_and_turns_cursor_forward_into_space() {

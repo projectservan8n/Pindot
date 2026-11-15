@@ -9,7 +9,11 @@ decisions and conventions that came out of building it. Phases 0 to 3 are
 done on macOS (spikes; tools, accessibility tree and guardrails; the voice
 loop; the app with setup, settings, downloader, activity viewer and the
 release build). The evidence is in `docs/phase0/` to `docs/phase3/`.
-Windows is stubs plus `docs/windows-test-checklist.md`.
+Windows was first built and run on 15 Nov 2026: the app, the server, the
+overlay and the voice loop (hold-to-talk, speech, the brain) work there;
+capture, input and accessibility are still stubs, so Claude cannot see or
+control the desktop on Windows yet. See "Windows: first build and run" below
+and `docs/windows-test-checklist.md`.
 
 Pindot was called **Deskhand** until 15 Nov 2026. The captured run outputs
 (`docs/phase*/*.log`, `*.txt`) and the screenshots keep the old name, as
@@ -46,9 +50,13 @@ recorded; everything else was renamed (crates, bundle id `dev.pindot.app`,
 
 - `crates/pindot-core`: everything testable without a UI.
   - `platform/`: OS traits `Capture`, `Input`, `Hotkey`, `StopKey` (global
-    Esc), `Accessibility` and `Overlay`. Each has a macOS implementation (`platform/macos`), Windows
-    stubs that return `Unsupported` (`platform/windows`) and mocks
-    (`platform/mock.rs`).
+    Esc), `Accessibility` and `Overlay`. Each has a macOS implementation
+    (`platform/macos`), a Windows one (`platform/windows`: `Hotkey` and
+    `StopKey` are real, `Capture`, `Input` and `Accessibility` return
+    `Unsupported`) and mocks (`platform/mock.rs`).
+    `platform/windows_logic.rs` holds the Windows decisions that need no
+    Windows API (what the microphone switches mean, what the key hook does
+    with each key), so they are unit-tested on every OS.
   - `server/`: the rmcp streamable-HTTP MCP server named `desktop` and the
     hook receivers (`/hooks/stop`, `/hooks/prompt`). `tools.rs` holds the 15
     tools; `session.rs` the per-session approvals, refs and hit test;
@@ -424,6 +432,73 @@ recorded; everything else was renamed (crates, bundle id `dev.pindot.app`,
   "Hi, I'm X." A blank or broken name in a hand-edited file goes back to
   Rusty; long notes are cut.
 
+### Windows: first build and run (15 Nov 2026)
+
+Done on a Windows 11 PC (two 1920x1080 monitors at 100%, claude 2.1.323
+then 2.1.325). What was run and seen is in
+`docs/windows-test-checklist.md`.
+
+- **Linking ONNX Runtime**: `ort-sys` 2.0.0-rc.13's prebuilt static library
+  (ONNX Runtime 1.28.0) needs the STL of a recent Visual Studio 2022. With
+  only VS 2019 Build Tools (MSVC 14.29) the link fails with about 40
+  unresolved `__std_find_trivial_*`, `__std_search_*`, `__std_remove_*`
+  symbols, all in `libort_sys`. Without changing the repo: unpack
+  Microsoft's `onnxruntime-win-x64-1.28.0.zip` and build with
+  `ORT_LIB_LOCATION=<its lib folder>` and `ORT_PREFER_DYNAMIC_LINK=1`; the
+  build script then links `onnxruntime.dll` and copies it next to the exe.
+  Which of the two a Windows release ships is an open decision.
+- **Microphone**: Windows has no per-app grant for a desktop app and never
+  prompts. Three switches decide (Settings > Privacy & security >
+  Microphone): "Microphone access" (HKLM), "Let apps access your
+  microphone" (HKCU) and "Let desktop apps access your microphone" (HKCU,
+  `NonPackaged`), each a `Value` of `Allow` or `Deny` under
+  `...\CapabilityAccessManager\ConsentStore\microphone`. An app is listed
+  there only after it has used the microphone. `permission_report` reads
+  the three: any `Deny` is Denied (with a note naming the switch), a missing
+  value counts as on, an unreadable one is Unknown. Only Denied or
+  Restricted keeps hold-to-talk from starting on Windows
+  (`windows_logic::blocks_voice`): nothing prompts, so trying costs
+  nothing. Before this the report was always Unknown, which blocked voice
+  for good, and "Ask Windows" did nothing; the Setup screen has no Ask
+  button on Windows now.
+- **Hold-to-talk and Esc**: one `WH_KEYBOARD_LL` hook per listener, on its
+  own thread with a message loop (`platform/windows/keyhook.rs`). The
+  hotkey swallows nothing. When a chord with Win or Alt starts it presses
+  the unassigned key `0xE8` once (AutoHotkey's mask key), so letting go
+  opens neither the Start menu nor a window's menu bar. AltGr's made-up
+  Left Ctrl (scan code `0x21D`) is ignored, so Right Alt works on AltGr
+  layouts. The Esc stop returns 1 for a real Esc and reports one press per
+  hold. Keys Pindot injects carry `INPUT_MARKER` (`0x50494E44`) in
+  `dwExtraInfo` and are ignored by both; the Windows `Input` must stamp its
+  keys with it. A hook in a normal process does not see keys typed into an
+  elevated window.
+- **The pseudo-console asks a question first**: portable-pty 0.9 opens
+  ConPTY with `PSEUDOCONSOLE_INHERIT_CURSOR`, so the first thing it sends
+  is `ESC[6n` (where is the cursor?), and it passes on nothing `claude`
+  prints until the host answers. Unanswered, the session looked "ready"
+  after 2 s with 100 bytes of output and every prompt timed out. The pty
+  reader now answers `ESC[1;1R`, on Windows only (a Unix pty never asks,
+  and there a query would be `claude`'s own).
+- **Quitting `claude`**: with `--disable-slash-commands`, `/exit` gets
+  "Unknown command: /exit" and `claude` stays, so every exit waited out its
+  grace and killed it. `ClaudeSession::exit` now presses Ctrl+C until
+  `claude` goes ("Press Ctrl-C again to exit"), up to four times 400 ms
+  apart, then kills after the grace. 1.3 s on Windows. Not re-run on macOS.
+- **Folder trust and transcripts** work as on macOS: the dialog is drawn
+  the same, and the transcript lands in
+  `%USERPROFILE%\.claude\projects\C--Users-<name>-AppData-Roaming-Pindot-session\`.
+  `find_transcript` searches by session id, so the slug is never built.
+- **Overlay**: transparent, click-through, topmost and non-activating on
+  both monitors, and absent from screen captures by default
+  (`WDA_EXCLUDEFROMCAPTURE`). The overlay windows are titled "Tauri App"
+  and have `WS_EX_APPWINDOW`, so they may show in Alt+Tab: not checked.
+- **Driving the app in tests**: `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=
+  --remote-debugging-port=<port>` exposes the main window and each overlay
+  page over CDP, so a test can click and screenshot Pindot's own pages
+  without moving the user's pointer. Never set it in normal use.
+- **Speed**: a debug build takes 11.5 s to the first spoken audio (ptts
+  unoptimised); a release build 0.75 s. Test voice in release builds only.
+
 ## Known risks (open)
 
 - **Settings isolation leans on flags.** Skills, Claude in Chrome and
@@ -450,8 +525,8 @@ recorded; everything else was renamed (crates, bundle id `dev.pindot.app`,
 - Submitting a prompt through the PTY: Claude Code takes fast input as a
   paste and can drop an Enter that arrives during it. `type_prompt` waits
   for the echo and quiet; `drive_turn` presses Enter once more if the
-  `UserPromptSubmit` hook has not come in 6 s. `exit` sends Ctrl+C before
-  `/exit` so it can never be appended to an unsent prompt.
+  `UserPromptSubmit` hook has not come in 6 s. `exit` types nothing: it
+  presses Ctrl+C until `claude` quits (see "Quitting `claude`").
 - Screenshots in a debug build take about 1.5 s (unoptimised mask and
   resize); one Phase 1 run saw 10-36 s spikes that did not come back. The
   release build takes 54 ms median, 91 ms p95, 94 ms max over 70 shots
@@ -470,12 +545,19 @@ recorded; everything else was renamed (crates, bundle id `dev.pindot.app`,
   the tray position and confirm our menu window is open before clicking.
 - **Windows**: `find_claude` looks only for `claude.exe`; an npm install
   gives `claude.cmd` (see the checklist).
-- Nothing has been built or run on Windows. `scripts/check-windows.sh`
-  type-checks `pindot-core` and the app for `x86_64-pc-windows-msvc` from
-  the Mac, with stand-ins for the C compiler, archiver and `llvm-rc` (ring and
-  the icon resource need Windows headers), so it proves only that the Rust
-  compiles. Re-run it after changes to Windows paths. See
-  `docs/windows-test-checklist.md`.
+- **Windows cannot see or control the desktop yet**: `Capture`, `Input` and
+  `Accessibility` are stubs, so every desktop tool answers "not supported
+  on this OS yet" and `request_access` knows no app. Voice works; "open
+  Notepad" gets a spoken refusal. The token and config files get no ACL
+  (they rely on `%APPDATA%` being per-user). Not checked on Windows: the
+  tray menu, a real Esc press against the stop hook, real speech into the
+  microphone, mixed DPI, sleep and wake, an elevated window in front, and
+  the installer.
+- `scripts/check-windows.sh` type-checks `pindot-core` and the app for
+  `x86_64-pc-windows-msvc` from the Mac, with stand-ins for the C compiler,
+  archiver and `llvm-rc` (ring and the icon resource need Windows headers),
+  so it proves only that the Rust compiles. Re-run it after changes to
+  Windows paths. See `docs/windows-test-checklist.md`.
 
 ## Conventions
 

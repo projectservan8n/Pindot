@@ -174,7 +174,11 @@
 <section>
   <h2>2. Permissions</h2>
   {#if info?.os === 'windows'}
-    <p class="muted">Windows needs no extra permission except the microphone privacy switch.</p>
+    <p class="muted">
+      Windows has nothing to grant per app and never asks. Pindot can hear you when the microphone switches in Windows
+      Settings are on (Privacy &amp; security &gt; Microphone). Pindot shows up in the list there only after its first
+      recording.
+    </p>
   {:else}
     <p class="muted">
       macOS asks once for each. "Ask macOS" shows the system prompt; "Open System Settings" goes to the right list,
@@ -188,11 +192,13 @@
           <td>
             <strong>{p.name}</strong>
             <div class="muted small">{p.why}</div>
+            {#if p.note}<div class="bad small">{p.note}</div>{/if}
           </td>
           <td class:ok={p.granted} class:bad={!p.granted} class="state">{permissionText(p.state)}</td>
           <td class="actions">
-            {#if !p.granted}
-              <button onclick={() => ask(p.permission)}>{info?.os === 'windows' ? 'Ask Windows' : 'Ask macOS'}</button>
+            <!-- Windows has no prompt to show: the switches are in Settings. -->
+            {#if !p.granted && info?.os !== 'windows'}
+              <button onclick={() => ask(p.permission)}>Ask macOS</button>
             {/if}
             <button onclick={() => openPane(p.permission)}>{info?.os === 'windows' ? 'Open Settings' : 'Open System Settings'}</button>
           </td>
@@ -205,7 +211,7 @@
 <section>
   <h2>3. Voice models</h2>
   <p class="muted">
-    Speech to text and text to speech run on this Mac. The models are downloaded once, from the source named under
+    Speech to text and text to speech run on this {info?.os === 'windows' ? 'PC' : 'Mac'}. The models are downloaded once, from the source named under
     each one, and every file is checked against its pinned SHA-256.
   </p>
   <table class="models">

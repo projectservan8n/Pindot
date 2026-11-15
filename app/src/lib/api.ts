@@ -121,6 +121,8 @@ export interface PermissionStatus {
   name: string;
   why: string;
   settings_url: string;
+  /** What to do, when the state alone does not say it (Windows: which switch is off). */
+  note: string | null;
 }
 
 export type ModelKind = 'SpeechToText' | 'TextToSpeech';

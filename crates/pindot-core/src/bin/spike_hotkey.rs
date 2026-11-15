@@ -337,7 +337,77 @@ fn chords(target_pid: Option<i32>) -> anyhow::Result<bool> {
     Ok(all_ok)
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows:
+///   spike_hotkey status                              the microphone switches
+///   spike_hotkey listen [--binding B] [--seconds N]  print Down/Up/Cancel for the chord
+///                                                    (default Ctrl+Win) from the real hook
+///   spike_hotkey esc [--seconds N]                   arm the Esc stop key and print each
+///                                                    press (Esc reaches no app meanwhile)
+/// Neither opens the microphone.
+#[cfg(windows)]
+fn main() -> anyhow::Result<()> {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::{Arc, mpsc};
+    use std::time::{Duration, Instant};
+
+    use pindot_core::platform::{HotkeyBinding, Os, native, permission_report};
+
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mode = args.first().map(String::as_str).unwrap_or("status");
+    let opt = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
+    let seconds: u64 = opt("--seconds").and_then(|s| s.parse().ok()).unwrap_or(20);
+    let t0 = Instant::now();
+    let stamp = || format!("{:7.3}", t0.elapsed().as_secs_f64());
+
+    match mode {
+        "status" => {
+            for p in permission_report() {
+                println!("{}: {:?}{}", p.name, p.state, p.note.map(|n| format!(" ({n})")).unwrap_or_default());
+            }
+            println!("pointer: {:?}", pindot_core::platform::pointer_location());
+        }
+        "listen" => {
+            let binding: HotkeyBinding = match opt("--binding") {
+                Some(b) => b.parse()?,
+                None => HotkeyBinding::default_for(Os::Windows),
+            };
+            let label = binding.label_for(Os::Windows);
+            let (tx, rx) = mpsc::channel();
+            let hook = native().hotkey.start(binding, tx)?;
+            println!("hook installed; hold {label} (listening {seconds} s)");
+            while t0.elapsed() < Duration::from_secs(seconds) {
+                if let Ok(e) = rx.recv_timeout(Duration::from_millis(100)) {
+                    println!("{} {e:?}", stamp());
+                }
+            }
+            hook.stop();
+            println!("hook removed");
+        }
+        "esc" => {
+            let presses = Arc::new(AtomicU32::new(0));
+            let p = presses.clone();
+            let hook = native().stop_key.start(Arc::new(move || {
+                p.fetch_add(1, Ordering::SeqCst);
+            }))?;
+            println!("Esc stop key armed for {seconds} s: Esc reaches no app");
+            let mut seen = 0;
+            while t0.elapsed() < Duration::from_secs(seconds) {
+                std::thread::sleep(Duration::from_millis(50));
+                let now = presses.load(Ordering::SeqCst);
+                if now != seen {
+                    seen = now;
+                    println!("{} Esc pressed ({now})", stamp());
+                }
+            }
+            hook.stop();
+            println!("stop key disarmed; {seen} press(es)");
+        }
+        other => anyhow::bail!("unknown mode {other}; use status, listen or esc"),
+    }
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn main() {
-    eprintln!("spike_hotkey is macOS only; the Windows hook is a stub (see docs/windows-test-checklist.md)");
+    eprintln!("spike_hotkey supports macOS and Windows only");
 }

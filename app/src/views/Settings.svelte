@@ -428,7 +428,10 @@
     </div>
     {#if tokenNote}<p class="small">{tokenNote}</p>{/if}
     {#if info?.data_dir}
-      <p class="small muted">Stored only for you (file mode 600) in <code>{info.data_dir}</code>.</p>
+      <p class="small muted">
+        {info.os === 'windows' ? 'Stored in your own user profile,' : 'Stored only for you (file mode 600)'} in
+        <code>{info.data_dir}</code>.
+      </p>
     {/if}
   </section>
 

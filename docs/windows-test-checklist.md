@@ -1,65 +1,87 @@
 # Windows test checklist
 
-Phases 0 to 3 were built and tested on macOS only. **Nothing has been run on
-Windows**: there is no Windows machine here. On Windows today:
+Phases 0 to 3 were built and tested on macOS. Windows was first built and run
+on 15 Nov 2026, on one Windows 11 PC (build 26300, two 1920x1080 monitors at
+100%, VS 2019 Build Tools, claude 2.1.323 then 2.1.325). A ticked box below
+was seen on that PC; a note after a box says how far an unticked one got.
 
-- `pindot-core` and the app crate type-check for `x86_64-pc-windows-msvc`
-  with no errors or warnings (run on the Mac, 15 Nov 2026, with and without
-  `test-switches`). Command: `scripts/check-windows.sh`. It only proves the
-  Rust compiles: `ring`'s C code and the icon resource need Windows headers
-  and tools, so the script puts stand-ins that write empty files in their
-  place, and nothing it builds can be linked or run.
-- The platform traits have Windows stubs that return
-  `PlatformError::Unsupported`: `Capture`, `Input`, `Hotkey`, `StopKey` (the
-  global Esc) and `Accessibility` (window list, element tree, element
-  actions, frontmost app, launch, secure-field check). The server, the
-  approval gate, the session lock, the activity log, the tree text, the
-  settings file, the hotkey binding parser (including `Ctrl+Win` and the
-  "Fn never reaches Windows" check), the model downloader and the voice
-  state machine are plain Rust and are covered by `cargo test` on any OS.
-- The permission report on Windows lists only the microphone, as
-  "unknown": the privacy switch is not read yet. Its button opens
-  `ms-settings:privacy-microphone`.
+On Windows today:
+
+- **Works**: the build (see "Build"), `cargo test --workspace` (145 + 24 + 3
+  tests), the app with Setup, Settings and Activity, the MCP server and its
+  guards, the overlay on both monitors, the microphone check, hold-to-talk
+  (`Hotkey`), the Esc stop key (`StopKey`), speech to text, text to speech,
+  the brain in ConPTY, and the whole voice loop with a WAV in place of the
+  microphone (`--test-voice`, RESULT PASS).
+- **Still stubs** that return `PlatformError::Unsupported`: `Capture`,
+  `Input` and `Accessibility` (window list, element tree, element actions,
+  frontmost app, launch, secure-field check). So every desktop tool answers
+  "not supported on this OS yet", `request_access` knows no app, and Claude
+  can talk but cannot see or control the desktop.
+- The permission report lists only the microphone, read from the three
+  privacy switches in the registry. Its button opens
+  `ms-settings:privacy-microphone`. There is no "Ask" button: Windows has
+  no prompt for a desktop app.
 - The token and config files are written with Unix mode 600 on macOS. On
   Windows no ACL is set yet: they rely on `%APPDATA%` being per-user.
-- The app's Windows overlay path type-checks but has never been built or
-  run: `overlay.rs`, `#[cfg(not(target_os = "macos"))]`. It is a
-  transparent, always-on-top, undecorated webview window per monitor with
-  `set_ignore_cursor_events(true)` and `content_protected`. Build it on
-  Windows.
+- `scripts/check-windows.sh` still type-checks both crates from the Mac. It
+  only proves the Rust compiles.
 
-Run these on a real Windows 11 machine, with at least two monitors and one of
-them scaled to 150%.
+Still needed: a second PC or a monitor scaled to 150%, a physical-keyboard
+pass, and the items left unticked.
 
 ## Build
 
-- [ ] Install Rust (MSVC toolchain), WebView2 (preinstalled on Windows 11) and
+- [x] Install Rust (MSVC toolchain), WebView2 (preinstalled on Windows 11) and
       Claude Code; run `claude login`.
-- [ ] `cargo build --workspace` and `cargo test --workspace` pass.
+- [x] `cargo build --workspace` and `cargo test --workspace` pass.
+      With Visual Studio 2022 Build Tools (a recent MSVC) the plain commands
+      should link; with only VS 2019 Build Tools they fail in `libort_sys`
+      (unresolved `__std_find_trivial_*` and friends). What was used here:
+      unpack Microsoft's `onnxruntime-win-x64-1.28.0.zip` (the version
+      `ort-sys` pins) and set `ORT_LIB_LOCATION=<that folder>\lib` and
+      `ORT_PREFER_DYNAMIC_LINK=1` before `cargo`. `onnxruntime.dll` is then
+      copied next to the exe.
+- [x] `cd app && npm ci && npm run check && npm test && npm run build`.
 
 ## (a) Hotkey: hold Ctrl+Win
 
-- [ ] Implement `Hotkey` with `WH_KEYBOARD_LL`. Report down when both Ctrl and
+- [x] Implement `Hotkey` with `WH_KEYBOARD_LL`. Report down when both Ctrl and
       Win are held, and up when either is released.
-- [ ] Holding and releasing Ctrl+Win must **not** open the Start menu. Mask
-      the Win key-up, for example by injecting a dummy key (VK 0xFF) before
-      the Win up.
+      (`spike_hotkey listen` printed Down and, 311 ms later, Up for a
+      synthetic hold.)
+- [x] Holding and releasing Ctrl+Win must **not** open the Start menu. An
+      unassigned key (VK 0xE8) is pressed once when the hold starts.
+      (The foreground window did not change after the synthetic hold. A
+      physical keyboard is still to check.)
 - [ ] The hook keeps working after the PC sleeps and wakes, and while an
       elevated window has focus. If it can't reach that window, report it;
-      don't fail silently.
+      don't fail silently. (Not checked. A hook in a normal process does
+      not see keys typed into an elevated window, and nothing reports it.)
 
 ## (b) Overlay
 
 - [ ] `pindot --demo` shows the cursor on every monitor, including the 150%
       one, and the cursor glides across the monitor edge.
+      (Every action played on both monitors at 100%, seen through each
+      overlay page over CDP. No 150% monitor here.)
 - [ ] Clicks and scrolls pass through the overlay to the window underneath.
+      (The windows have `WS_EX_TRANSPARENT | WS_EX_LAYERED`, and a screen
+      copy of the second monitor with the overlay up matched the one before
+      in over 92% of its pixels. Not clicked by hand.)
 - [ ] The overlay never takes focus. The Alt+Tab list and the taskbar don't
-      show it.
+      show it. (Focus stayed with the app in front. The overlay windows are
+      titled "Tauri App" and have `WS_EX_APPWINDOW`, so Alt+Tab may list
+      them: look.)
 - [ ] The overlay stays above a full-screen app, such as a video in F11 mode
       or a PowerPoint slideshow.
-- [ ] A screenshot (Win+Shift+S and our `screenshot` tool) does **not** show
+- [x] A screenshot (Win+Shift+S and our `screenshot` tool) does **not** show
       the cursor. `content_protected` maps to
       `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`.
+      (`GetWindowDisplayAffinity` reports it on both overlays and the main
+      window, and a screen copy with the Setup window up differed from one
+      without it by 1.2%, against 23.9% with `--capturable`. Our own
+      `screenshot` tool does not exist on Windows yet.)
 - [ ] The process is per-monitor DPI aware v2: cursor positions match the
       screen on a mixed-DPI setup.
 
@@ -75,15 +97,24 @@ them scaled to 150%.
 
 ## (d) Brain in ConPTY
 
-- [ ] `spike_brain --prompt 'Reply with exactly the word: pong' --model haiku`
-      works under ConPTY (`portable-pty`).
-- [ ] The trust dialog is detected and answered only with `--accept-trust`.
+- [x] `spike_brain --prompt 'Reply with exactly the word: pong' --model haiku`
+      works under ConPTY (`portable-pty`). ("pong" 2.5 s after the prompt,
+      RESULT PASS. It needed the pty reader to answer ConPTY's opening
+      cursor query, `ESC[6n`: without the answer nothing `claude` prints
+      comes through.)
+- [x] The trust dialog is detected and answered only with `--accept-trust`.
+      (Refused without the flag in `.spike-cwd`; answered with it in
+      `%APPDATA%\Pindot\session`.)
 - [ ] The child `claude` has `ANTHROPIC_API_KEY` set to empty (check with
       Process Explorer > Environment) and no `CLAUDECODE` variables.
-- [ ] The Stop hook arrives and the transcript path under
-      `%USERPROFILE%\.claude\projects\` matches. Check how the cwd slug is
-      built on Windows: drive letter and backslashes.
-- [ ] `/exit` ends the child; no orphaned `claude.exe` or `conhost.exe`.
+      (`spike_brain` cannot read another process's environment on Windows.)
+- [x] The Stop hook arrives and the transcript path under
+      `%USERPROFILE%\.claude\projects\` matches. The slug is the cwd with
+      every character that is not a letter or digit turned into `-`:
+      `C--Users-<name>-AppData-Roaming-Pindot-session`.
+- [x] Ctrl+C ends the child (1.3 s); no `claude.exe` left. `/exit` does not
+      work: with `--disable-slash-commands` it is an unknown command.
+      (`conhost.exe` was not counted.)
 
 ## Data dir and token
 
@@ -131,17 +162,24 @@ Only click and type in windows you opened for the test.
 
 ## (f) Phase 2: the voice loop
 
-- [ ] `voice_check` (`cargo run --release -p pindot-core --bin
-      voice_check`) lists the audio devices (cpal on WASAPI), downloads
-      and verifies both models into `%APPDATA%\Pindot\models\`, and
-      runs STT on `docs/phase2/test-utterance.wav` and TTS with a play at
-      low volume.
+- [x] `voice_check` (`cargo run --release -p pindot-core --bin
+      voice_check`) lists the audio devices (cpal on WASAPI), and runs STT
+      on `docs/phase2/test-utterance.wav` ("Open text edit n type hello",
+      299 ms) and TTS (transcribed back word for word). The models were
+      downloaded and verified through the Setup screen instead (230 MB in
+      15 s; "Check files" 5 s). `voice_check play` was not run.
 - [ ] ONNX Runtime: `ort` downloads its Windows binaries at build time;
       check the app starts on a clean machine without a separate install
-      (or that the needed DLL is bundled).
-- [ ] Test build (`--features test-switches`): `pindot --test-voice
-      docs/phase2/test-utterance.wav --model haiku` with
-      `PINDOT_TEST_AUTO_APPROVE=Notepad` prints `RESULT PASS`.
+      (or that the needed DLL is bundled). (Here it was linked dynamically,
+      see "Build": `onnxruntime.dll` must sit next to `pindot.exe`, and the
+      installer does not bundle it yet.)
+- [x] Test build (`--release --features test-switches`): `pindot --test-voice
+      docs/phase2/test-utterance.wav --model haiku` prints `RESULT PASS`.
+      (Listening, Thinking, Acting twice, Speaking, Idle. Speech to text
+      321 ms, the turn 7.0 s, first audio 746 ms after it, 8.1 s from the
+      key release to the first sound. Claude called `request_access` twice
+      and said it could not reach a text editor: no app resolves on
+      Windows yet. A debug build takes 11.5 s to the first audio.)
 - [ ] Real use: hold Ctrl+Win, say "Open Notepad and type hello", let go.
       Expect Listening, Thinking, Working, the approval window, the text in
       Notepad and a spoken reply. The Start menu must not open.
@@ -163,9 +201,11 @@ Only click and type in windows you opened for the test.
       `find_claude` looks only for `claude.exe` on PATH (the native
       installer); an npm install provides `claude.cmd`, which is not found
       yet, and a `.cmd` cannot be spawned in a PTY directly (use `cmd /c`).
-- [ ] Setup > Permissions shows the microphone row; "Open Settings" opens
-      the microphone privacy page. Wire the real privacy-switch check (it
-      is "unknown" today).
+- [x] Setup > Permissions shows the microphone row; "Open Settings" opens
+      the microphone privacy page. The row reads the three privacy switches
+      ("Allowed" here, all three on). Still to check: switch "Let desktop
+      apps access your microphone" off and see "Denied", the note naming
+      the switch, and hold-to-talk held back.
 - [ ] Setup > Voice models: licenses shown before download, progress,
       cancel and resume (HTTP 206), and "Check files" repairs a file with
       one changed byte. The Moonshine fallback (blob.handy.computer) works

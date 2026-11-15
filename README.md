@@ -271,14 +271,46 @@ The bundle lands in `target/release/bundle/macos/Pindot.app` and
 embedded at compile time, so rebuild it first). The first build downloads
 ONNX Runtime (about 148 MB) through the `ort` crate.
 
-### Windows (not tested; nothing was run on Windows)
+### Windows (voice works; desktop control is not built yet)
 
-Install Rust (MSVC toolchain), Node.js, the Visual Studio C++ build tools,
-WebView2 (part of Windows 11) and Claude Code. Then the same commands; the
-bundle targets are listed in `docs/release.md`. Today the hotkey, input,
-capture and accessibility parts are stubs that return "not supported yet",
-so the app cannot drive Windows. `docs/windows-test-checklist.md` lists
-what to build and check.
+First built and run on 15 Nov 2026, on one Windows 11 PC. The app, Setup,
+Settings, Activity, the overlay, hold-to-talk (`Ctrl+Win`), the Esc stop key,
+speech and the Claude Code session work, so you can hold the key, ask, and
+hear the answer. The input, capture and accessibility parts are still stubs
+that return "not supported on this OS yet", so Claude cannot see or control
+the desktop on Windows: "open Notepad" gets a spoken refusal.
+`docs/windows-test-checklist.md` lists what was seen and what is left.
+
+Install Rust (MSVC toolchain), Node.js, the Visual Studio 2022 C++ build
+tools, WebView2 (part of Windows 11) and Claude Code. Then:
+
+```powershell
+cargo test --workspace
+cd app; npm ci; npm run check; npm test; npm run build; cd ..
+cargo build --release -p pindot        # target\release\pindot.exe
+```
+
+Use a release build to try voice: a debug build takes over ten seconds to
+start speaking.
+
+With the older Visual Studio 2019 build tools the link step fails in
+`libort_sys` (unresolved `__std_find_trivial_*` symbols): the prebuilt ONNX
+Runtime needs a newer C++ runtime library. Either install the 2022 build
+tools, or link ONNX Runtime as a DLL: unpack
+`onnxruntime-win-x64-1.28.0.zip` from the ONNX Runtime releases on GitHub
+and set these before running `cargo`:
+
+```powershell
+$env:ORT_LIB_LOCATION = "C:\path\to\onnxruntime-win-x64-1.28.0\lib"
+$env:ORT_PREFER_DYNAMIC_LINK = "1"
+```
+
+`onnxruntime.dll` is then copied next to `pindot.exe` and must stay there.
+
+The microphone: Windows has no permission to grant per app and never asks.
+Pindot hears you when the switches under Settings > Privacy & security >
+Microphone are on, and it appears in the list there only after its first
+recording.
 
 ### Developer tools (macOS)
 

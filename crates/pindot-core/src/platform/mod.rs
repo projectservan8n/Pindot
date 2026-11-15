@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 pub mod hotkey;
 pub mod keys;
 pub mod mock;
+pub mod windows_logic;
 
 #[cfg(target_os = "macos")]
 pub mod macos;
@@ -503,6 +504,9 @@ pub struct PermissionStatus {
     pub name: String,
     pub why: &'static str,
     pub settings_url: &'static str,
+    /// What the user has to do, when the state alone does not say it
+    /// (Windows: which switch in Settings is off).
+    pub note: Option<String>,
 }
 
 impl PermissionStatus {
@@ -514,6 +518,7 @@ impl PermissionStatus {
             name: permission.to_string(),
             why: permission.why(),
             settings_url: permission.settings_url(),
+            note: None,
         }
     }
 }
@@ -559,7 +564,7 @@ pub fn pointer_location() -> Option<Point> {
 
 #[cfg(windows)]
 pub fn pointer_location() -> Option<Point> {
-    None
+    windows::pointer_location()
 }
 
 #[cfg(target_os = "macos")]
@@ -578,9 +583,11 @@ pub fn request_permission(p: Permission) -> PermissionState {
     macos::permissions::request(p)
 }
 
+/// Windows has no prompt to show for a desktop app (the Setup screen has no
+/// "Ask" button there), so this only reports the state of the switches.
 #[cfg(windows)]
-pub fn request_permission(_p: Permission) -> PermissionState {
-    PermissionState::NotNeeded
+pub fn request_permission(p: Permission) -> PermissionState {
+    permission_report().into_iter().find(|s| s.permission == p).map_or(PermissionState::NotNeeded, |s| s.state)
 }
 
 #[cfg(test)]

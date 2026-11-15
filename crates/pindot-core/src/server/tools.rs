@@ -571,10 +571,8 @@ impl DesktopServer {
             }
         }
         if !unknown.is_empty() {
-            return Err(format!(
-                "Unknown app(s): {}. Use the app's name as shown in the Dock or the Applications folder.",
-                unknown.join(", ")
-            ));
+            let place = if cfg!(windows) { "the Start menu" } else { "the Dock or the Applications folder" };
+            return Err(format!("Unknown app(s): {}. Use the app's name as shown in {place}.", unknown.join(", ")));
         }
         let mut already = vec![];
         let mut auto = vec![];
