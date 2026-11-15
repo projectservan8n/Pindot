@@ -156,6 +156,31 @@ impl WinChord {
         Self { tracker: ChordTracker::new(binding), held: HeldMods::default(), needs_mask }
     }
 
+    /// The chord is held right now.
+    pub fn is_active(&self) -> bool {
+        self.tracker.is_active()
+    }
+
+    /// Correct the tracked modifiers from the keys that are really down
+    /// (`GetAsyncKeyState`), on a timer. The hook can miss a key: Windows
+    /// drops a slow hook without telling it, and it never sees keys typed
+    /// on the lock screen, a UAC prompt or into an administrator's window.
+    /// Without this a missed key-up left a modifier "held" for good and the
+    /// chord never matched again.
+    pub fn resync(&mut self, mut real: HeldMods) -> ChordOutcome {
+        // AltGr: Windows holds a made-up Left Ctrl with Right Alt, which
+        // `on_key` ignored.
+        if real.r_opt && real.l_ctrl && !self.held.l_ctrl {
+            real.l_ctrl = false;
+        }
+        if real == self.held {
+            return ChordOutcome::default();
+        }
+        self.held = real;
+        let event = self.tracker.on_mods(real);
+        ChordOutcome { event, mask: self.needs_mask && event == Some(HotkeyEvent::Down) }
+    }
+
     pub fn on_key(&mut self, e: KeyEvent) -> ChordOutcome {
         if e.ours {
             return ChordOutcome::default();
@@ -370,6 +395,57 @@ mod tests {
         assert_eq!(c.on_key(KeyEvent::new(VK_RMENU, true)).event, Some(HotkeyEvent::Down));
         assert_eq!(c.on_key(fake_ctrl(false)).event, None);
         assert_eq!(c.on_key(KeyEvent::new(VK_RMENU, false)).event, Some(HotkeyEvent::Up));
+    }
+
+    fn held(keys: &[(ModKey, Side)]) -> HeldMods {
+        let mut h = HeldMods::default();
+        for &(k, s) in keys {
+            h.set(k, s, true);
+        }
+        h
+    }
+
+    #[test]
+    fn resync_changes_nothing_when_the_hook_saw_every_key() {
+        let mut c = chord("Ctrl+Win");
+        events(&mut c, &[(VK_LCONTROL, true), (VK_LWIN, true)]);
+        let real = held(&[(ModKey::Control, Side::Left), (ModKey::Command, Side::Left)]);
+        assert_eq!(c.resync(real), ChordOutcome::default());
+        assert!(c.is_active());
+    }
+
+    #[test]
+    fn resync_clears_a_modifier_whose_key_up_was_missed() {
+        let mut c = chord("Ctrl+Win");
+        // Shift went down, and its key-up never reached the hook.
+        c.on_key(KeyEvent::new(VK_LSHIFT, true));
+        let stuck = events(&mut c, &[(VK_LCONTROL, true), (VK_LWIN, true), (VK_LWIN, false), (VK_LCONTROL, false)]);
+        assert_eq!(stuck, vec![None, None, None, None], "the phantom Shift keeps the chord from matching");
+        assert_eq!(c.resync(HeldMods::default()), ChordOutcome::default());
+        let got = events(&mut c, &[(VK_LCONTROL, true), (VK_LWIN, true), (VK_LWIN, false)]);
+        assert_eq!(got, vec![None, Some(HotkeyEvent::Down), Some(HotkeyEvent::Up)]);
+    }
+
+    #[test]
+    fn resync_finds_a_hold_the_hook_never_saw() {
+        // A dead hook: no key events at all, only the timer.
+        let mut c = chord("Ctrl+Win");
+        let real = held(&[(ModKey::Control, Side::Left), (ModKey::Command, Side::Left)]);
+        assert_eq!(c.resync(real), ChordOutcome { event: Some(HotkeyEvent::Down), mask: true });
+        assert_eq!(c.resync(real), ChordOutcome::default(), "still held: nothing new");
+        assert_eq!(c.resync(HeldMods::default()), ChordOutcome { event: Some(HotkeyEvent::Up), mask: false });
+    }
+
+    #[test]
+    fn resync_keeps_an_altgr_hold_as_right_alt() {
+        let mut c = chord("Right Alt");
+        let fake_ctrl = KeyEvent { vk: VK_LCONTROL, scan: SCAN_ALTGR_CTRL, down: true, ours: false };
+        c.on_key(fake_ctrl);
+        assert_eq!(c.on_key(KeyEvent::new(VK_RMENU, true)).event, Some(HotkeyEvent::Down));
+        // Windows reports the made-up Left Ctrl as down too.
+        let real = held(&[(ModKey::Control, Side::Left), (ModKey::Option, Side::Right)]);
+        assert_eq!(c.resync(real), ChordOutcome::default());
+        assert!(c.is_active());
     }
 
     #[test]

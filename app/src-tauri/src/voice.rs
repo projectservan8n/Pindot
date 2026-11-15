@@ -404,6 +404,8 @@ fn start_hotkey(binding: HotkeyBinding, handle: VoiceHandle) -> Result<ListenerH
         .name("pindot-hotkey".into())
         .spawn(move || {
             for e in rx {
+                // Logged so a quiet hotkey can be told from a quiet voice loop.
+                tracing::info!("voice: hold-to-talk key {e:?}");
                 handle.input(match e {
                     HotkeyEvent::Down => Input::HotkeyDown,
                     HotkeyEvent::Up => Input::HotkeyUp,
