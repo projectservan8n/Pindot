@@ -17,10 +17,10 @@ On Windows today:
   (`Input`), and the window list, apps, approval gate, opening apps and
   bringing a window forward (`Accessibility`). A real turn typed and
   clicked in a test window (`--test-turn`, TURN COMPLETED).
-- **Still missing**: the element tree (UI Automation). `read_window`, `find`
-  and clicks by ref answer "not supported on this OS yet", so Claude works
-  from screenshots and x,y. Password boxes of browsers and modern apps are
-  not detected (only a classic Edit control with `ES_PASSWORD` is).
+- **Also works, on a test window only**: the element tree through UI
+  Automation (`read_window`, `find`, click by ref, press without the
+  pointer) and the password-field check (`IsPassword`). Not yet tried on a
+  browser, Office or a store app.
 - The permission report lists only the microphone, read from the three
   privacy switches in the registry. Its button opens
   `ms-settings:privacy-microphone`. There is no "Ask" button: Windows has
@@ -148,15 +148,23 @@ Only click and type in windows you opened for the test.
       running apps, the frontmost app, resolving and opening an app from the
       Start menu, and `raise_window()` (`AttachThreadInput`, then an Alt
       tap).
-- [ ] `Accessibility` with UI Automation (`uiautomation` or `windows` crate):
+- [x] `Accessibility` with UI Automation (the `windows` crate):
       `window_tree()` maps UIA control types to our roles (Button ->
       AXButton and so on) and fills name, value, bounds, enabled and
-      focused; `press()` uses the Invoke pattern; `focused_is_secure()` uses
-      `IsPassword`.
+      focused; `press()` uses the Invoke pattern (then Toggle, Select,
+      Expand/Collapse); `focused_is_secure()` uses `IsPassword`.
+      (On the test window: `read_window` in 0.11 s, `find("Press me")`, a
+      click by ref pressed the button without moving the pointer, the typed
+      value showed when the window was read again. A real turn with haiku
+      needed no screenshot: 18.1 s.)
 - [ ] `read_window` on Notepad lists the menu bar (File, Edit, ...) and the
       edit area with refs; `find("Save as")` finds the menu item.
-- [ ] Secure fields: a password box (UIA `IsPassword`) is reported as
+      (Not tried on Notepad or any real app. Items of a closed menu are not
+      in the tree on Windows.)
+- [x] Secure fields: a password box (UIA `IsPassword`) is reported as
       `securetextfield` and `type_text` refuses to type into it.
+      (A classic password box. Still to try: a password field on a web
+      page, in Chrome and in Edge.)
 - [ ] `StopKey` with `WH_KEYBOARD_LL`: while armed, a physical Esc returns 1
       (swallowed: Notepad must not see it), stops the action in flight and
       shows the "Stopped" banner. Our own `key esc` (tagged with

@@ -11,10 +11,9 @@ loop; the app with setup, settings, downloader, activity viewer and the
 release build). The evidence is in `docs/phase0/` to `docs/phase3/`.
 Windows was first built and run on 15 Nov 2026: the app, the server, the
 overlay, the voice loop (hold-to-talk, speech, the brain) and desktop control
-(screenshots, windows, apps, approval, mouse and keyboard) work there. The
-element tree does not yet, so on Windows Claude works from screenshots and
-x,y. See "Windows: first build and run" below and
-`docs/windows-test-checklist.md`.
+(screenshots, windows, apps, approval, the element tree, mouse and keyboard)
+work there. See "Windows: first build and run" below and
+`docs/windows-test-checklist.md` for what was seen and what is left.
 
 Pindot was called **Deskhand** until 15 Nov 2026. The captured run outputs
 (`docs/phase*/*.log`, `*.txt`) and the screenshots keep the old name, as
@@ -53,8 +52,7 @@ recorded; everything else was renamed (crates, bundle id `dev.pindot.app`,
   - `platform/`: OS traits `Capture`, `Input`, `Hotkey`, `StopKey` (global
     Esc), `Accessibility` and `Overlay`. Each has a macOS implementation
     (`platform/macos`), a Windows one (`platform/windows`: `keyhook`,
-    `permissions`, `capture`, `input` and `apps`; only the element tree of
-    `Accessibility` still returns `Unsupported`) and mocks
+    `permissions`, `capture`, `input`, `apps` and `uia`) and mocks
     (`platform/mock.rs`). `platform/windows_logic.rs` holds the Windows
     decisions that need no Windows API (what the microphone switches mean,
     what the key hook does with each key, what a window is, how an app is
@@ -522,12 +520,30 @@ then 2.1.325). What was run and seen is in
     is pressed as Ctrl** (a Mac shortcut such as cmd+s means ctrl+s here)
     and the new `win` modifier is the Windows key; the tool descriptions
     keep their Mac examples and `desktop_context` says how Windows differs.
-  - **Password fields are only half covered**: `focused_is_secure` sees a
-    classic Edit control with `ES_PASSWORD`. Password boxes in browsers
-    and modern apps need UI Automation (`IsPassword`) and are not detected.
-  - Seen: every tool by hand against a test window, and one real turn
-    (`--test-turn`, haiku) that typed "hello" and pressed a button in
-    14.6 s with two screenshots.
+  - **The element tree** (`uia`, the `windows` crate's COM bindings): a
+    window is walked one level at a time; each `FindAllBuildCache` call
+    fetches a node's children with the shown properties cached, so a node
+    costs one trip to the other process and the walk can stop at the
+    limits between trips (a whole-subtree cache could not, and a browser's
+    tree is huge). Only the control view is walked. Roles become the macOS
+    names `server::tree` is written in (`uia_role`; a test ties the
+    mapping to `tree::is_interactive`). A password's value is never read.
+    Worker threads join the multithreaded apartment before their first
+    call; element handles are shared between them.
+  - **Pressing an element** is Invoke, else Toggle, Select,
+    Expand/Collapse, else the legacy default action, on a helper thread
+    given two seconds (Invoke can block while the dialog a button opens is
+    up). `AXShowMenu` has no equivalent: a right-click is always real. A
+    click at x,y is always a real click too (`actionable_at` is not built),
+    so the pointer-free click is only for refs.
+  - **Password fields**: `focused_is_secure` asks UI Automation's
+    `IsPassword` on the focused element, and keeps the classic check (an
+    Edit control with `ES_PASSWORD`) in case UI Automation fails. Tried on
+    a classic password box only, not in a browser.
+  - Seen: every tool by hand against a test window (by x,y and by ref),
+    and two real turns (`--test-turn`, haiku): from screenshots, "hello"
+    typed and a button pressed in 14.6 s with two screenshots; with the
+    tree, text typed and the button pressed twice in 18.1 s with none.
 - **The pseudo-console asks a question first**: portable-pty 0.9 opens
   ConPTY with `PSEUDOCONSOLE_INHERIT_CURSOR`, so the first thing it sends
   is `ESC[6n` (where is the cursor?), and it passes on nothing `claude`
@@ -601,12 +617,10 @@ then 2.1.325). What was run and seen is in
   the tray position and confirm our menu window is open before clicking.
 - **Windows**: `find_claude` looks only for `claude.exe`; an npm install
   gives `claude.cmd` (see the checklist).
-- **Windows has no element tree yet**: `read_window`, `find` and clicks by
-  ref answer "not supported on this OS yet", so Claude takes a screenshot
-  for every look (slower, more tokens) and every click is a real pointer
-  move. UI Automation is the next piece; it also closes the password-field
-  gap (browser and modern password boxes are not detected today, so
-  `type_text` would type into them).
+- **Windows, tried only on a small test window**: the element tree, the
+  press and the password check have not met a real app (a browser, Office,
+  a store app), whose trees are larger and odder. Menus that are closed
+  are not listed (macOS lists them with `menu_path`).
 - **Windows, not checked**: the approval window answered by a human, the
   tray menu, a real Esc press against the stop hook, a monitor above 100%,
   sleep and wake, an elevated window in front (input sent to it is dropped
