@@ -895,6 +895,11 @@ impl DesktopServer {
             tree::tidy(&mut t.nodes);
             for n in &t.nodes {
                 if let Some(sc) = tree::score(n, &args.query) {
+                    // Already found through another window of this app (a
+                    // dialog is also in its owner's tree on Windows).
+                    if hits.iter().any(|(_, hw, hn, _)| hw.pid == w.pid && tree::same_element(hn, n)) {
+                        continue;
+                    }
                     let root = n.menu_root.and_then(|ri| t.nodes.get(ri)).map(|r| r.handle.clone());
                     hits.push((sc, w.clone(), n.clone(), root));
                 }

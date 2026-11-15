@@ -581,7 +581,8 @@ pub fn claude_info() -> ClaudeInfo {
             version: None,
             signed_in: false,
             method: None,
-            problem: None,
+            // Installed, but only as npm's script (Windows).
+            problem: brain::npm_claude_script().map(|_| brain::NPM_INSTALL_HINT.to_string()),
             hint: brain::SIGN_IN_HINT,
         };
     };

@@ -152,7 +152,11 @@
   {:else if !claude.path}
     <div class="card bad">
       <p><strong>Claude Code is not installed.</strong></p>
-      <p>Install it (see claude.com/claude-code), then press Check again.</p>
+      {#if claude.problem}
+        <p>{claude.problem}</p>
+      {:else}
+        <p>Install it (see claude.com/claude-code), then press Check again.</p>
+      {/if}
     </div>
   {:else if !claude.signed_in}
     <div class="card bad">

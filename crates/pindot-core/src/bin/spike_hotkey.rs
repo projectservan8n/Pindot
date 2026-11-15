@@ -365,6 +365,11 @@ fn main() -> anyhow::Result<()> {
                 println!("{}: {:?}{}", p.name, p.state, p.note.map(|n| format!(" ({n})")).unwrap_or_default());
             }
             println!("pointer: {:?}", pindot_core::platform::pointer_location());
+            let admin = pindot_core::platform::windows::apps::administrator_windows();
+            println!(
+                "windows of administrator apps (Windows drops Pindot's input to these): {}",
+                if admin.is_empty() { "none".to_string() } else { admin.join("; ") }
+            );
         }
         "listen" => {
             let binding: HotkeyBinding = match opt("--binding") {

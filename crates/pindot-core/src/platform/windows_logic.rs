@@ -13,6 +13,34 @@ use super::{ChordTracker, DisplayInfo, HeldMods, HotkeyBinding, HotkeyEvent, Key
 pub const WS_EX_TRANSPARENT: u32 = 0x20;
 pub const WS_EX_LAYERED: u32 = 0x8_0000;
 
+pub const WS_EX_TOOLWINDOW: u32 = 0x80;
+pub const WS_EX_APPWINDOW: u32 = 0x4_0000;
+
+/// The extended style of an overlay window: a tool window, so it is in
+/// neither the Alt+Tab list nor the taskbar. Everything else is kept.
+pub fn overlay_ex_style(ex_style: u32) -> u32 {
+    (ex_style | WS_EX_TOOLWINDOW) & !WS_EX_APPWINDOW
+}
+
+/// What Pindot could learn about another process's rights.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Elevation {
+    /// Runs as administrator.
+    Elevated,
+    Normal,
+    /// Windows would not let us look: only a more privileged process says that.
+    Denied,
+    /// The process is gone, or the question failed some other way.
+    Unknown,
+}
+
+/// Will Windows drop input Pindot sends to that process? It does when the
+/// target runs with more rights than Pindot (an administrator's window
+/// while Pindot runs normally), and `SendInput` still reports success.
+pub fn input_is_blocked(pindot_elevated: bool, target: Elevation) -> bool {
+    !pindot_elevated && matches!(target, Elevation::Elevated | Elevation::Denied)
+}
+
 /// What `EnumWindows` knows about one visible top-level window.
 #[derive(Debug, Clone, Copy)]
 pub struct RawWindow<'a> {
@@ -201,6 +229,22 @@ pub fn uia_role(control_type: i32, is_password: bool, in_menu_bar: bool) -> (&'s
     };
     let subrole = (control_type == UIA_EDIT && is_password).then_some("AXSecureTextField");
     (role, subrole)
+}
+
+pub const UIA_DOCUMENT: i32 = 50030;
+
+/// Has a browser's (or an Electron app's) page not shown up in its tree
+/// yet? Chromium and Firefox build a page's accessibility tree only once
+/// something asks, so the first walk of such a window finds the browser's
+/// frame and no page. `nodes` is the walk: control type and depth of each
+/// node, in order.
+pub fn web_tree_pending(window_class: &str, nodes: &[(i32, u16)]) -> bool {
+    let browser = window_class.starts_with("Chrome_WidgetWin") || window_class == "MozillaWindowClass";
+    if !browser || nodes.is_empty() {
+        return false;
+    }
+    // Loaded: some document has something under it.
+    !nodes.windows(2).any(|w| w[0].0 == UIA_DOCUMENT && w[1].1 > w[0].1)
 }
 
 /// Is this element's value worth reading (what a field holds, what a combo
@@ -500,6 +544,29 @@ mod tests {
     }
 
     #[test]
+    fn an_overlay_is_a_tool_window_and_keeps_its_other_styles() {
+        // What the overlay has today: topmost, click-through, app window, layered, no-activate.
+        let before = 0x8 | WS_EX_TRANSPARENT | WS_EX_APPWINDOW | WS_EX_LAYERED | 0x0800_0000;
+        let after = overlay_ex_style(before);
+        assert_ne!(after & WS_EX_TOOLWINDOW, 0, "a tool window is not in Alt+Tab");
+        assert_eq!(after & WS_EX_APPWINDOW, 0, "an app window is forced into Alt+Tab and the taskbar");
+        assert_eq!(after & !WS_EX_TOOLWINDOW, before & !WS_EX_APPWINDOW, "nothing else changes");
+        assert_eq!(overlay_ex_style(after), after, "applying it twice changes nothing");
+    }
+
+    #[test]
+    fn input_to_an_administrators_window_is_blocked() {
+        assert!(input_is_blocked(false, Elevation::Elevated));
+        assert!(input_is_blocked(false, Elevation::Denied));
+        assert!(!input_is_blocked(false, Elevation::Normal));
+        // Not knowing is not a reason to refuse every click.
+        assert!(!input_is_blocked(false, Elevation::Unknown));
+        // Pindot itself runs as administrator: nothing is above it.
+        assert!(!input_is_blocked(true, Elevation::Elevated));
+        assert!(!input_is_blocked(true, Elevation::Denied));
+    }
+
+    #[test]
     fn an_ordinary_window_is_listed() {
         assert_eq!(classify_window(&raw("Notepad", 0)), WindowKind::Normal);
         assert_eq!(classify_window(&raw("Chrome_WidgetWin_1", 0x100)), WindowKind::Normal);
@@ -646,6 +713,30 @@ mod tests {
         assert!(uia_has_value(50003, false), "a combo box shows its choice");
         assert!(!uia_has_value(50000, false));
         assert!(!uia_has_value(50030, false), "a document can be huge");
+    }
+
+    #[test]
+    fn a_browser_window_without_its_page_is_pending() {
+        // What Edge gave on the first read: the frame, an address bar, no page.
+        let frame_only = [(50032, 0), (50000, 1), (50000, 1), (UIA_EDIT, 1), (UIA_EDIT, 1)];
+        assert!(web_tree_pending("Chrome_WidgetWin_1", &frame_only));
+        assert!(web_tree_pending("MozillaWindowClass", &frame_only));
+        // The document is there but still empty.
+        let empty_page = [(50032, 0), (50033, 1), (UIA_DOCUMENT, 2)];
+        assert!(web_tree_pending("Chrome_WidgetWin_1", &empty_page));
+        let empty_then_sibling = [(50032, 0), (UIA_DOCUMENT, 1), (50000, 1)];
+        assert!(web_tree_pending("Chrome_WidgetWin_1", &empty_then_sibling));
+    }
+
+    #[test]
+    fn a_loaded_page_and_an_ordinary_window_are_not_pending() {
+        let loaded = [(50032, 0), (50033, 1), (UIA_DOCUMENT, 2), (UIA_EDIT, 3), (50000, 3)];
+        assert!(!web_tree_pending("Chrome_WidgetWin_1", &loaded));
+        // Not a browser: nothing to wait for, with or without a document.
+        let frame_only = [(50032, 0), (50000, 1)];
+        assert!(!web_tree_pending("Notepad", &frame_only));
+        assert!(!web_tree_pending("WindowsForms10.Window.8.app.0.141b42a_r6_ad1", &frame_only));
+        assert!(!web_tree_pending("Chrome_WidgetWin_1", &[]), "an empty walk failed for another reason");
     }
 
     #[test]

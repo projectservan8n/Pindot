@@ -24,13 +24,15 @@ use std::ptr::null_mut;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT};
+use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, GetLastError, HWND, LPARAM, POINT, RECT};
+use windows_sys::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
 use windows_sys::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
 use windows_sys::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromPoint, MonitorFromWindow};
 use windows_sys::Win32::Storage::FileSystem::{GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW};
 use windows_sys::Win32::Storage::Packaging::Appx::GetApplicationUserModelId;
 use windows_sys::Win32::System::Threading::{
-    AttachThreadInput, GetCurrentThreadId, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+    AttachThreadInput, GetCurrentThreadId, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
+    QueryFullProcessImageNameW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, ES_PASSWORD, EnumChildWindows, EnumWindows, GA_ROOT, GUITHREADINFO, GWL_EXSTYLE, GWL_STYLE,
@@ -42,8 +44,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use super::capture::{Monitor, dpi_aware, monitor_scale, monitors};
 use super::uia;
 use crate::platform::windows_logic::{
-    RawWindow, StartApp, WindowKind, app_matches, classify_window, find_start_app, parse_start_apps, start_name_for,
-    to_physical,
+    Elevation, RawWindow, StartApp, WindowKind, app_matches, classify_window, find_start_app, input_is_blocked,
+    parse_start_apps, start_name_for, to_physical,
 };
 use crate::platform::{
     Accessibility, AppInfo, AxTree, DisplayInfo, ElementHandle, HitElement, PlatformError, Point, Rect, ResolvedApp,
@@ -276,6 +278,93 @@ fn app_for_pid(pid: u32) -> Option<AppInfo> {
     Some(AppInfo { pid: pid as i32, name, bundle_id: Some(exe.to_lowercase()) })
 }
 
+/// Does the process run as administrator (or with rights we cannot even
+/// look at)?
+fn elevation_of(pid: u32) -> Elevation {
+    let denied_or_unknown = || {
+        // SAFETY: reads this thread's last error.
+        if unsafe { GetLastError() } == ERROR_ACCESS_DENIED { Elevation::Denied } else { Elevation::Unknown }
+    };
+    // SAFETY: handles are checked and closed; the token struct carries its size.
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if process.is_null() {
+            return denied_or_unknown();
+        }
+        let mut token = null_mut();
+        if OpenProcessToken(process, TOKEN_QUERY, &mut token) == 0 {
+            let e = denied_or_unknown();
+            CloseHandle(process);
+            return e;
+        }
+        let mut info = TOKEN_ELEVATION { TokenIsElevated: 0 };
+        let mut len = 0u32;
+        let ok = GetTokenInformation(
+            token,
+            TokenElevation,
+            (&mut info as *mut TOKEN_ELEVATION).cast(),
+            size_of::<TOKEN_ELEVATION>() as u32,
+            &mut len,
+        );
+        CloseHandle(token);
+        CloseHandle(process);
+        match (ok, info.TokenIsElevated) {
+            (0, _) => Elevation::Unknown,
+            (_, 0) => Elevation::Normal,
+            _ => Elevation::Elevated,
+        }
+    }
+}
+
+fn pindot_is_elevated() -> bool {
+    static ELEVATED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ELEVATED.get_or_init(|| elevation_of(std::process::id()) == Elevation::Elevated)
+}
+
+/// `Err` when Windows would drop input sent to the app that owns `h`
+/// (see `windows_logic::input_is_blocked`).
+fn check_input_reaches(h: HWND) -> Result<()> {
+    if h.is_null() {
+        return Ok(());
+    }
+    let class = class_name(h);
+    let pid = app_pid(h, &class);
+    if pid == 0 || !input_is_blocked(pindot_is_elevated(), elevation_of(pid)) {
+        return Ok(());
+    }
+    let app = app_for_pid(pid).map_or_else(|| "That app".to_string(), |a| a.name);
+    Err(PlatformError::Other(format!(
+        "{app} runs as administrator. Windows does not pass Pindot's clicks and keys to an administrator's window, so nothing was sent; the user has to do this step."
+    )))
+}
+
+/// `Err` when the window under a physical pixel would not get our input.
+pub(super) fn check_input_reaches_point(x: i32, y: i32) -> Result<()> {
+    // SAFETY: plain queries.
+    let root = unsafe {
+        let h = WindowFromPoint(POINT { x, y });
+        if h.is_null() { h } else { GetAncestor(h, GA_ROOT) }
+    };
+    check_input_reaches(root)
+}
+
+/// `Err` when the window with keyboard focus would not get our keys.
+pub(super) fn check_input_reaches_focus() -> Result<()> {
+    // SAFETY: a plain query.
+    check_input_reaches(unsafe { GetForegroundWindow() })
+}
+
+/// The windows on screen that belong to an administrator's app (for the
+/// command-line check).
+pub fn administrator_windows() -> Vec<String> {
+    list_windows()
+        .into_iter()
+        .filter(|w| w.kind == WindowKind::Normal && w.info.pid > 0)
+        .filter(|w| input_is_blocked(pindot_is_elevated(), elevation_of(w.info.pid as u32)))
+        .map(|w| format!("{} ({})", w.info.app, w.info.title))
+        .collect()
+}
+
 /// One listed window with what the list does not carry.
 struct Listed {
     info: WindowInfo,
@@ -442,7 +531,7 @@ impl Accessibility for WinAccessibility {
             return Err(PlatformError::Stale);
         }
         let scale = monitor_scale(unsafe { MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST) });
-        uia::window_tree(window.id as usize, scale, limits)
+        uia::window_tree(window.id as usize, &class_name(h), scale, limits)
     }
 
     fn element_frame(&self, el: &ElementHandle) -> Result<Option<Rect>> {

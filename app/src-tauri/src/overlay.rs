@@ -157,6 +157,7 @@ pub fn create_panel(app: &AppHandle, index: usize, m: &MonitorRect, capturable: 
         m.x, m.y, m.width, m.height
     );
     let w = WebviewWindowBuilder::new(app, format!("overlay-{index}"), WebviewUrl::App("overlay.html".into()))
+        .title("Pindot cursor")
         .position(m.x, m.y)
         .inner_size(m.width, m.height)
         .transparent(true)
@@ -171,5 +172,11 @@ pub fn create_panel(app: &AppHandle, index: usize, m: &MonitorRect, capturable: 
         .initialization_script(script)
         .build()?;
     w.set_ignore_cursor_events(true)?;
+    // A tool window: not in the Alt+Tab list or the taskbar (the window
+    // library makes it an "app window", which is forced into both).
+    #[cfg(windows)]
+    if let Ok(h) = w.hwnd() {
+        pindot_core::platform::windows::window::hide_from_switcher(h.0 as isize);
+    }
     Ok(())
 }

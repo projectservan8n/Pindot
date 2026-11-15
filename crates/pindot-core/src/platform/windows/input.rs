@@ -12,8 +12,10 @@
 //! `win` is the Windows key. Text is typed as Unicode, so it does not depend
 //! on the keyboard layout; a shortcut's letter does (`VkKeyScanW`).
 //!
-//! Limit: Windows drops input that a normal process sends to an elevated
-//! (administrator) window, and `SendInput` then still reports success.
+//! Windows drops input that a normal process sends to an elevated
+//! (administrator) window, and `SendInput` then still reports success. So
+//! before anything is sent the target is checked, and such a window gets a
+//! clear error instead of a click that never arrives.
 
 use std::thread;
 use std::time::Duration;
@@ -69,6 +71,14 @@ fn send(inputs: &[INPUT]) -> Result<()> {
             std::io::Error::last_os_error()
         )))
     }
+}
+
+/// `Err` if the window at `at` belongs to an administrator's app: Windows
+/// would drop the input and still report success.
+fn check_point(at: Point) -> Result<()> {
+    let displays: Vec<DisplayInfo> = monitors().iter().map(Monitor::info).collect();
+    let (x, y) = to_physical(&displays, at);
+    super::apps::check_input_reaches_point(x, y)
 }
 
 fn move_abs(at: Point) -> Result<()> {
@@ -138,6 +148,7 @@ impl Input for WinInput {
     }
 
     fn click(&self, at: Point, b: MouseButton, count: u32) -> Result<()> {
+        check_point(at)?;
         move_abs(at)?;
         thread::sleep(Duration::from_millis(40));
         let (down, up) = button_flags(b);
@@ -155,6 +166,7 @@ impl Input for WinInput {
     }
 
     fn type_text(&self, text: &str) -> Result<()> {
+        super::apps::check_input_reaches_focus()?;
         let mut batch: Vec<INPUT> = Vec::new();
         let mut prev = '\0';
         for c in text.chars() {
@@ -183,6 +195,7 @@ impl Input for WinInput {
     }
 
     fn key(&self, combo: &KeyCombo) -> Result<()> {
+        super::apps::check_input_reaches_focus()?;
         let mut mods = modifier_vks(combo.mods);
         let (vk, extended) = match (vk_for_key(combo.key), combo.key) {
             (Some(named), _) => named,
@@ -199,6 +212,7 @@ impl Input for WinInput {
     }
 
     fn scroll(&self, at: Point, dx: i32, dy: i32) -> Result<()> {
+        check_point(at)?;
         move_abs(at)?;
         thread::sleep(Duration::from_millis(30));
         let notch = WHEEL_DELTA as i32;
@@ -213,6 +227,7 @@ impl Input for WinInput {
     }
 
     fn drag(&self, from: Point, to: Point, should_stop: &(dyn Fn() -> bool + Sync)) -> Result<()> {
+        check_point(from)?;
         move_abs(from)?;
         thread::sleep(Duration::from_millis(60));
         send(&[mouse(MOUSEEVENTF_LEFTDOWN, 0, 0, 0)])?;

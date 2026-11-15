@@ -142,6 +142,7 @@ pub fn status_from_json(text: &str, port: u16, token: &str) -> ConnectStatus {
 pub fn run(claude: &Path, args: &[String]) -> Result<String> {
     let mut cmd = Command::new(claude);
     cmd.args(args).env("ANTHROPIC_API_KEY", "");
+    crate::brain::hidden(&mut cmd);
     for k in crate::brain::pty::PARENT_SESSION_VARS {
         cmd.env_remove(k);
     }

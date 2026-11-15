@@ -21,8 +21,9 @@
 //! as a real click (it can fail after it worked).
 
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::ffi::c_void;
-use std::sync::{Arc, OnceLock, mpsc};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::HWND;
@@ -37,13 +38,20 @@ use windows::Win32::UI::Accessibility::{
     UIA_SelectionItemPatternId, UIA_TogglePatternId, UIA_ValuePatternId,
 };
 
-use crate::platform::windows_logic::{UIA_MENU_BAR, uia_has_value, uia_role};
+use crate::platform::windows_logic::{UIA_MENU_BAR, uia_has_value, uia_role, web_tree_pending};
 use crate::platform::{AxNode, AxTree, ElementHandle, PlatformError, Rect, Result, TreeLimits};
 
 /// How long a press may take before it counts as done.
 const PRESS_WAIT: Duration = Duration::from_secs(2);
 /// The longest value shown for a field.
 const VALUE_MAX: usize = 400;
+/// A browser builds a page's tree only once asked: how long to wait
+/// between walks for it, and how many more walks to try.
+const WEB_WAIT: Duration = Duration::from_millis(350);
+const WEB_RETRIES: u32 = 4;
+/// A browser window whose page never showed up is not waited for again
+/// this long.
+const WEB_GIVE_UP: Duration = Duration::from_secs(30);
 
 /// A COM pointer that worker threads share (all in the multithreaded
 /// apartment, see the module comment).
@@ -94,12 +102,9 @@ fn el_of(h: &ElementHandle) -> Result<&IUIAutomationElement> {
         .ok_or_else(|| PlatformError::Other("not an element of this window".into()))
 }
 
-fn logical(r: windows::Win32::Foundation::RECT, scale: f64) -> Option<Rect> {
+fn logical(r: windows::Win32::Foundation::RECT, scale: f64) -> Rect {
     let (w, h) = (r.right - r.left, r.bottom - r.top);
-    // An element with no place on screen reports an empty rectangle.
-    (w > 0 || h > 0 || r.left != 0 || r.top != 0).then(|| {
-        Rect::new(f64::from(r.left) / scale, f64::from(r.top) / scale, f64::from(w) / scale, f64::from(h) / scale)
-    })
+    Rect::new(f64::from(r.left) / scale, f64::from(r.top) / scale, f64::from(w) / scale, f64::from(h) / scale)
 }
 
 struct Walk<'a> {
@@ -109,6 +114,8 @@ struct Walk<'a> {
     scale: f64,
     started: Instant,
     nodes: Vec<AxNode>,
+    /// Control type and depth of each node, for `web_tree_pending`.
+    kinds: Vec<(i32, u16)>,
     truncated: bool,
 }
 
@@ -142,7 +149,9 @@ impl Walk<'_> {
                 subrole: subrole.map(String::from),
                 name: el.CachedName().map(|n| n.to_string()).unwrap_or_default(),
                 value,
-                bounds: el.CachedBoundingRectangle().ok().and_then(|r| logical(r, self.scale)),
+                // An element with no place on screen reports an empty
+                // rectangle; it keeps it, so the listing leaves it out.
+                bounds: el.CachedBoundingRectangle().ok().map(|r| logical(r, self.scale)),
                 enabled: el.CachedIsEnabled().map_or(true, |b| b.as_bool()),
                 focused: el.CachedHasKeyboardFocus().is_ok_and(|b| b.as_bool()),
                 shortcut: el.CachedAcceleratorKey().ok().map(|k| k.to_string()).filter(|k| !k.is_empty()),
@@ -159,6 +168,7 @@ impl Walk<'_> {
         }
         let (node, control_type) = self.node(el, depth, in_menu_bar);
         self.nodes.push(node);
+        self.kinds.push((control_type, depth));
         if depth >= self.limits.max_depth {
             self.truncated = true;
             return;
@@ -178,8 +188,34 @@ impl Walk<'_> {
     }
 }
 
-/// The element tree of the window `hwnd`. `scale` is its monitor's scale.
-pub fn window_tree(hwnd: usize, scale: f64, limits: &TreeLimits) -> Result<AxTree> {
+/// Browser windows whose page did not show up after the retries, and when.
+static NO_PAGE: Mutex<Option<HashMap<usize, Instant>>> = Mutex::new(None);
+
+/// The element tree of the window `hwnd` (of window class `class`).
+/// `scale` is its monitor's scale. A browser window is walked again, a
+/// few times, until its page is in the tree.
+pub fn window_tree(hwnd: usize, class: &str, scale: f64, limits: &TreeLimits) -> Result<AxTree> {
+    let gave_up = NO_PAGE.lock().unwrap().as_ref().and_then(|m| m.get(&hwnd).copied()).is_some_and(|t| t.elapsed() < WEB_GIVE_UP);
+    let started = Instant::now();
+    let mut tries = 0;
+    loop {
+        let (tree, kinds) = walk_window(hwnd, scale, limits)?;
+        if !web_tree_pending(class, &kinds) {
+            if let Some(m) = NO_PAGE.lock().unwrap().as_mut() {
+                m.remove(&hwnd);
+            }
+            return Ok(tree);
+        }
+        tries += 1;
+        if gave_up || tries > WEB_RETRIES || started.elapsed() + WEB_WAIT > limits.timeout {
+            NO_PAGE.lock().unwrap().get_or_insert_with(HashMap::new).insert(hwnd, Instant::now());
+            return Ok(tree);
+        }
+        std::thread::sleep(WEB_WAIT);
+    }
+}
+
+fn walk_window(hwnd: usize, scale: f64, limits: &TreeLimits) -> Result<(AxTree, Vec<(i32, u16)>)> {
     let ui = automation()?;
     // SAFETY: COM calls on valid interface pointers; errors are returned.
     unsafe {
@@ -197,10 +233,18 @@ pub fn window_tree(hwnd: usize, scale: f64, limits: &TreeLimits) -> Result<AxTre
         }
         let children = ui.ControlViewCondition().map_err(err)?;
         let root = ui.ElementFromHandleBuildCache(HWND(hwnd as *mut c_void), &cache).map_err(err)?;
-        let mut walk =
-            Walk { cache, children, limits, scale, started: Instant::now(), nodes: Vec::new(), truncated: false };
+        let mut walk = Walk {
+            cache,
+            children,
+            limits,
+            scale,
+            started: Instant::now(),
+            nodes: Vec::new(),
+            kinds: Vec::new(),
+            truncated: false,
+        };
         walk.walk(&root, 0, false);
-        Ok(AxTree { nodes: walk.nodes, truncated: walk.truncated })
+        Ok((AxTree { nodes: walk.nodes, truncated: walk.truncated }, walk.kinds))
     }
 }
 
@@ -210,7 +254,9 @@ pub fn element_frame(h: &ElementHandle, scale: f64) -> Result<Option<Rect>> {
     let el = el_of(h)?;
     // SAFETY: a COM call on a valid interface pointer.
     let rect = unsafe { el.CurrentBoundingRectangle() }.map_err(err)?;
-    Ok(logical(rect, scale))
+    // An empty rectangle: the element has no place on screen.
+    let empty = rect.right <= rect.left && rect.bottom <= rect.top;
+    Ok((!empty).then(|| logical(rect, scale)))
 }
 
 /// Does the element offer an action that amounts to a press?

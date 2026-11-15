@@ -107,6 +107,17 @@ pub fn tidy(nodes: &mut [AxNode]) {
     }
 }
 
+/// Are these two nodes the same control on screen, seen twice? Windows
+/// exposes a dialog both as its own window and inside the window that owns
+/// it, so a search over an app's windows meets its buttons twice. Nodes
+/// without a place on screen (menu items) are never the same.
+pub fn same_element(a: &AxNode, b: &AxNode) -> bool {
+    match (a.bounds, b.bounds) {
+        (Some(x), Some(y)) => !x.is_empty() && x == y && a.role == b.role && a.name == b.name,
+        _ => false,
+    }
+}
+
 /// Which nodes a listing shows, as indexes into `nodes`.
 pub fn select(nodes: &[AxNode], filter: Filter) -> Vec<usize> {
     nodes
@@ -274,6 +285,20 @@ mod tests {
         n.menu_path = Some("File > New".into());
         n.shortcut = Some("⌘N".into());
         assert_eq!(format_line("e9", &n, Some(&geom()), None, false), "[e9] menuitem \"File > New\" ⌘N");
+    }
+
+    #[test]
+    fn the_same_control_seen_through_two_windows_is_one_element() {
+        let b = Some(Rect::new(609.0, 371.0, 59.0, 21.0));
+        let in_dialog = node("AXButton", "Don't save", b);
+        let in_owner = node("AXButton", "Don't save", b);
+        assert!(same_element(&in_dialog, &in_owner));
+        // Another place, another name or another role: a different control.
+        assert!(!same_element(&in_dialog, &node("AXButton", "Don't save", Some(Rect::new(10.0, 371.0, 59.0, 21.0)))));
+        assert!(!same_element(&in_dialog, &node("AXButton", "Save", b)));
+        assert!(!same_element(&in_dialog, &node("AXStaticText", "Don't save", b)));
+        // Menu items have no place on screen: two "New" items are two items.
+        assert!(!same_element(&node("AXMenuItem", "New", None), &node("AXMenuItem", "New", None)));
     }
 
     #[test]
