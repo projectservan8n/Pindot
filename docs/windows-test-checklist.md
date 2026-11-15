@@ -7,7 +7,7 @@ was seen on that PC; a note after a box says how far an unticked one got.
 
 On Windows today:
 
-- **Works**: the build (see "Build"), `cargo test --workspace` (193 + 24 + 6
+- **Works**: the build (see "Build"), `cargo test --workspace` (196 + 24 + 6
   tests), the app with Setup, Settings and Activity, the MCP server and its
   guards, the overlay on both monitors, the microphone check, hold-to-talk
   (`Hotkey`, self-healing), the Esc stop key (`StopKey`), speech to text,
@@ -209,6 +209,16 @@ Only click and type in windows you opened for the test.
       Zoom > In"; `find("Save as")` finds the item; a click on its ref ran
       the command with no pointer and no open menu; the disabled item was
       refused ("That control is disabled") and no menu was left open.
+- [x] A right-click without the pointer where the app answers for it: on
+      a file's row in File Explorer, by ref and at x,y, the context menu
+      came up ("Copy as path", "Properties", "Open with") and the pointer
+      stayed at 740,701; on a link in Edge ("Open link in new tab", "Copy
+      link"); on File Explorer's search box (a XAML control). A classic
+      text box answered "done" and showed no menu, so classic controls get
+      a real right-click: its menu came up and Esc closed it.
+- [x] `scripts\check-macos.ps1`: both crates type-check for
+      `aarch64-apple-darwin` from this PC, the macOS-only files and the
+      test switches included. Rust only: nothing is linked or run.
 - [x] Word, on a blank document the test made: opened by name; the start
       page read (35 controls); a blank document; 126 controls in 0.38 s
       with the ribbon; 17 characters typed ("Word Count 3 words"); Bold
@@ -360,5 +370,7 @@ Only click and type in windows you opened for the test.
       (On the build PC, not a clean one: a silent install into a test
       folder; the installed copy started with its own data folder and its
       server answered 401 without the token; a silent uninstall removed
-      the files, the shortcuts and the Installed-apps entry. `/health`
-      with the token and the installer's pages were not tried.)
+      the files, the shortcuts and the Installed-apps entry. The pages of
+      the installer and of the uninstaller were walked as well, by sending
+      their buttons' commands; both ended clean. `/health` with the token
+      and a person doing it by hand were not tried.)

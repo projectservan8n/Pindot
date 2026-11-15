@@ -349,6 +349,27 @@ pub fn click_presses(control_type: i32, can: Patterns, enabled: bool) -> bool {
     enabled && PRESS_ROLES.contains(&role) && press_action(control_type, Patterns { legacy: false, ..can }).is_some()
 }
 
+/// Can a right-click at a point on this control be done without the
+/// pointer, by asking the control for its context menu? Only where the
+/// menu belongs to the control as a whole (a button, a link, a row, a
+/// tab) and the keyboard can reach it. In a text field, a document or a
+/// canvas the place matters (the word under the pointer), so the mouse
+/// right-clicks there.
+pub fn menu_shows_at(control_type: i32, focusable: bool, enabled: bool) -> bool {
+    let (role, _) = uia_role(control_type, false, false);
+    enabled && focusable && (PRESS_ROLES.contains(&role) || matches!(role, "AXRow" | "AXTab"))
+}
+
+/// Does a control of this UI framework show its context menu when UI
+/// Automation asks for it (`ShowContextMenu`)? Only the ones seen to:
+/// File Explorer's lists ("DirectUI"), web content ("Chrome") and XAML
+/// controls. A classic Win32 or WinForms control answers "done" and shows
+/// nothing, so there, and wherever it was not tried, the mouse
+/// right-clicks.
+pub fn shows_menu_on_request(framework: &str) -> bool {
+    matches!(framework, "DirectUI" | "Chrome" | "XAML")
+}
+
 /// How long, and how near, a second click counts as "the same place again".
 pub const REPEAT_WINDOW: Duration = Duration::from_secs(30);
 const REPEAT_RADIUS: i32 = 6;
@@ -1101,6 +1122,35 @@ mod tests {
         assert!(!click_presses(50000, all, false), "a disabled button");
         assert!(!click_presses(50000, Patterns { legacy: true, ..Patterns::default() }, true), "only the old default action");
         assert!(!click_presses(50000, Patterns::default(), true));
+    }
+
+    #[test]
+    fn a_right_click_at_a_point_needs_no_pointer_on_whole_items() {
+        assert!(menu_shows_at(UIA_LIST_ITEM, true, true), "a file's row");
+        assert!(menu_shows_at(UIA_TREE_ITEM, true, true), "a folder in a tree");
+        assert!(menu_shows_at(UIA_TAB_ITEM, true, true), "a tab");
+        assert!(menu_shows_at(50000, true, true), "a button");
+        assert!(menu_shows_at(50005, true, true), "a link");
+    }
+
+    #[test]
+    fn a_right_click_at_a_point_stays_real_where_the_place_matters() {
+        assert!(!menu_shows_at(UIA_EDIT, true, true), "a text field: the word under the pointer");
+        assert!(!menu_shows_at(UIA_DOCUMENT, true, true), "a document");
+        assert!(!menu_shows_at(50033, true, true), "a pane: a canvas");
+        assert!(!menu_shows_at(UIA_LIST_ITEM, false, true), "the keyboard cannot reach it");
+        assert!(!menu_shows_at(50000, true, false), "disabled");
+    }
+
+    #[test]
+    fn a_context_menu_is_asked_for_only_where_it_was_seen_to_come() {
+        for framework in ["DirectUI", "Chrome", "XAML"] {
+            assert!(shows_menu_on_request(framework), "{framework}");
+        }
+        // A classic text box said "done" and showed nothing.
+        for framework in ["Win32", "WinForm", "WPF", "Qt", ""] {
+            assert!(!shows_menu_on_request(framework), "{framework}");
+        }
     }
 
     #[test]

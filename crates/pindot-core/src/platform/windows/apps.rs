@@ -55,7 +55,7 @@ use crate::platform::{
     ResolvedApp, Result, TreeLimits, WindowInfo,
 };
 
-const NO_ACTION: &str = "that accessibility action on Windows (only a press)";
+const NO_ACTION: &str = "that accessibility action on Windows (only a press and a context menu)";
 /// How long the Start menu's app list is kept.
 const START_TTL: Duration = Duration::from_secs(600);
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -447,8 +447,10 @@ fn bring_to_front(h: HWND) {
 
 pub struct WinAccessibility;
 
-/// Where the last click at a point went (see `LastPress`).
+/// Where the last click at a point went (see `LastPress`), and the last
+/// right-click.
 static LAST_PRESS: Mutex<LastPress> = Mutex::new(LastPress::new());
+static LAST_MENU: Mutex<LastPress> = Mutex::new(LastPress::new());
 
 /// A command of a classic menu (an `HMENU`): pressed by posting it to its
 /// window, the way the menu itself would.
@@ -665,23 +667,31 @@ impl Accessibility for WinAccessibility {
     }
 
     fn has_action(&self, el: &ElementHandle, action: &str) -> Result<bool> {
-        // UI Automation has a press; a context menu is a real right-click.
-        Ok(action == "AXPress" && self.can_press(el)?)
+        match action {
+            "AXPress" => self.can_press(el),
+            // A context menu: asked of the control itself. Not of a closed
+            // menu's item, which has none.
+            "AXShowMenu" => Ok(menu_command(el)?.is_none() && uia::can_show_menu(el)?),
+            _ => Ok(false),
+        }
     }
 
-    /// The control a plain click at `at` would press, so the click needs no
-    /// pointer (as on macOS). Never for a context menu. A second click at
-    /// the same place is left to the real pointer: a control can report a
-    /// press that did nothing, and this is the way out.
+    /// The control a plain click at `at` would press, or a right-click
+    /// would ask for its menu, so the click needs no pointer (as on
+    /// macOS). A second click of the same kind at the same place is left
+    /// to the real pointer: a control can report a press, or a menu, that
+    /// did not happen, and this is the way out.
     fn actionable_at(&self, at: Point, action: &str) -> Result<Option<ActionTarget>> {
-        if action != "AXPress" {
-            return Ok(None);
-        }
+        let (last, menu) = match action {
+            "AXPress" => (&LAST_PRESS, false),
+            "AXShowMenu" => (&LAST_MENU, true),
+            _ => return Ok(None),
+        };
         let (x, y) = to_pixel(at);
-        if LAST_PRESS.lock().unwrap().is_repeat(x, y, Instant::now()) {
+        if last.lock().unwrap().is_repeat(x, y, Instant::now()) {
             return Ok(None);
         }
-        let Some((handle, role, name)) = uia::pressable_at(x, y)? else { return Ok(None) };
+        let Some((handle, role, name)) = uia::target_at(x, y, menu)? else { return Ok(None) };
         // The app as the window list names it (a store app's frame belongs
         // to another process than its content).
         let Some(hit) = self.element_at(at)? else { return Ok(None) };
@@ -689,7 +699,11 @@ impl Accessibility for WinAccessibility {
     }
 
     fn perform(&self, el: &ElementHandle, action: &str) -> Result<()> {
-        if action == "AXPress" { self.press(el) } else { Err(PlatformError::Unsupported(NO_ACTION)) }
+        match action {
+            "AXPress" => self.press(el),
+            "AXShowMenu" if menu_command(el)?.is_none() => uia::show_menu(el),
+            _ => Err(PlatformError::Unsupported(NO_ACTION)),
+        }
     }
 
     fn element_at(&self, at: Point) -> Result<Option<HitElement>> {

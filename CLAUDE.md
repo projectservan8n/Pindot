@@ -552,9 +552,7 @@ then 2.1.325). What was run and seen is in
   - **Direction marks are left out** of names and values
     (`windows_logic::visible_text`): File Explorer writes a date with
     U+200E and U+200F between its parts, which `find("15 Nov 2026")` did
-    not match. `AXShowMenu` has no equivalent: a right-click is always real. A
-    click at x,y is always a real click too (`actionable_at` is not built),
-    so the pointer-free click is only for refs.
+    not match.
   - **Password fields**: `focused_is_secure` asks UI Automation's
     `IsPassword` on the focused element, and keeps the classic check (an
     Edit control with `ES_PASSWORD`) in case UI Automation fails. Tried on
@@ -584,7 +582,17 @@ then 2.1.325). What was run and seen is in
     put, as on macOS. A control can report a press that did nothing, so a
     second click at the same place within 30 s is a real one, and stays
     one while the clicks keep coming (`LastPress`); `desktop_context` tells
-    Claude. A right-click is always real (`AXShowMenu` has no counterpart).
+    Claude.
+  - **A right-click asks the control for its context menu**
+    (`IUIAutomationElement3::ShowContextMenu`, the counterpart of
+    `AXShowMenu`), so the pointer stays put, but only where that was seen
+    to bring the menu up (`shows_menu_on_request`: File Explorer's lists,
+    web content, XAML controls) and the keyboard can reach the control. A
+    classic Win32 or WinForms control answers "done" and shows nothing, so
+    there, and in any framework not tried, the mouse right-clicks. At x,y
+    it is asked only of a whole item (a row, a tab, a button, a link:
+    `menu_shows_at`); in a text field or on a canvas the place matters, so
+    the mouse right-clicks. The second-click rule holds here too.
   - **A closed menu's items are listed** for a classic menu bar (an
     `HMENU`: Win32, MFC, WinForms `MainMenu`), with their path, shortcut,
     and whether they are greyed out or checked, as macOS lists them. One
@@ -777,10 +785,16 @@ then 2.1.325). What was run and seen is in
   and the key hook is put back every half second), a click refused on an administrator's window (the check
   flags such windows; no click was aimed at one), a window that is
   invisible but not click-through (it would block clicks under it), and
-  the installer's pages (it was only run silently). The token and config files
-  get no ACL (they rely on
-  `%APPDATA%` being per-user). Quitting `claude` with Ctrl+C and the `win`
-  modifier also changed the macOS path, which was not run.
+  a hand on the installer (its pages and the uninstaller's were walked by
+  sending their buttons' commands, see `docs/release.md`). The token and
+  config files get no ACL (they rely on `%APPDATA%` being per-user).
+- **Shared code changed on Windows was not run on a Mac**: quitting
+  `claude` with Ctrl+C, the `win` modifier, `PlatformError::Disabled`, the
+  speech warm-up and the overlay's `unit`. `scripts\check-macos.ps1`
+  type-checks both crates for `aarch64-apple-darwin` from Windows, the
+  macOS-only files included, with stand-ins for the C compiler and the
+  archiver (the mirror of `check-windows.sh`). It passes, which proves
+  that the Rust compiles and nothing more.
 - `scripts/check-windows.sh` type-checks `pindot-core` and the app for
   `x86_64-pc-windows-msvc` from the Mac, with stand-ins for the C compiler,
   archiver and `llvm-rc` (ring and the icon resource need Windows headers),

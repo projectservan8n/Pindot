@@ -26,11 +26,12 @@ use std::ffi::c_void;
 use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
+use windows::core::Interface;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx};
 use windows::Win32::UI::Accessibility::{
     CUIAutomation, ExpandCollapseState_Collapsed, IUIAutomation, IUIAutomationCacheRequest, IUIAutomationCondition,
-    IUIAutomationElement, IUIAutomationExpandCollapsePattern, IUIAutomationInvokePattern,
+    IUIAutomationElement, IUIAutomationElement3, IUIAutomationExpandCollapsePattern, IUIAutomationInvokePattern,
     IUIAutomationLegacyIAccessiblePattern, IUIAutomationSelectionItemPattern, IUIAutomationTogglePattern,
     IUIAutomationValuePattern, TreeScope_Children, UIA_AcceleratorKeyPropertyId, UIA_BoundingRectanglePropertyId,
     UIA_ControlTypePropertyId, UIA_ExpandCollapsePatternId, UIA_HasKeyboardFocusPropertyId, UIA_InvokePatternId,
@@ -39,8 +40,8 @@ use windows::Win32::UI::Accessibility::{
 };
 
 use crate::platform::windows_logic::{
-    Patterns, PressAction, UIA_MENU_BAR, click_presses, press_action, uia_has_value, uia_role, visible_text,
-    web_tree_pending,
+    Patterns, PressAction, UIA_MENU_BAR, click_presses, menu_shows_at, press_action, shows_menu_on_request,
+    uia_has_value, uia_role, visible_text, web_tree_pending,
 };
 use crate::platform::{AxNode, AxTree, ElementHandle, PlatformError, Rect, Result, TreeLimits};
 
@@ -334,10 +335,56 @@ pub fn press(h: &ElementHandle) -> Result<()> {
     }
 }
 
-/// The control at a screen pixel that one plain click would press, with
-/// its role and name: the element there or one of its three nearest
-/// ancestors (`windows_logic::click_presses`). `None`: click for real.
-pub fn pressable_at(x: i32, y: i32) -> Result<Option<(ElementHandle, String, String)>> {
+/// Show the element's context menu without the pointer: what a
+/// right-click on it, or the menu key, brings up. On a helper thread, as a
+/// press is: the call can stay inside the menu while it is open.
+pub fn show_menu(h: &ElementHandle) -> Result<()> {
+    let el = Shared(el_of(h)?.clone());
+    let (tx, rx) = mpsc::channel();
+    std::thread::Builder::new()
+        .name("pindot-uia-menu".into())
+        .spawn(move || {
+            join_apartment();
+            let el = el;
+            // SAFETY: COM calls on a valid interface pointer.
+            let shown = unsafe { el.0.cast::<IUIAutomationElement3>().and_then(|e| e.ShowContextMenu()) };
+            let _ = tx.send(shown.map_err(err));
+        })
+        .map_err(|e| PlatformError::Other(e.to_string()))?;
+    match rx.recv_timeout(PRESS_WAIT) {
+        Ok(result) => result,
+        Err(_) => Ok(()),
+    }
+}
+
+/// Does the element show its menu when asked? One the keyboard can reach
+/// (the menu key is what the request stands in for), in a UI framework
+/// that was seen to answer (`windows_logic::shows_menu_on_request`).
+fn answers_menu_request(el: &IUIAutomationElement) -> bool {
+    // SAFETY: COM calls on a valid interface pointer.
+    unsafe {
+        el.CurrentIsEnabled().is_ok_and(|b| b.as_bool())
+            && el.CurrentIsKeyboardFocusable().is_ok_and(|b| b.as_bool())
+            && el.CurrentFrameworkId().is_ok_and(|f| shows_menu_on_request(&f.to_string()))
+            && el.cast::<IUIAutomationElement3>().is_ok()
+    }
+}
+
+/// Can the element be asked for its context menu?
+pub fn can_show_menu(h: &ElementHandle) -> Result<bool> {
+    let el = el_of(h)?;
+    // SAFETY: a COM call on a valid interface pointer. An element that is
+    // gone fails it.
+    unsafe { el.CurrentControlType() }.map_err(err)?;
+    Ok(answers_menu_request(el))
+}
+
+/// The control at a screen pixel that takes a click without the pointer,
+/// with its role and name: the element there or one of its three nearest
+/// ancestors. `menu` false: one a plain click presses
+/// (`windows_logic::click_presses`); true: one a right-click can ask for
+/// its context menu (`menu_shows_at`). `None`: click for real.
+pub fn target_at(x: i32, y: i32, menu: bool) -> Result<Option<(ElementHandle, String, String)>> {
     let ui = automation()?;
     // SAFETY: COM calls on valid interface pointers. An element that
     // vanishes on the way simply ends the search.
@@ -349,7 +396,12 @@ pub fn pressable_at(x: i32, y: i32) -> Result<Option<(ElementHandle, String, Str
             let enabled = el.CurrentIsEnabled().is_ok_and(|b| b.as_bool());
             let covers =
                 el.CurrentBoundingRectangle().is_ok_and(|r| x >= r.left && x < r.right && y >= r.top && y < r.bottom);
-            if covers && click_presses(control_type, can, enabled) {
+            let fits = if menu {
+                menu_shows_at(control_type, true, enabled) && answers_menu_request(&el)
+            } else {
+                click_presses(control_type, can, enabled)
+            };
+            if covers && fits {
                 let (role, _) = uia_role(control_type, false, false);
                 let name = el.CurrentName().map(|n| visible_text(&n.to_string())).unwrap_or_default();
                 return Ok(Some((handle_of(el), role.to_string(), name)));

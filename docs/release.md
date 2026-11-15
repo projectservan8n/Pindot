@@ -3,8 +3,9 @@
 Status (15 Nov 2026): the macOS arm64 release build is made and checked
 unsigned (see `docs/phase3/README.md`). The Windows build and its installer
 are made by `scripts\build-windows.ps1`; the installer was installed
-silently into a test folder, the installed copy run, and uninstalled. Its
-pages were not clicked through. Signing and notarization are documented
+silently into a test folder, the installed copy run, and uninstalled; its
+pages and the uninstaller's were walked by sending their buttons' commands,
+not by hand. Signing and notarization are documented
 here only; neither has been set up.
 
 ## macOS: unsigned build (done)
@@ -150,8 +151,15 @@ signed with the same certificate.
    uninstaller's "delete the application data" box removes only the
    WebView2 data under the bundle id (`%LOCALAPPDATA%\dev.pindot.app`),
    not `%APPDATA%\Pindot` with the settings, the token and the models.
-   Not checked: the installer's pages clicked through by hand, that box,
-   a clean PC without WebView2. An MSI (`--bundles msi`, needs WiX) was
+   The pages were walked too, into a test folder, by sending each
+   button's command to the installer's own window: Welcome, Choose
+   Install Location, Installing, Installation Complete, and the last page
+   with "Run Pindot" unticked; then the uninstaller's: the confirmation
+   with "Delete the application data" left unticked, Uninstalling, and
+   Uninstallation Complete. Both ended with nothing left behind. Not
+   checked: a person doing it with the mouse, that box ticked, the
+   "Create desktop shortcut" box of the last page (a silent install makes
+   the shortcut), a clean PC without WebView2. An MSI (`--bundles msi`, needs WiX) was
    not tried.
 5. WebView2: the default `bundle.windows.webviewInstallMode` downloads the
    bootstrapper during install if WebView2 is missing (needs the internet);
