@@ -166,3 +166,107 @@ fn models_and_what_they_can_do_are_read_from_ollama() {
     assert!(probe::list_models("ollama", "http://127.0.0.1:9/v1", None).is_err());
     assert!(fake.requests.lock().unwrap().is_empty());
 }
+
+// ------------------------------------------------------------ LoopBrain
+
+#[test]
+fn a_spoken_request_runs_through_the_loop_and_pindots_tools() {
+    use pindot_core::brain::Brain;
+    use pindot_core::brain::native::settings::{BrainKind, BrainSettings, Vision};
+    use pindot_core::brain::native::{LoopBrain, LoopConfig};
+    use pindot_core::voice::machine::Input;
+
+    let p = pindot();
+    let fake = fake_model(
+        &p.rt,
+        vec![
+            sse("Opening TextEdit.", &[("c1", "request_access", r#"{"apps":["TextEdit"],"reason":"asked"}"#)]),
+            sse("", &[("c2", "desktop_context", "{}")]),
+            sse("TextEdit is ready.", &[]),
+        ],
+    );
+    let data = std::env::temp_dir().join(format!("pindot-loopbrain-{}", uuid::Uuid::new_v4()));
+    let (tx, rx) = std::sync::mpsc::channel::<Input>();
+    let tx = Mutex::new(tx);
+    let brain = LoopBrain::start(
+        LoopConfig {
+            brain: BrainSettings {
+                kind: BrainKind::Loop,
+                provider: "custom".into(),
+                base_url: fake.base_url.clone(),
+                model: "tiny".into(),
+                vision: Vision::Off,
+                ..BrainSettings::default()
+            },
+            key: None,
+            mcp_url: p.server.mcp_url(),
+            token: TOKEN.into(),
+            system_prompt: "Be brief.".into(),
+            data_dir: data.clone(),
+        },
+        p.state.clone(),
+        Arc::new(move |i| {
+            let _ = tx.lock().unwrap().send(i);
+        }),
+    )
+    .unwrap();
+    let next = || rx.recv_timeout(Duration::from_secs(10)).expect("an input from the brain");
+    let Input::SessionReady { session_id } = next() else { panic!("not ready") };
+    brain.send("open text edit");
+    let mut got = vec![];
+    loop {
+        let i = next();
+        let end = matches!(i, Input::Stop { .. } | Input::TurnFailed { .. });
+        got.push(i);
+        if end {
+            break;
+        }
+    }
+    let sid = session_id.clone();
+    assert_eq!(got[0], Input::TranscriptPrompt { session_id: sid.clone() }, "{got:?}");
+    assert!(got.contains(&Input::TranscriptText { session_id: sid.clone(), text: "Opening TextEdit.".into() }));
+    assert!(got.contains(&Input::TranscriptToolUse { session_id: sid.clone(), name: "mcp__desktop__request_access".into() }));
+    assert_eq!(got.last(), Some(&Input::Stop { session_id: sid.clone(), last_message: Some("TextEdit is ready.".into()) }));
+    let reqs = fake.requests.lock().unwrap().clone();
+    let names: Vec<&str> = reqs[0]["tools"].as_array().unwrap().iter().filter_map(|t| t["function"]["name"].as_str()).collect();
+    assert!(names.contains(&"click") && !names.contains(&"screenshot"), "no screenshot tool without vision: {names:?}");
+    assert!(reqs[2]["messages"].to_string().contains("Approved for this session: TextEdit"), "the tool result reached the model");
+    assert_eq!(reqs[0]["messages"][0]["role"], "system");
+    let file = pindot_core::brain::transcript::conversations_dir(&data).join(format!("{sid}.jsonl"));
+    let items = pindot_core::chat::transcript::read_all(&file);
+    assert!(items.len() >= 4, "{items:?}");
+    drop(brain);
+    std::fs::remove_dir_all(&data).ok();
+}
+
+#[test]
+fn a_server_that_is_not_running_is_reported_once_and_a_request_fails_plainly() {
+    use pindot_core::brain::Brain;
+    use pindot_core::brain::native::settings::{BrainKind, BrainSettings};
+    use pindot_core::brain::native::{LoopBrain, LoopConfig};
+    use pindot_core::voice::machine::Input;
+
+    let p = pindot();
+    let (tx, rx) = std::sync::mpsc::channel::<Input>();
+    let tx = Mutex::new(tx);
+    let brain = LoopBrain::start(
+        LoopConfig {
+            brain: BrainSettings { kind: BrainKind::Loop, provider: "ollama".into(), base_url: "http://127.0.0.1:9/v1".into(), model: "x".into(), ..BrainSettings::default() },
+            key: None,
+            mcp_url: p.server.mcp_url(),
+            token: TOKEN.into(),
+            system_prompt: String::new(),
+            data_dir: std::env::temp_dir(),
+        },
+        p.state.clone(),
+        Arc::new(move |i| {
+            let _ = tx.lock().unwrap().send(i);
+        }),
+    )
+    .unwrap();
+    let first = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert_eq!(first, Input::BrainUnavailable { message: "Ollama isn't running. Start it, or pick another brain in Settings.".into() });
+    brain.send("hello");
+    let second = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(matches!(second, Input::TurnFailed { message } if message.contains("isn't running")));
+}
