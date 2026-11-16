@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/pindot-lockup-colour-on-dark.svg">
+    <img src="docs/brand/pindot-lockup-colour-on-light.svg" alt="Pindot" width="340">
+  </picture>
+</p>
+
 # Pindot
 
 Hold a key, say what you want, and your own Claude Code does it on your
