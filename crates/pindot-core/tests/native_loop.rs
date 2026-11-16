@@ -416,3 +416,71 @@ fn a_request_runs_through_the_anthropic_api_with_its_headers_and_replayed_thinki
     drop(brain);
     std::fs::remove_dir_all(&data).ok();
 }
+
+// ------------------------------------------------------- a real model
+
+/// A real local model: Ollama on its usual port with `qwen3:4b` pulled
+/// (`OLLAMA_CONTEXT_LENGTH=32768 ollama serve`). Runs the model test, then
+/// one turn against the mock desktop. Not run by default.
+///   cargo test -p pindot-core --test native_loop real_ollama -- --ignored --nocapture
+#[test]
+#[ignore]
+fn real_ollama() {
+    use pindot_core::brain::Brain;
+    use pindot_core::brain::native::settings::{BrainKind, BrainSettings};
+    use pindot_core::brain::native::test_model::test_model;
+    use pindot_core::brain::native::{LoopBrain, LoopConfig};
+    use pindot_core::voice::machine::Input;
+
+    let model = std::env::var("PINDOT_TEST_OLLAMA_MODEL").unwrap_or_else(|_| "qwen3:4b".into());
+    let brain = BrainSettings {
+        kind: BrainKind::Loop,
+        provider: "ollama".into(),
+        base_url: "http://127.0.0.1:11434/v1".into(),
+        model: model.clone(),
+        context_tokens: Some(32768),
+        ..BrainSettings::default()
+    };
+    let p = pindot();
+    let t0 = std::time::Instant::now();
+    let r = test_model(&brain, None, &p.server.mcp_url(), TOKEN, &p.state);
+    println!("model test with {model}: ok={} note={:?} in {:.1}s", r.ok, r.note, t0.elapsed().as_secs_f64());
+
+    let (tx, rx) = std::sync::mpsc::channel::<Input>();
+    let tx = Mutex::new(tx);
+    let data = std::env::temp_dir().join(format!("pindot-real-ollama-{}", uuid::Uuid::new_v4()));
+    let b = LoopBrain::start(
+        LoopConfig {
+            brain,
+            key: None,
+            mcp_url: p.server.mcp_url(),
+            token: TOKEN.into(),
+            system_prompt: pindot_core::voice::VOICE_SYSTEM_PROMPT.into(),
+            data_dir: data.clone(),
+        },
+        p.state.clone(),
+        Arc::new(move |i| {
+            let _ = tx.lock().unwrap().send(i);
+        }),
+    )
+    .unwrap();
+    let next = || rx.recv_timeout(Duration::from_secs(240)).expect("an input from the brain");
+    let Input::SessionReady { .. } = next() else { panic!("not ready") };
+    let t1 = std::time::Instant::now();
+    b.send("Open a new document in TextEdit: get access to TextEdit, then press its New Document button.");
+    let mut tools = vec![];
+    let end = loop {
+        match next() {
+            Input::TranscriptToolUse { name, .. } => tools.push(name),
+            i @ (Input::Stop { .. } | Input::TurnFailed { .. }) => break i,
+            Input::TranscriptText { text, .. } => println!("said: {text}"),
+            _ => {}
+        }
+    };
+    println!("turn in {:.1}s, tools {tools:?}, end {end:?}", t1.elapsed().as_secs_f64());
+    drop(b);
+    std::fs::remove_dir_all(&data).ok();
+    assert!(r.ok, "the model test failed: {}", r.note);
+    assert!(matches!(end, Input::Stop { .. }), "{end:?}");
+    assert!(tools.iter().any(|t| t.ends_with("request_access")), "{tools:?}");
+}

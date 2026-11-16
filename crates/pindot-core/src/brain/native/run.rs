@@ -86,7 +86,9 @@ pub fn run_turn(
     let started = Instant::now();
     let mut calls_made = 0;
     let mut last_text: Option<String> = None;
-    let budget = (conv.context_tokens as f64 * FILL) as usize;
+    // The tool list goes with every request and takes its share too.
+    let tools_tokens: usize = tools.iter().map(|t| (t.name.len() + t.description.len() + t.parameters.to_string().len()) / 4).sum();
+    let budget = ((conv.context_tokens as f64 * FILL) as usize).saturating_sub(tools_tokens);
     loop {
         if cancel.load(Ordering::SeqCst) {
             return interrupted(log);
@@ -295,5 +297,30 @@ mod tests {
         let mut model = Script(VecDeque::from([Err(CallError::Unreachable("refused".into()))]));
         let (end, _) = run(&mut conv(), &mut model, &mut Fake::default(), &AtomicBool::new(false), &L);
         assert_eq!(end, TurnEnd::Failed("Ollama isn't running. Start it, or pick another brain in Settings.".into()));
+    }
+
+    #[test]
+    fn the_tool_list_counts_against_the_context() {
+        struct Count(usize);
+        impl Model for Count {
+            fn reply(&mut self, m: &[Msg], _t: &[ToolDef], _c: &AtomicBool) -> Result<Reply, CallError> {
+                self.0 = m.len();
+                Ok(Reply { text: "ok".into(), ..Default::default() })
+            }
+        }
+        let big = ToolDef { name: "t".into(), description: "x".repeat(4000), parameters: serde_json::json!({}) };
+        let mut c = Conversation { messages: vec![Msg::System("s".into())], context_tokens: 2000, vision: false };
+        for n in 0..6 {
+            c.messages.push(Msg::User { text: format!("old request {n} {}", "y".repeat(600)), images: vec![] });
+            c.messages.push(Msg::Assistant { text: "done".into(), calls: vec![], raw: None });
+        }
+        c.messages.push(Msg::User { text: "now".into(), images: vec![] });
+        let mut model = Count(0);
+        // Without tools everything fits; with 1000 tokens of tools, old turns go.
+        run_turn(&mut c, &mut model, &[], &mut Fake::default(), None, &AtomicBool::new(false), &L, &who(), &mut |_| {});
+        assert_eq!(model.0, 14);
+        let mut c2 = Conversation { messages: c.messages[..14].to_vec(), context_tokens: 2000, vision: false };
+        run_turn(&mut c2, &mut model, &[big], &mut Fake::default(), None, &AtomicBool::new(false), &L, &who(), &mut |_| {});
+        assert!(model.0 < 14, "{}", model.0);
     }
 }
