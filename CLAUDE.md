@@ -435,8 +435,10 @@ recorded; everything else was renamed (crates, bundle id `dev.pindot.app`,
   luminance is under 0.12, else `#15151b`. Settings has swatches, a colour
   input and a preview; `lib/format.ts` holds the presets and the same
   luminance rule for the preview. The eyes are animated with CSS only:
-  `#eyes` looks along the velocity `render()` already smooths (at most 7
-  drawing units, about 1.1 px), `#eyes-x` holds the mood
+  while he travels `#eyes` sweeps left and right (`SWEEP_MS` 520 per full
+  sweep, 14 drawing units or about 2.2 px each way, starting from centre
+  each time he sets off) and leans a little along the velocity `render()`
+  already smooths, `#eyes-x` holds the mood
   (`#arrow[data-eyes]`: listening, thinking, speaking, squint on a tap,
   sleepy after 20 s resting, closed for 900 ms on Esc) and each eye rect
   blinks from a 3 to 7 s timer. No extra frame loop. With reduced motion

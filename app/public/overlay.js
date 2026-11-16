@@ -189,9 +189,19 @@
     const bank = reduced ? 0 : clamp(vel.x * 11, -18, 18);
     const grow = reduced ? 1 : 1 + Math.min(speed * 0.05, 0.08);
     lean.style.transform = 'rotate(' + bank.toFixed(2) + 'deg) scale(' + grow.toFixed(3) + ')';
-    // The eyes lean into the direction of travel (same smoothed velocity).
-    if (speed > 0.02 && !reduced) look(vel.x / speed * Math.min(speed * 8, 1), vel.y / speed * Math.min(speed * 8, 1));
-    else look(0, 0);
+    // While he travels the eyes sweep left and right (one full sweep every
+    // SWEEP_MS, always starting from centre), leaning a little into the
+    // direction of travel on top (same smoothed velocity).
+    if (speed > 0.02 && !reduced) {
+      const t = performance.now();
+      if (!sweepFrom) sweepFrom = t;
+      const k = Math.min(speed * 8, 1);
+      const sweep = Math.sin((t - sweepFrom) / SWEEP_MS * 2 * Math.PI) * SWEEP_REACH;
+      look(sweep + vel.x / speed * k * 0.4, vel.y / speed * k);
+    } else {
+      sweepFrom = 0;
+      look(0, 0);
+    }
 
     // The tag hangs off the arrow and swings behind the motion.
     const base = tagBase(l);
@@ -750,6 +760,9 @@
   // (see render); the mood is one data attribute set from the voice state,
   // resting, taps and Esc. All of it is CSS transitions: no loop of its own.
   const LOOK_MAX = 7; // drawing units; the group is scaled 0.16, so ~1.1 px
+  const SWEEP_MS = 520; // one left-right-and-back sweep while travelling
+  const SWEEP_REACH = 2; // in LOOK_MAX units: 14 drawing units, ~2.2 px each way
+  let sweepFrom = 0; // when the current stretch of travel began
   let lookKey = '';
   function look(x, y) {
     const k = (Math.round(x * LOOK_MAX * 2) / 2) + ',' + (Math.round(y * LOOK_MAX * 2) / 2);

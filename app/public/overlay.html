@@ -73,7 +73,7 @@
   #eyes, #eyes-x, .eye { transform-box: fill-box; transform-origin: center; }
   .eye { fill: var(--ink); transition: transform 65ms ease-out, fill 200ms ease; }
   .eye.blink { transform: scaleY(0.08); transition-duration: 55ms; }
-  #eyes { transition: transform 160ms ease-out; }
+  #eyes { transition: transform 90ms linear; }
   #eyes-x { transition: transform 240ms ease; }
   #arrow[data-eyes="listening"] #eyes-x { transform: scale(1.14, 1.2); }
   #arrow[data-eyes="thinking"] #eyes-x { animation: glance 3600ms ease-in-out infinite; }
