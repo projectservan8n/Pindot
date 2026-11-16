@@ -461,7 +461,7 @@
                    { opacity: 1, transform: 'rotate(' + angle + 'deg) translateY(0)', offset: 0.4 },
                    { opacity: 0, transform: 'rotate(' + angle + 'deg) translateY(8px)' }],
         { duration: 520, delay: i * 70, easing: 'ease-out' });
-      if (el) el.innerHTML = '<svg width="16" height="10" viewBox="0 0 16 10"><polyline points="2,2 8,8 14,2" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="2,2 8,8 14,2" fill="none" style="stroke:var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      if (el) el.innerHTML = '<svg width="16" height="10" viewBox="0 0 16 10"><polyline points="2,2 8,8 14,2" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="2,2 8,8 14,2" fill="none" class="chev-stroke" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     }
   }
 
@@ -699,9 +699,22 @@
       caption.style.visibility = 'hidden';
       return;
     }
+    x = clamp(x, 8, M.width - w - 8);
+    y = clamp(y, 8, M.height - h - 8);
+    // Never on top of the voice pill ("Speaking"): if the bubble would cover
+    // it, move it just above, just below or beside it, whichever is free.
+    if (pill.offsetWidth > 0) {
+      const pr = pill.getBoundingClientRect();
+      const hits = (cx, cy) => cx < pr.right + 8 && cx + w > pr.left - 8 && cy < pr.bottom + 8 && cy + h > pr.top - 8;
+      if (hits(x, y)) {
+        const fits = (cx, cy) => cx >= 8 && cy >= 8 && cx + w <= M.width - 8 && cy + h <= M.height - 8 && !hits(cx, cy);
+        const tries = [[x, pr.top - 8 - h], [x, pr.bottom + 8], [pr.left - 8 - w, y], [pr.right + 8, y]];
+        const ok = tries.find((t) => fits(t[0], t[1]));
+        if (ok) { x = ok[0]; y = ok[1]; }
+      }
+    }
     caption.style.visibility = '';
-    caption.style.transform = 'translate(' + clamp(x, 8, M.width - w - 8).toFixed(1) + 'px,' +
-      clamp(y, 8, M.height - h - 8).toFixed(1) + 'px)';
+    caption.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
   }
 
   // ------------------------------------------------------------- events
