@@ -222,6 +222,10 @@ Environment variables override settings without saving them:
   checked against the window under it first; typing needs an approved app
   in focus; screenshots grey out every window of an app you did not
   approve; `type_text` refuses password fields.
+- **Streaming mode** (Settings, off by default): shows Rusty's cursor and
+  caption bubble in OBS and screen shares while Rusty's own screenshots
+  still leave them out. The Pindot window, the Vault and approval popups
+  stay hidden. Needs macOS 14 or newer.
 - **Esc stops everything**, as above.
 - **Visible control**: the banner "Claude is controlling input · press Esc
   to stop" and the AI cursor moving to each target before it clicks.
