@@ -307,24 +307,27 @@ fn load_voice_parts(app: &AppHandle, settings: &VoiceSettings, opts: &VoiceOptio
         Arc::new(move |e: SpeakerEvent| {
             // Captions: what is being said, from its first sound to its end.
             if captions {
-                match &e {
-                    SpeakerEvent::FirstAudio { seq, text, .. } => {
-                        let _ = capt_app.emit("pindot:caption", serde_json::json!({ "seq": seq, "text": text }));
-                    }
-                    SpeakerEvent::Generated { seq, secs } => {
-                        let _ = capt_app.emit("pindot:caption-timing", serde_json::json!({ "seq": seq, "secs": secs }));
-                    }
-                    SpeakerEvent::Finished { seq, interrupted } => {
-                        let _ = capt_app
-                            .emit("pindot:caption-end", serde_json::json!({ "seq": seq, "interrupted": interrupted }));
-                    }
-                    _ => {}
+                if let Some((name, payload)) = caption_event(&e) {
+                    let _ = capt_app.emit(name, payload);
                 }
             }
             h.speaker_event(e)
         }),
     )?;
     Ok(VoiceParts { recorder, speaker, wav_sink, stt_dir })
+}
+
+/// The overlay event (and payload) a speaker event becomes. These are the
+/// names and fields `app/public/overlay.js` listens for.
+fn caption_event(e: &SpeakerEvent) -> Option<(&'static str, serde_json::Value)> {
+    match e {
+        SpeakerEvent::FirstAudio { seq, text, .. } => Some(("pindot:caption", serde_json::json!({ "seq": seq, "text": text }))),
+        SpeakerEvent::Generated { seq, secs } => Some(("pindot:caption-timing", serde_json::json!({ "seq": seq, "secs": secs }))),
+        SpeakerEvent::Finished { seq, interrupted } => {
+            Some(("pindot:caption-end", serde_json::json!({ "seq": seq, "interrupted": interrupted })))
+        }
+        _ => None,
+    }
 }
 
 fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: ServerLink, opts: VoiceOptions) -> Result<()> {
@@ -849,5 +852,99 @@ impl TestRun {
             println!("test-voice: nothing was spoken in this interaction");
         }
         spoken_ok
+    }
+}
+
+#[cfg(test)]
+mod caption_tests {
+    use super::*;
+    use pindot_core::voice::audio::AudioSink;
+    use pindot_core::voice::engines::TextToSpeech;
+    use std::sync::{Mutex, mpsc};
+    use std::time::Duration;
+
+    struct FakeTts;
+    impl TextToSpeech for FakeTts {
+        fn sample_rate(&self) -> u32 {
+            1000
+        }
+        fn speak(&self, _t: &str, on_chunk: &mut dyn FnMut(&[f32]) -> bool) -> Result<()> {
+            for _ in 0..4 {
+                if !on_chunk(&[0.1; 250]) {
+                    break;
+                }
+            }
+            Ok(())
+        }
+    }
+    /// Silent: no sound device is opened.
+    struct NullSink;
+    impl AudioSink for NullSink {
+        fn play(
+            &self,
+            _rate: u32,
+            next: &mut dyn FnMut() -> Option<Vec<f32>>,
+            stop: &dyn Fn() -> bool,
+            on_first_audio: &mut dyn FnMut(),
+        ) -> Result<()> {
+            let mut first = true;
+            while !stop() {
+                match next() {
+                    Some(_) => {
+                        if first {
+                            first = false;
+                            on_first_audio();
+                        }
+                    }
+                    None => break,
+                }
+            }
+            Ok(())
+        }
+    }
+
+    /// A spoken reply, through the real speaker with a fake voice and no
+    /// sound, sends the caption, its timing and its end, in that shape, and
+    /// the end comes last. Mirrors the closure in `build_parts`.
+    #[test]
+    fn a_spoken_reply_sends_caption_timing_and_end() {
+        let (tx, rx) = mpsc::channel();
+        let tx = Mutex::new(tx);
+        let sp = Speaker::new(
+            Arc::new(FakeTts),
+            Arc::new(NullSink),
+            Arc::new(move |e| {
+                let idle = matches!(e, SpeakerEvent::Idle { .. });
+                if let Some(c) = caption_event(&e) {
+                    let _ = tx.lock().unwrap().send(Some(c));
+                }
+                if idle {
+                    let _ = tx.lock().unwrap().send(None);
+                }
+            }),
+        )
+        .unwrap();
+        sp.say(7, "Opening your inbox now.");
+        let mut got = vec![];
+        while let Ok(Some(c)) = rx.recv_timeout(Duration::from_secs(5)) {
+            got.push(c);
+        }
+        let names: Vec<&str> = got.iter().map(|c| c.0).collect();
+        assert!(names.contains(&"pindot:caption") && names.contains(&"pindot:caption-timing"), "{names:?}");
+        assert_eq!(names.last(), Some(&"pindot:caption-end"), "{names:?}");
+        let cap = got.iter().find(|c| c.0 == "pindot:caption").unwrap();
+        assert_eq!(cap.1, serde_json::json!({ "seq": 7, "text": "Opening your inbox now." }));
+        let tim = got.iter().find(|c| c.0 == "pindot:caption-timing").unwrap();
+        assert_eq!(tim.1["seq"], 7);
+        assert!(tim.1["secs"].as_f64().unwrap() > 0.5);
+        assert_eq!(got.last().unwrap().1, serde_json::json!({ "seq": 7, "interrupted": false }));
+        let first = names.iter().position(|n| *n == "pindot:caption").unwrap();
+        assert!(first < names.len() - 1);
+    }
+
+    #[test]
+    fn other_speaker_events_send_no_caption() {
+        assert!(caption_event(&SpeakerEvent::Idle { seq: 1 }).is_none());
+        assert!(caption_event(&SpeakerEvent::Error { seq: 1, error: "x".into() }).is_none());
     }
 }
