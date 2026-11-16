@@ -81,3 +81,5 @@ Handy (https://github.com/cjpais/Handy, MIT) and Clicky
 (https://github.com/farzaa/clicky) were studied as references for the
 hold-to-talk key, model downloads and the pointing cursor. No code was
 copied from them.
+
+Fonts bundled in app/src/fonts/: Schibsted Grotesk (Schibsted Media Group) and Poppins (Indian Type Foundry), both SIL Open Font License 1.1, see app/src/fonts/OFL.txt.

@@ -3,6 +3,7 @@
   import { api, events, type AppInfo, type VoiceDisplay } from './lib/api';
   import { statusOf } from './lib/status';
   import Status from './components/Status.svelte';
+  import Rusty from './components/Rusty.svelte';
   import Chat from './views/Chat.svelte';
   import Setup from './views/Setup.svelte';
   import Settings from './views/Settings.svelte';
@@ -79,7 +80,7 @@
 <div class="shell">
   <aside class="side">
     <div class="brand">
-      <svg class="mark" viewBox="40 40 176 176" width="28" height="28" aria-hidden="true"><path fill="#ff2d95" fill-rule="evenodd" d="M46.12 71.59 A20 20 0 0 1 71.59 46.12 L197.59 90.12 A20 20 0 0 1 200.99 126.32 L153.64 153.64 L126.32 200.99 A20 20 0 0 1 90.12 197.59 Z M97.0 113.0 a8.0 8.0 0 0 1 16 0 v12 a8.0 8.0 0 0 1 -16 0 Z M127.0 113.0 a8.0 8.0 0 0 1 16 0 v12 a8.0 8.0 0 0 1 -16 0 Z"/></svg>
+      <Rusty size={30} />
       <div class="brand-text">
         <strong>Pindot</strong>
         <span>for Claude Code</span>
@@ -98,7 +99,7 @@
     </nav>
     <div class="side-foot">
       {#if info}<span>v{info.version}</span>{/if}
-      {#if info?.server_url}<code title="The address Claude Code connects to">{info.server_url}</code>{/if}
+      {#if info?.server_url}<code title={`The address Claude Code connects to: ${info.server_url}`}>{info.server_url.replace(/^https?:\/\//, '')}</code>{/if}
     </div>
   </aside>
 

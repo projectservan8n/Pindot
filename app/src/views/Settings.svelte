@@ -594,7 +594,7 @@
   .preview {
     margin-left: 10px;
     background: color-mix(in srgb, var(--fg) 6%, var(--card));
-    border-radius: 8px;
+    border-radius: var(--r-sm);
   }
   .notes-label {
     display: block;
@@ -615,8 +615,8 @@
     margin: 8px 0 4px;
     padding: 12px 14px;
     border: 1px solid var(--warn);
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--warn) 8%, var(--card));
+    border-radius: var(--r-md);
+    background: var(--warn-wash);
   }
   .disclaimer strong:first-child {
     color: var(--warn);

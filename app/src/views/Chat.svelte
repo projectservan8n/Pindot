@@ -16,6 +16,7 @@
   import { formatBytes, shortTime, stepLabel } from '../lib/format';
   import Markdown from '../components/Markdown.svelte';
   import Thumb from '../components/Thumb.svelte';
+  import Rusty from '../components/Rusty.svelte';
   import { assistant, refreshAssistant } from '../lib/assistant.svelte';
   import { insertAtCaret, problemText } from '../lib/dictate';
 
@@ -65,9 +66,9 @@
   const dictating = $derived(dictPhase !== 'idle');
   const dictLabel = $derived(
     dictPhase === 'listening'
-      ? 'Listening. Press the microphone again to finish, or Esc to cancel.'
+      ? 'Listening. Tap the microphone to finish, or Esc to cancel.'
       : dictPhase === 'transcribing'
-        ? 'Turning your words into text...'
+        ? 'Writing out what you said...'
         : '',
   );
 
@@ -411,15 +412,16 @@
   >
     {#if loaded && rows.length === 0}
       <div class="empty">
+        <Rusty size={84} pose={!view.can_send && !viewing ? 'blocked' : 'idle'} />
         <h2>{viewing ? 'Nothing in this conversation' : `Ask ${name} anything`}</h2>
         {#if !view.can_send && !viewing}
-          <p>Chat needs Claude Code installed and signed in. Setup takes you through it.</p>
+          <p>Chat needs Claude Code, installed and signed in. Setup walks you through it.</p>
           <button type="button" class="primary" onclick={() => onGo('setup')}>Open Setup</button>
         {:else if viewing}
           <p>This record has no messages we can show.</p>
         {:else}
-          <p>Type below, or press the microphone to dictate. {#if view.can_speak}Hold the key and talk to get a spoken answer.{/if}</p>
-          <p class="muted small">Typed messages are answered on screen{#if view.can_speak}, and read aloud only if you switch that on under the box{/if}. Drop files or pictures here to share them.</p>
+          <p>Type below, or tap Dictate and talk. {#if view.can_speak}Hold the key to get a spoken answer.{/if}</p>
+          <p class="muted small">Typed messages are answered on screen{#if view.can_speak}, and read aloud only if you switch that on{/if}. Drop files or pictures in to share them.</p>
         {/if}
       </div>
     {/if}

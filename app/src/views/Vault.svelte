@@ -385,10 +385,31 @@
     background: var(--card);
   }
   table.vault tr.hist > td {
+    max-width: 0;
+    overflow: hidden;
     padding: var(--s2) var(--s3) var(--s3);
   }
+  table.vault table.inner td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  table.vault table.inner td.nowrap {
+    white-space: nowrap;
+  }
+  table.vault table.inner td code {
+    white-space: normal;
+  }
+  table.inner th:nth-child(1) {
+    width: 84px;
+  }
+  table.inner th:nth-child(2) {
+    width: 92px;
+  }
+  table.inner th:nth-child(4) {
+    width: 104px;
+  }
   table.inner {
-    table-layout: auto;
+    table-layout: fixed;
     width: 100%;
     margin-top: var(--s2);
   }
@@ -397,7 +418,7 @@
   }
   table.vault td code {
     white-space: nowrap;
-    font-size: 0.85em;
+    font-size: var(--fs-xs);
   }
   table.vault td:first-child {
     white-space: nowrap;
