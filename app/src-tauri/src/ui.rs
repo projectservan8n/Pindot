@@ -103,6 +103,11 @@ impl Ui {
         }
     }
 
+    /// The running voice loop's input, for the chat window.
+    pub fn voice_handle(&self) -> Option<pindot_core::voice::runner::VoiceHandle> {
+        self.voice.lock().unwrap().as_ref().and_then(|v| v.handle())
+    }
+
     fn voice_state(&self) -> Option<VoiceState> {
         self.voice.lock().unwrap().as_ref().map(|v| v.state())
     }

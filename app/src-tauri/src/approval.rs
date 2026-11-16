@@ -9,12 +9,14 @@ use std::sync::{Arc, Mutex};
 
 use pindot_core::platform::{Accessibility, WindowInfo};
 use pindot_core::server::approval::{ApprovalRequest, Approver};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tokio::sync::oneshot;
 
 pub const LABEL_PREFIX: &str = "approval-";
 
 struct Pending {
+    /// Also shown inline in the chat window; either place can answer.
+    req: ApprovalRequest,
     reply: oneshot::Sender<bool>,
     /// The window that was in front before the prompt took focus.
     restore: Option<WindowInfo>,
@@ -43,6 +45,7 @@ impl TauriApprover {
         let Some(p) = self.pending.lock().unwrap().remove(id) else { return };
         println!("approval {id}: user {}", if allow { "ALLOWED" } else { "denied" });
         let _ = p.reply.send(allow);
+        let _ = self.app.emit("pindot:approval-done", serde_json::json!({ "id": p.req.id, "allowed": allow }));
         self.close(label);
         // Give focus back to the window the user was in.
         if let Some(w) = p.restore {
@@ -52,6 +55,11 @@ impl TauriApprover {
                 let _ = ax.raise_window(&w);
             });
         }
+    }
+
+    /// Requests waiting for an answer, for the chat window.
+    pub fn pending_requests(&self) -> Vec<ApprovalRequest> {
+        self.pending.lock().unwrap().values().map(|p| p.req.clone()).collect()
     }
 
     fn close(&self, label: &str) {
@@ -74,8 +82,9 @@ impl Approver for TauriApprover {
         let label = Self::label(&req.id);
         let id = label[LABEL_PREFIX.len()..].to_string();
         let restore = self.front_window();
-        self.pending.lock().unwrap().insert(id, Pending { reply, restore });
         let json = serde_json::to_string(&req).unwrap_or_else(|_| "null".into());
+        let _ = self.app.emit("pindot:approval", &req);
+        self.pending.lock().unwrap().insert(id, Pending { req: req.clone(), reply, restore });
         let script = format!("window.__PINDOT_APPROVAL__ = {json};");
         let height = 230.0 + 64.0 * req.apps.len().min(6) as f64;
         let app = self.app.clone();
@@ -106,7 +115,9 @@ impl Approver for TauriApprover {
     fn cancel(&self, id: &str) {
         let label = Self::label(id);
         // Dropping the sender counts as deny; the caller already timed out.
-        self.pending.lock().unwrap().remove(&label[LABEL_PREFIX.len()..]);
+        if let Some(p) = self.pending.lock().unwrap().remove(&label[LABEL_PREFIX.len()..]) {
+            let _ = self.app.emit("pindot:approval-done", serde_json::json!({ "id": p.req.id, "allowed": false }));
+        }
         let app = self.app.clone();
         let _ = self.app.run_on_main_thread(move || {
             if let Some(w) = app.get_webview_window(&label) {
@@ -121,4 +132,26 @@ impl Approver for TauriApprover {
 #[tauri::command]
 pub fn approval_answer(window: tauri::WebviewWindow, approver: tauri::State<'_, Arc<TauriApprover>>, allow: bool) {
     approver.answer_from_window(window.label(), allow);
+}
+
+/// The chat window's Allow / Deny. Same decision, same pending request, same
+/// `answer_from_window` as the approval window's buttons: only the main
+/// window may use it (a page can still only answer a request that is
+/// pending, and Pindot's own windows can never be approved for control, so
+/// Claude cannot click these buttons).
+#[tauri::command]
+pub fn approval_answer_inline(window: tauri::WebviewWindow, approver: tauri::State<'_, Arc<TauriApprover>>, id: String, allow: bool) {
+    if window.label() != crate::ui::MAIN {
+        return;
+    }
+    let safe: String = id.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+    approver.answer_from_window(&format!("{LABEL_PREFIX}{safe}"), allow);
+}
+
+#[tauri::command]
+pub fn approvals_pending(window: tauri::WebviewWindow, approver: tauri::State<'_, Arc<TauriApprover>>) -> Vec<ApprovalRequest> {
+    if window.label() != crate::ui::MAIN {
+        return vec![];
+    }
+    approver.pending_requests()
 }

@@ -28,7 +28,7 @@ use pindot_core::voice::phonon_voices;
 use pindot_core::voice::runner::{self, LiveIo, Metric, Recorder, StatusSink, VoiceHandle, VoiceRunner, VoiceStatus};
 use pindot_core::voice::speaker::{Speaker, SpeakerEvent};
 use pindot_core::voice::{VoiceSettings, voice_system_prompt};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Playback volume of the test path (the "one play at low volume").
 const TEST_VOLUME: f32 = 0.2;
@@ -72,6 +72,8 @@ pub struct VoiceApp {
 struct Running {
     hotkey: Option<ListenerHandle>,
     runner: VoiceRunner,
+    /// Typed chat messages go in here.
+    handle: VoiceHandle,
     /// Feeds the companion cursor; `None` when that setting is off.
     _companion: Option<Companion>,
 }
@@ -160,6 +162,10 @@ impl VoiceApp {
             Some(_) => VoiceState::Failed("the hold-to-talk key could not be watched (see the log)".into()),
             None => VoiceState::Starting,
         }
+    }
+
+    pub fn handle(&self) -> Option<VoiceHandle> {
+        self.running.lock().unwrap().as_ref().map(|r| r.handle.clone())
     }
 
     fn metrics(&self) -> Vec<Metric> {
@@ -313,13 +319,19 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
         system_prompt: voice_system_prompt(&settings),
         brain_folder: brain_folder_for_start(app, &settings),
     };
-    let (h, p) = (handle.clone(), probe.clone());
+    let (h, p, chat_app) = (handle.clone(), probe.clone(), app.clone());
     let brain = PersistentBrain::start(
         config,
         state.clone(),
         Arc::new(move |i: Input| {
             if let Some(p) = &p {
                 p.input(&i);
+            }
+            // The chat window follows whichever session the brain is on.
+            if let Input::SessionReady { session_id } = &i
+                && let Some(hub) = chat_app.try_state::<Arc<crate::chat::ChatHub>>()
+            {
+                hub.session_ready(session_id);
             }
             h.input(i)
         }),
@@ -333,6 +345,9 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
                 p.status(s);
             }
             *shown.lock().unwrap() = s.state;
+            if let Some(hub) = app.try_state::<Arc<crate::chat::ChatHub>>() {
+                hub.set_display(s.state);
+            }
             let _ = app.emit("pindot:voice", s);
         })
     };
@@ -362,7 +377,7 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
         } else {
             None
         };
-        *running = Some(Running { hotkey, runner, _companion: companion });
+        *running = Some(Running { hotkey, runner, handle: handle.clone(), _companion: companion });
     }
     println!(
         "voice: ready (speak mode {:?}, idle reset {} s). Hold {hotkey_label} to talk; Esc stops everything.",

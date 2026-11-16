@@ -30,6 +30,7 @@
 //! are ignored with a warning.
 
 mod approval;
+mod chat;
 mod overlay;
 mod test_turn;
 mod ui;
@@ -192,6 +193,16 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             approval::approval_answer,
+            approval::approval_answer_inline,
+            approval::approvals_pending,
+            chat::chat_state,
+            chat::chat_send,
+            chat::chat_attach_paths,
+            chat::chat_attach_bytes,
+            chat::chat_choose_files,
+            chat::chat_stop,
+            chat::chat_history,
+            chat::chat_open,
             ui::app_info,
             ui::settings_get,
             ui::settings_save,
@@ -259,6 +270,7 @@ pub fn run() {
             }
             let port = settings.effective().port;
             app.manage(ui::Ui::new(args.capturable, args.voice, args.model.clone(), settings, load_note));
+            chat::start(app.handle());
             // Each overlay page asks for the assistant's name and the cursor
             // colour once it loads (events sent before that are lost);
             // Settings sends them on save.

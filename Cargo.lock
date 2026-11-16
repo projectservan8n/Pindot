@@ -3770,6 +3770,7 @@ name = "pindot"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "pindot-core",
  "serde",
  "serde_json",
@@ -3780,6 +3781,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
