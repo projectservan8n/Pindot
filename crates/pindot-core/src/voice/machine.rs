@@ -42,6 +42,9 @@ pub enum Input {
     HotkeyCancel,
     /// The global Esc (Control broadcast `EmergencyStop`).
     Esc,
+    /// Typed in the chat window. `text` is the whole prompt as it goes to the
+    /// session; with `speak` false the reply is shown, not read aloud.
+    TypedPrompt { text: String, speak: bool },
     /// Speech to text finished for recording `utterance`.
     Transcribed { utterance: u64, text: String },
     TranscribeFailed { utterance: u64, error: String },
@@ -91,6 +94,8 @@ struct Turn {
     tools_running: u32,
     /// Normalised texts already spoken in this turn.
     spoken: Vec<String>,
+    /// A typed turn whose reply is shown but not spoken.
+    silent: bool,
 }
 
 pub struct Machine {
@@ -250,6 +255,26 @@ impl Machine {
                     fx.push(Effect::InterruptTurn);
                 }
             }
+            Input::TypedPrompt { text, speak } => {
+                let text = text.trim().to_string();
+                if text.is_empty() {
+                    // Nothing to send.
+                } else if self.listening || self.transcribing || self.turn.is_some() {
+                    fx.push(Effect::Notice("Rusty is busy. Wait for the reply, or press Stop.".into()));
+                } else if let Some(problem) = &self.brain_problem {
+                    fx.push(Effect::Notice(problem.clone()));
+                } else if self.session.is_none() {
+                    fx.push(Effect::Notice("Claude Code is still starting. Try again in a moment.".into()));
+                } else {
+                    if self.speaking {
+                        self.speaking = false;
+                        fx.push(Effect::StopSpeech);
+                    }
+                    self.session_used = true;
+                    self.turn = Some(Turn { silent: !speak, ..Turn::default() });
+                    fx.push(Effect::SendPrompt { text });
+                }
+            }
             Input::Transcribed { utterance, text } => {
                 if utterance == self.utterance && self.transcribing {
                     self.transcribing = false;
@@ -287,7 +312,7 @@ impl Machine {
                 if self.session.as_deref() == Some(session_id.as_str())
                     && let Some(turn) = self.turn.take()
                 {
-                    if let Some(msg) = last_message {
+                    if let Some(msg) = last_message.filter(|_| !turn.silent) {
                         let say = speakable(&msg);
                         if !say.is_empty() && !turn.spoken.contains(&norm(&say)) {
                             self.speak(say, &mut fx);
@@ -312,6 +337,7 @@ impl Machine {
                     && self.is_current(&session_id)
                     && let Some(t) = self.turn.as_mut()
                     && t.prompt_seen
+                    && !t.silent
                 {
                     let say = speakable(&text);
                     let n = norm(&say);
@@ -686,5 +712,68 @@ mod tests {
         assert!(has(&fx, &Effect::Notice("Claude asked for a permission.".into())));
         assert!(has(&fx, &Effect::DisarmEsc));
         assert!(!m.turn_live());
+    }
+    fn typed(m: &mut Machine, t: Instant, text: &str, speak: bool) -> Vec<Effect> {
+        m.handle(Input::TypedPrompt { text: text.into(), speak }, t)
+    }
+
+    #[test]
+    fn a_typed_prompt_goes_to_the_same_session_and_shows_thinking() {
+        let (mut m, t) = ready(SpeakMode::EachMessage);
+        let fx = typed(&mut m, t, "  what is 2+2?  ", false);
+        assert!(has(&fx, &Effect::SendPrompt { text: "what is 2+2?".into() }), "{fx:?}");
+        assert_eq!(m.display(), Display::Thinking);
+        assert_eq!(m.session_id(), Some(S));
+        assert!(m.turn_live());
+        assert!(typed(&mut m, t, "   ", true).is_empty(), "blank text sends nothing");
+    }
+
+    #[test]
+    fn a_silent_typed_turn_is_never_spoken_but_a_spoken_one_is() {
+        let (mut m, t) = ready(SpeakMode::EachMessage);
+        typed(&mut m, t, "hi", false);
+        m.handle(Input::TranscriptPrompt { session_id: S.into() }, t);
+        let fx = m.handle(Input::TranscriptText { session_id: S.into(), text: "Four.".into() }, t);
+        assert!(speaks(&fx).is_empty(), "{fx:?}");
+        let fx = m.handle(Input::Stop { session_id: S.into(), last_message: Some("Four.".into()) }, t);
+        assert!(speaks(&fx).is_empty(), "{fx:?}");
+        assert_eq!(m.display(), Display::Idle);
+        typed(&mut m, t, "hi again", true);
+        m.handle(Input::TranscriptPrompt { session_id: S.into() }, t);
+        let fx = m.handle(Input::TranscriptText { session_id: S.into(), text: "Four.".into() }, t);
+        assert_eq!(speaks(&fx), ["Four."]);
+        // A voice turn after a silent one speaks as before.
+        m.handle(Input::Stop { session_id: S.into(), last_message: None }, t);
+        let fx = ask(&mut m, t, "and now?");
+        assert!(has(&fx, &Effect::SendPrompt { text: "and now?".into() }));
+        m.handle(Input::TranscriptPrompt { session_id: S.into() }, t);
+        let fx = m.handle(Input::TranscriptText { session_id: S.into(), text: "Five.".into() }, t);
+        assert_eq!(speaks(&fx), ["Five."]);
+    }
+
+    #[test]
+    fn typing_while_busy_or_without_a_session_gives_a_notice_and_sends_nothing() {
+        let (mut m, t) = ready(SpeakMode::EachMessage);
+        typed(&mut m, t, "first", false);
+        let fx = typed(&mut m, t, "second", false);
+        assert!(matches!(fx.as_slice(), [Effect::Notice(n)] if n.contains("busy")), "{fx:?}");
+        m.handle(Input::HotkeyDown, t);
+        let fx = typed(&mut m, t, "third", false);
+        assert!(!fx.iter().any(|e| matches!(e, Effect::SendPrompt { .. })), "{fx:?}");
+        let mut m = Machine::new(SpeakMode::EachMessage, Duration::from_secs(600), t);
+        let fx = typed(&mut m, t, "early", false);
+        assert!(matches!(fx.as_slice(), [Effect::Notice(n)] if n.contains("starting")), "{fx:?}");
+        m.handle(Input::BrainUnavailable { message: "Claude Code is not signed in.".into() }, t);
+        let fx = typed(&mut m, t, "x", false);
+        assert!(has(&fx, &Effect::Notice("Claude Code is not signed in.".into())));
+    }
+
+    #[test]
+    fn esc_stops_a_typed_turn_like_any_other() {
+        let (mut m, t) = ready(SpeakMode::EachMessage);
+        typed(&mut m, t, "long task", false);
+        let fx = m.handle(Input::Esc, t);
+        assert!(has(&fx, &Effect::InterruptTurn), "{fx:?}");
+        assert_eq!(m.display(), Display::Idle);
     }
 }

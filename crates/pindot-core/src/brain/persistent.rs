@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use uuid::Uuid;
 
-use super::config::{ALLOWED_TOOLS_RULE, PermissionMode, write_brain_hook_settings_for, write_brain_mcp_config};
+use super::config::{ALLOWED_TOOLS_RULE, PermissionMode, write_brain_hook_settings_with, write_brain_mcp_config};
 use super::pty::{ClaudeSession, SpawnOptions};
 use super::tailer::{TranscriptEvent, TranscriptTailer};
 use super::turn::{PERMISSION_PROMPT_MARKERS, SUBMIT_CHECK};
@@ -391,8 +391,14 @@ impl Worker {
         opts.resume = resume;
         let key = self.session_id.to_string();
         let mode = self.config.permission_mode;
+        // The chat's attachments for this session, readable and nothing else
+        // outside the brain folder (see chat/attachments.rs).
+        let attach_dir = crate::paths::data_dir()
+            .ok()
+            .and_then(|d| crate::chat::attachments::session_dir_in(&d, &key).ok());
+        let extra: Vec<String> = attach_dir.iter().map(|d| crate::chat::attachments::read_rule(d)).collect();
         opts.settings = Some(
-            write_brain_hook_settings_for(&self.config.stop_hook_url, &self.config.token, mode, folder)
+            write_brain_hook_settings_with(&self.config.stop_hook_url, &self.config.token, mode, folder, &extra)
                 .context("hook settings")?,
         );
         opts.mcp_config =
@@ -400,9 +406,19 @@ impl Worker {
         opts.allowed_tools = vec![ALLOWED_TOOLS_RULE.into()];
         opts.permission_mode = Some(mode.cli().into());
         opts.tools = mode.builtin_tools().iter().map(|t| t.to_string()).collect();
+        if attach_dir.is_some() && !opts.tools.iter().any(|t| t == "Read") {
+            // Read exists so attached files can be opened; the allow rule above
+            // limits it to the attachments folder (anything else asks, and
+            // Pindot refuses).
+            opts.tools.push("Read".into());
+        }
         opts.model = self.config.model.clone();
         opts.effort = self.config.effort.clone();
-        opts.append_system_prompt = Some(self.config.system_prompt.clone());
+        let mut prompt = self.config.system_prompt.clone();
+        if let Some(d) = &attach_dir {
+            prompt.push_str(&crate::chat::attachments::prompt_line(d));
+        }
+        opts.append_system_prompt = Some(prompt);
         if let Some(f) = folder {
             super::folder::apply(&mut opts, f);
         }

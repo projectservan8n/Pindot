@@ -2,13 +2,16 @@
 //!
 //!   spike_brain --prompt "Reply with exactly: pong" [--desktop] [--accept-trust]
 //!               [--model haiku] [--timeout 180] [--cwd DIR] [--permission-mode MODE]
-//!               [--brain-folder DIR] [--voice-prompt]
+//!               [--brain-folder DIR] [--voice-prompt] [--attach FILE]...
 //!
 //! `--prompt` may be repeated: the prompts are typed one after the other into
 //! the same session. `--brain-folder DIR` starts the session the way the
 //! voice brain does with a brain folder (its CLAUDE.md, the read tools, writes
 //! only in `pindot-notes/`); `--voice-prompt` appends the real voice system
-//! prompt.
+//! prompt. `--attach FILE` (repeatable) does what the chat window does: the
+//! file is copied into `<data dir>/attachments/<session id>/`, the prompt
+//! names it, and the session may `Read` that folder only (use a temp
+//! PINDOT_DATA_DIR).
 //!
 //! Starts the Pindot server (MCP tools + Stop hook receiver), writes the
 //! `--mcp-config` / `--settings` files, spawns `claude` (never `-p`) with
@@ -21,8 +24,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
-use pindot_core::brain::config::{ALLOWED_TOOLS_RULE, PermissionMode, write_brain_hook_settings_for, write_hook_settings, write_mcp_config};
+use pindot_core::brain::config::{ALLOWED_TOOLS_RULE, PermissionMode, write_brain_hook_settings_with, write_hook_settings, write_mcp_config};
 use pindot_core::brain::folder;
+use pindot_core::chat::attachments;
 use pindot_core::brain::transcript::{find_transcript, wait_for_last_turn};
 use pindot_core::brain::turn::{TurnEnd, drive_turn};
 use pindot_core::brain::{ClaudeSession, SpawnOptions, claude_version, find_claude};
@@ -79,12 +83,34 @@ fn main() -> anyhow::Result<()> {
     println!("server: {}", server.mcp_url());
 
     let mut opts = SpawnOptions::new(bin, cwd.clone());
+    let attach: Vec<std::path::PathBuf> =
+        args.iter().enumerate().filter(|(_, a)| *a == "--attach").filter_map(|(i, _)| args.get(i + 1).map(Into::into)).collect();
+    let mut attach_dir = None;
+    if !attach.is_empty() {
+        opts.session_id = uuid::Uuid::new_v4();
+        let dir = attachments::session_dir_in(&pindot_core::paths::data_dir()?, &opts.session_id.to_string())?;
+        let got = attachments::import(&dir, attach.into_iter().map(attachments::Source::Path).collect())?;
+        for r in &got.rejected {
+            println!("attachment refused: {}: {}", r.name, r.reason);
+        }
+        println!("attached: {:?}", got.attached.iter().map(|a| a.path.display().to_string()).collect::<Vec<_>>());
+        let last = prompts.len() - 1;
+        prompts[last] = attachments::prompt_with(&prompts[last], &got.attached);
+        attach_dir = Some(dir);
+    }
+    let extra: Vec<String> = attach_dir.iter().map(|d| attachments::read_rule(d)).collect();
     opts.settings = Some(match &brain_folder {
-        Some(f) => write_brain_hook_settings_for(&server.stop_hook_url(), &token, PermissionMode::Ask, Some(f))?,
+        Some(f) => write_brain_hook_settings_with(&server.stop_hook_url(), &token, PermissionMode::Ask, Some(f), &extra)?,
+        None if !extra.is_empty() => write_brain_hook_settings_with(&server.stop_hook_url(), &token, PermissionMode::Ask, None, &extra)?,
         None => write_hook_settings(&server.stop_hook_url(), &token)?,
     });
     if flag("--voice-prompt") {
         opts.append_system_prompt = Some(pindot_core::voice::voice_system_prompt(&Default::default()));
+    }
+    if let Some(d) = &attach_dir {
+        let line = attachments::prompt_line(d);
+        opts.append_system_prompt = Some(format!("{}{line}", opts.append_system_prompt.take().unwrap_or_default()).trim().to_string());
+        opts.tools = folder::merge_tools(vec![]).into_iter().filter(|t| t == "Read").collect();
     }
     if let Some(f) = &brain_folder {
         folder::apply(&mut opts, f);

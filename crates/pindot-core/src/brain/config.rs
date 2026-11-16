@@ -97,6 +97,18 @@ pub fn brain_hook_settings_json_for(
     mode: PermissionMode,
     brain_folder: Option<&std::path::Path>,
 ) -> serde_json::Value {
+    brain_hook_settings_json_with(stop_hook_url, token, mode, brain_folder, &[])
+}
+
+/// As `brain_hook_settings_json_for`, plus `extra_allow` permission rules
+/// (the chat's attachments folder: `Read(//data/attachments/<id>/**)`).
+pub fn brain_hook_settings_json_with(
+    stop_hook_url: &str,
+    token: &str,
+    mode: PermissionMode,
+    brain_folder: Option<&std::path::Path>,
+    extra_allow: &[String],
+) -> serde_json::Value {
     let prompt_hook_url = stop_hook_url.replace("/hooks/stop", "/hooks/prompt");
     let hook = |url: &str| {
         json!([{
@@ -121,6 +133,11 @@ pub fn brain_hook_settings_json_for(
     });
     if let Some(folder) = brain_folder {
         super::folder::add_permissions(&mut v, folder);
+    }
+    if !extra_allow.is_empty() {
+        let mut allow = v["permissions"]["allow"].as_array().cloned().unwrap_or_default();
+        allow.extend(extra_allow.iter().map(|r| serde_json::Value::String(r.clone())));
+        v["permissions"]["allow"] = serde_json::Value::Array(allow);
     }
     v
 }
@@ -159,8 +176,18 @@ pub fn write_brain_hook_settings_for(
     mode: PermissionMode,
     brain_folder: Option<&std::path::Path>,
 ) -> Result<PathBuf> {
+    write_brain_hook_settings_with(stop_hook_url, token, mode, brain_folder, &[])
+}
+
+pub fn write_brain_hook_settings_with(
+    stop_hook_url: &str,
+    token: &str,
+    mode: PermissionMode,
+    brain_folder: Option<&std::path::Path>,
+    extra_allow: &[String],
+) -> Result<PathBuf> {
     let p = data_dir()?.join("claude-settings-brain.json");
-    let v = brain_hook_settings_json_for(stop_hook_url, token, mode, brain_folder);
+    let v = brain_hook_settings_json_with(stop_hook_url, token, mode, brain_folder, extra_allow);
     write_private(&p, serde_json::to_string_pretty(&v)?.as_bytes())?;
     Ok(p)
 }
@@ -227,5 +254,18 @@ mod tests {
         assert!(!model_ok("gpt-5") && !model_ok("") && !model_ok("sonnet --print"));
         assert!(effort_ok("low") && effort_ok("xhigh") && effort_ok("max"));
         assert!(!effort_ok("turbo") && !effort_ok(""));
+    }
+
+    #[test]
+    fn extra_rules_are_added_next_to_the_brain_folder_rules_and_never_a_bare_tool() {
+        let rule = vec!["Read(//data/attachments/abc/**)".to_string()];
+        let plain = brain_hook_settings_json_with(STOP, "t", PermissionMode::Ask, None, &rule);
+        assert_eq!(plain["permissions"]["allow"], json!(["Read(//data/attachments/abc/**)"]));
+        let with = brain_hook_settings_json_with(STOP, "t", PermissionMode::Ask, Some(std::path::Path::new("/b")), &rule);
+        let allow: Vec<String> = serde_json::from_value(with["permissions"]["allow"].clone()).unwrap();
+        assert_eq!(allow, ["Read(//b/**)", "Edit(//b/pindot-notes/**)", "Read(//data/attachments/abc/**)"]);
+        assert!(!allow.iter().any(|r| r == "Read"));
+        // No extra rules and no folder: no allow list at all, as before.
+        assert!(brain_hook_settings_json_with(STOP, "t", PermissionMode::Ask, None, &[])["permissions"].get("allow").is_none());
     }
 }
