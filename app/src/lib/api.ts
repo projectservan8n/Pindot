@@ -223,9 +223,19 @@ export interface ChatView {
   session_id: string | null;
   items: ChatItem[];
   display: VoiceDisplay;
-  /** False when the voice loop is not running (no typed messages then). */
+  /** False when the assistant is not running (no typed messages then). */
   can_send: boolean;
+  /** False when speech is off or its models are missing: replies stay on screen. */
+  can_speak: boolean;
 }
+
+/** What the dictation worker reports (event `pindot:dictation`). */
+export type DictationEvent =
+  | { kind: 'state'; id: number; source: 'button' | 'hotkey'; state: 'idle' | 'listening' | 'transcribing' }
+  | { kind: 'text'; id: number; source: 'button' | 'hotkey'; text: string }
+  | { kind: 'error'; id: number; source: 'button' | 'hotkey'; problem: string; message: string }
+  | { kind: 'cancelled'; id: number; source: 'button' | 'hotkey' }
+  | { kind: 'level'; level: number };
 
 export interface Attached {
   name: string;
@@ -402,6 +412,10 @@ export const api = {
   chatAttachPaths: (paths: string[]) => invoke<Imported>('chat_attach_paths', { paths }),
   chatAttachBytes: (name: string, data: string) => invoke<Imported>('chat_attach_bytes', { name, data }),
   chatChooseFiles: () => invoke<Imported | null>('chat_choose_files'),
+  dictationStart: () => invoke<number>('dictation_start'),
+  dictationStop: (id: number) => invoke<void>('dictation_stop', { id }),
+  dictationCancel: () => invoke<void>('dictation_cancel'),
+  dictationFocus: (focused: boolean) => invoke<void>('dictation_focus', { focused }),
   chatStop: () => invoke<void>('chat_stop'),
   chatImage: (path: string) => invoke<string>('chat_image', { path }),
   chatHistory: () => invoke<HistoryEntry[]>('chat_history'),
@@ -425,6 +439,8 @@ export const events = {
   download: (cb: (e: DownloadEvent) => void): Promise<UnlistenFn> =>
     listen<DownloadEvent>('pindot:download', (e) => cb(e.payload)),
   voice: (cb: (e: VoiceEvent) => void): Promise<UnlistenFn> => listen<VoiceEvent>('pindot:voice', (e) => cb(e.payload)),
+  dictation: (cb: (e: DictationEvent) => void): Promise<UnlistenFn> =>
+    listen<DictationEvent>('pindot:dictation', (e) => cb(e.payload)),
   chat: (cb: () => void): Promise<UnlistenFn> => listen('pindot:chat', () => cb()),
   approval: (cb: (r: ApprovalRequest) => void): Promise<UnlistenFn> =>
     listen<ApprovalRequest>('pindot:approval', (e) => cb(e.payload)),

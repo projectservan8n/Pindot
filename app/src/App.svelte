@@ -8,6 +8,7 @@
   import Settings from './views/Settings.svelte';
   import Activity from './views/Activity.svelte';
   import Vault from './views/Vault.svelte';
+  import { refreshAssistant } from './lib/assistant.svelte';
 
   type View = 'chat' | 'activity' | 'vault' | 'settings' | 'setup';
   const nav: { id: View; label: string }[] = [
@@ -47,6 +48,7 @@
 
   onMount(() => {
     refresh();
+    refreshAssistant();
     if (!ready) {
       api.settingsGet().then(
         (s) => go(s.settings.onboarding_done ? 'chat' : 'setup'),

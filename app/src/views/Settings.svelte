@@ -3,6 +3,7 @@
   import { api, errorText, type AppInfo, type HotkeyCheck, type InputDevices, type SettingsView, type TalkStyle } from '../lib/api';
   import { chordFromCodes, cursorPresets, eyeInk, formatBytes, hotkeyPresets, isCursorColor } from '../lib/format';
   import Connect from './Connect.svelte';
+  import { refreshAssistant } from '../lib/assistant.svelte';
 
   let { info }: { info: AppInfo | null } = $props();
 
@@ -198,6 +199,7 @@
       const s = { ...view.settings, hotkey: check?.ok && check.normalized ? check.normalized : hotkeyText };
       const r = await api.settingsSave(s);
       notes = r.notes.length ? r.notes : ['Saved.'];
+      refreshAssistant();
       await load();
     } catch (e) {
       problems = Array.isArray(e) ? (e as string[]) : [errorText(e)];

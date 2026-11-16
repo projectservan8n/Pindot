@@ -10,15 +10,18 @@
     type ChatView,
     type HistoryEntry,
     type Imported,
+    type DictationEvent,
     type VoiceDisplay,
   } from '../lib/api';
   import { formatBytes, shortTime, stepLabel } from '../lib/format';
   import Markdown from '../components/Markdown.svelte';
   import Thumb from '../components/Thumb.svelte';
+  import { assistant, refreshAssistant } from '../lib/assistant.svelte';
+  import { insertAtCaret, problemText } from '../lib/dictate';
 
   let { onGo }: { onGo: (v: string) => void } = $props();
 
-  let view = $state<ChatView>({ session_id: null, items: [], display: 'idle', can_send: false });
+  let view = $state<ChatView>({ session_id: null, items: [], display: 'idle', can_send: false, can_speak: false });
   let loaded = $state(false);
   let draft = $state('');
   let attached = $state<Attached[]>([]);
@@ -43,15 +46,110 @@
   const busy = $derived(view.display === 'listening' || view.display === 'thinking' || view.display === 'acting');
   const canType = $derived(view.can_send && !viewing);
   const canSend = $derived(canType && !busy && !sending && (draft.trim().length > 0 || attached.length > 0));
+  const name = $derived(assistant.name);
   const placeholder = $derived(
     !view.can_send
       ? 'Chat starts once Setup is finished'
       : viewing
         ? 'You are reading an earlier conversation'
         : busy
-          ? 'Rusty is working. You can type ahead, or press Stop.'
-          : 'Message Rusty. Enter sends, Shift+Enter adds a line.',
+          ? `${name} is working. You can type ahead, or press Stop.`
+          : `Message ${name}. Enter sends, Shift+Enter adds a line.`,
   );
+
+  // Dictation: speech to text in the box. It never sends anything.
+  let dictPhase = $state<'idle' | 'listening' | 'transcribing'>('idle');
+  let dictId = $state(0);
+  let dictLevel = $state(0);
+  let dictError = $state('');
+  const dictating = $derived(dictPhase !== 'idle');
+  const dictLabel = $derived(
+    dictPhase === 'listening'
+      ? 'Listening. Press the microphone again to finish, or Esc to cancel.'
+      : dictPhase === 'transcribing'
+        ? 'Turning your words into text...'
+        : '',
+  );
+
+  async function toggleDictation() {
+    dictError = '';
+    if (dictPhase === 'listening') {
+      try {
+        await api.dictationStop(dictId);
+      } catch (e) {
+        dictError = errorText(e);
+      }
+      return;
+    }
+    if (dictPhase === 'transcribing') return;
+    try {
+      dictId = await api.dictationStart();
+      dictPhase = 'listening';
+    } catch (e) {
+      dictError = errorText(e);
+    }
+  }
+
+  async function cancelDictation() {
+    dictPhase = 'idle';
+    dictLevel = 0;
+    try {
+      await api.dictationCancel();
+    } catch (e) {
+      dictError = errorText(e);
+    }
+  }
+
+  async function insertSpoken(text: string) {
+    const el = inputEl;
+    // The caret and selection are kept by the box even while it is not focused.
+    const start = el ? el.selectionStart : draft.length;
+    const end = el ? el.selectionEnd : draft.length;
+    const r = insertAtCaret(draft, start, end, text);
+    draft = r.text;
+    await tick();
+    if (inputEl) {
+      inputEl.focus();
+      inputEl.setSelectionRange(r.caret, r.caret);
+    }
+  }
+
+  function onDictation(e: DictationEvent) {
+    if (e.kind === 'level') {
+      dictLevel = Math.max(0, Math.min(1, e.level * 4));
+      return;
+    }
+    if (e.kind === 'state') {
+      dictId = e.id;
+      dictPhase = e.state;
+      if (e.state === 'idle') dictLevel = 0;
+      if (e.state === 'listening') dictError = '';
+    } else if (e.kind === 'text') {
+      insertSpoken(e.text);
+    } else if (e.kind === 'error') {
+      dictError = problemText(e.problem, e.message);
+      dictPhase = 'idle';
+      dictLevel = 0;
+    } else if (e.kind === 'cancelled') {
+      dictPhase = 'idle';
+      dictLevel = 0;
+    }
+  }
+
+  function onWindowKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && dictating) {
+      e.preventDefault();
+      e.stopPropagation();
+      cancelDictation();
+    }
+  }
+
+  // Only while the box (or the mic button beside it) has focus does the
+  // hold-to-talk key dictate here instead of sending a spoken turn.
+  function composerFocus(on: boolean, e?: FocusEvent) {
+    if (!on && e?.relatedTarget instanceof Node && (e.currentTarget as HTMLElement).contains(e.relatedTarget)) return;
+    api.dictationFocus(on).catch(() => {});
+  }
 
   type Row =
     | { kind: 'item'; item: ChatItem }
@@ -147,7 +245,7 @@
     sending = true;
     sendError = '';
     try {
-      await api.chatSend(draft.trim(), attached.map((a) => a.path), speak);
+      await api.chatSend(draft.trim(), attached.map((a) => a.path), speak && view.can_speak);
       draft = '';
       attached = [];
       problems = [];
@@ -237,10 +335,12 @@
   const stamp = (secs: number) => shortTime(new Date(secs * 1000).toISOString());
 
   onMount(() => {
+    refreshAssistant();
     load();
     api.approvalsPending().then((a) => (approvals = a), () => {});
     const unsubs = [
       events.chat(load),
+      events.dictation(onDictation),
       events.voice((v: { state: VoiceDisplay; notice: string | null }) => {
         view.display = v.state;
         if (v.notice) notice = v.notice;
@@ -260,9 +360,16 @@
       }),
     ];
     inputEl?.focus();
-    return () => unsubs.forEach((p) => p.then((f) => f()));
+    return () => {
+      unsubs.forEach((p) => p.then((f) => f()));
+      // Leaving the screen ends a dictation without inserting anything.
+      api.dictationCancel().catch(() => {});
+      api.dictationFocus(false).catch(() => {});
+    };
   });
 </script>
+
+<svelte:window onkeydown={onWindowKey} />
 
 <div class="chat" class:dragging>
   <div class="chat-bar">
@@ -304,15 +411,15 @@
   >
     {#if loaded && rows.length === 0}
       <div class="empty">
-        <h2>{viewing ? 'Nothing in this conversation' : 'Ask Rusty anything'}</h2>
+        <h2>{viewing ? 'Nothing in this conversation' : `Ask ${name} anything`}</h2>
         {#if !view.can_send && !viewing}
-          <p>Chat needs the assistant running, which needs Setup to be finished: the voice models, Claude Code and the permissions.</p>
+          <p>Chat needs Claude Code installed and signed in. Setup takes you through it.</p>
           <button type="button" class="primary" onclick={() => onGo('setup')}>Open Setup</button>
         {:else if viewing}
           <p>This record has no messages we can show.</p>
         {:else}
-          <p>Type below, or hold the key and talk. Both go to the same conversation, so you can do either and carry on.</p>
-          <p class="muted small">Typed messages are answered on screen and not read aloud, unless you switch that on under the box. Drop files or pictures here to share them.</p>
+          <p>Type below, or press the microphone to dictate. {#if view.can_speak}Hold the key and talk to get a spoken answer.{/if}</p>
+          <p class="muted small">Typed messages are answered on screen{#if view.can_speak}, and read aloud only if you switch that on under the box{/if}. Drop files or pictures here to share them.</p>
         {/if}
       </div>
     {/if}
@@ -374,13 +481,13 @@
   {#each approvals as a (a.id)}
     <div class="approval" role="alertdialog" aria-labelledby={`ap-${a.id}`} aria-describedby={`apd-${a.id}`}>
       {#if a.login}
-      <strong id={`ap-${a.id}`}>Let Rusty sign in with a saved login?</strong>
+      <strong id={`ap-${a.id}`}>Let {name} sign in with a saved login?</strong>
       <div id={`apd-${a.id}`}>
         <p><span class="appname">{a.login.name}</span> <span class="muted small">{a.login.site}</span></p>
-        <p class="small">Username: {a.login.username || '(none)'}. Pindot types {a.login.field === 'code' ? 'the current authenticator code' : `the ${a.login.field}`} itself, only on exactly this website. Rusty never sees it.</p>
+        <p class="small">Username: {a.login.username || '(none)'}. Pindot types {a.login.field === 'code' ? 'the current authenticator code' : `the ${a.login.field}`} itself, only on exactly this website. {name} never sees it.</p>
       </div>
       {:else}
-      <strong id={`ap-${a.id}`}>Allow Rusty to control {a.apps.length === 1 ? 'this app' : 'these apps'}?</strong>
+      <strong id={`ap-${a.id}`}>Allow {name} to control {a.apps.length === 1 ? 'this app' : 'these apps'}?</strong>
       <ul id={`apd-${a.id}`}>
         {#each a.apps as app, k (k)}
           <li>
@@ -418,22 +525,43 @@
       <ul class="problems" role="alert">{#each problems as p, k (k)}<li>{p}</li>{/each}</ul>
     {/if}
     {#if sendError}<p class="inline-error" role="alert">{sendError}</p>{/if}
+    <div class="compose-box" onfocusin={() => composerFocus(true)} onfocusout={(e) => composerFocus(false, e)} role="group" aria-label="Write a message">
+    {#if dictating || dictError}
+      <p class="dictation" class:listening={dictPhase === 'listening'} class:err={!!dictError && !dictating} role={dictError && !dictating ? 'alert' : 'status'} style:--level={dictLevel}>
+        {#if dictating}<span class="dot" aria-hidden="true"></span>{dictLabel}{:else}{dictError}{/if}
+      </p>
+    {/if}
     <textarea
       bind:this={inputEl}
       bind:value={draft}
       rows="2"
       {placeholder}
-      aria-label="Message to Rusty"
+      aria-label={`Message to ${name}`}
       disabled={!canType}
       onkeydown={onKey}
       onpaste={onPaste}
     ></textarea>
     <div class="row tools">
       <button type="button" onclick={chooseFiles} disabled={!canType}>Attach files</button>
-      <label class="check"><input type="checkbox" checked={speak} onchange={(e) => setSpeak(e.currentTarget.checked)} /> Read replies aloud</label>
+      <button
+        type="button"
+        class="mic"
+        class:on={dictPhase === 'listening'}
+        aria-pressed={dictPhase === 'listening'}
+        aria-label={dictPhase === 'listening' ? 'Stop dictating' : 'Dictate into the message'}
+        title={dictPhase === 'listening' ? 'Stop (Esc cancels)' : 'Dictate: speak, and the words are typed here. Nothing is sent.'}
+        disabled={!canType || dictPhase === 'transcribing'}
+        style:--level={dictLevel}
+        onclick={toggleDictation}
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V22h2v-3.08A7 7 0 0 0 19 12h-2Z"/></svg>
+        <span>{dictPhase === 'listening' ? 'Done' : dictPhase === 'transcribing' ? 'Working' : 'Dictate'}</span>
+      </button>
+      {#if view.can_speak}<label class="check"><input type="checkbox" checked={speak} onchange={(e) => setSpeak(e.currentTarget.checked)} /> Read replies aloud</label>{/if}
       <span class="spacer"></span>
       {#if busy}<button type="button" class="danger" onclick={stop} aria-label="Stop (same as pressing Esc)">Stop</button>{/if}
       <button type="button" class="primary" onclick={send} disabled={!canSend}>Send</button>
+    </div>
     </div>
   </div>
 
