@@ -174,3 +174,32 @@ export function luminance(hex: string): number {
 export function eyeInk(hex: string): string {
   return luminance(hex) < 0.12 ? '#f5f5f7' : '#15151b';
 }
+
+const STEP_LABELS: Record<string, string> = {
+  desktop_context: 'Look at the desktop',
+  request_access: 'Ask to use an app',
+  open_app: 'Open an app',
+  focus_window: 'Bring a window forward',
+  read_window: 'Read window',
+  find: 'Find on screen',
+  screenshot: 'Take a screenshot',
+  zoom: 'Zoom in',
+  click: 'Click',
+  type_text: 'Type',
+  key: 'Press a key',
+  scroll: 'Scroll',
+  drag: 'Drag',
+  wait: 'Wait',
+  point: 'Point',
+  vault_logins: 'Look up saved logins',
+  vault_fill: 'Sign in with a saved login',
+};
+
+/** A plain label for a tool name in a chat step line. The raw name is shown on expand. */
+export function stepLabel(name: string): string {
+  const m = /^mcp__[^_]+(?:_[^_]+)*?__(.+)$/.exec(name);
+  const tool = m ? m[1] : name;
+  if (STEP_LABELS[tool]) return STEP_LABELS[tool];
+  if (m) return tool.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+  return name;
+}

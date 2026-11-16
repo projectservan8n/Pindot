@@ -12,6 +12,7 @@ import {
   permissionText,
   progressText,
   shortTime,
+  stepLabel,
 } from './format';
 import { errorText, type ActivityEntry } from './api';
 
@@ -118,5 +119,19 @@ describe('cursor colour helpers', () => {
     }
     expect(eyeInk('#000000')).toBe('#f5f5f7');
     expect(eyeInk('#ffffff')).toBe('#15151b');
+  });
+});
+
+describe('stepLabel', () => {
+  it('gives the desktop tools plain labels', () => {
+    expect(stepLabel('mcp__desktop__request_access')).toBe('Ask to use an app');
+    expect(stepLabel('mcp__desktop__read_window')).toBe('Read window');
+    expect(stepLabel('mcp__desktop__click')).toBe('Click');
+    expect(stepLabel('mcp__desktop__vault_fill')).toBe('Sign in with a saved login');
+  });
+  it('leaves built-in tools as they are and tidies unknown MCP tools', () => {
+    expect(stepLabel('Read')).toBe('Read');
+    expect(stepLabel('Glob')).toBe('Glob');
+    expect(stepLabel('mcp__other__do_thing')).toBe('Do thing');
   });
 });

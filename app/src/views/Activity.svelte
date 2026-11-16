@@ -82,9 +82,9 @@
       </p>
     </div>
   {:else}
-    <table class="log">
+    <table class="actlog">
       <thead>
-        <tr><th>Time</th><th>Session</th><th>Tool</th><th>Details</th><th>Result</th></tr>
+        <tr><th class="c-time">Time</th><th class="c-session">Session</th><th class="c-tool">Tool</th><th>Details</th><th class="c-result">Result</th></tr>
       </thead>
       <tbody>
         {#each rows as e, i (i)}

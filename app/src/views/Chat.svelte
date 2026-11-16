@@ -12,7 +12,7 @@
     type Imported,
     type VoiceDisplay,
   } from '../lib/api';
-  import { formatBytes, shortTime } from '../lib/format';
+  import { formatBytes, shortTime, stepLabel } from '../lib/format';
   import Markdown from '../components/Markdown.svelte';
   import Thumb from '../components/Thumb.svelte';
 
@@ -231,7 +231,7 @@
   }
   const stepCount = (n: number) => (n === 1 ? '1 step' : `${n} steps`);
   function groupLabel(steps: { name: string }[]) {
-    const names = [...new Set(steps.map((s) => s.name))];
+    const names = [...new Set(steps.map((s) => stepLabel(s.name)))];
     return `${stepCount(steps.length)}: ${names.slice(0, 4).join(', ')}${names.length > 4 ? ', ...' : ''}`;
   }
   const stamp = (secs: number) => shortTime(new Date(secs * 1000).toISOString());
@@ -331,10 +331,11 @@
               <li>
                 <details class="step" class:err={s.is_error}>
                   <summary>
-                    <span class="sname">{s.name}</span>
+                    <span class="sname">{stepLabel(s.name)}</span>
                     <span class="ssum">{s.summary}</span>
                     {#if s.result === null && busy && !viewing}<span class="running">running</span>{/if}
                   </summary>
+                  {#if s.name !== stepLabel(s.name)}<p class="muted small rawname">Tool: <code>{s.name}</code></p>{/if}
                   {#if s.result !== null}<pre>{s.result || '(no output)'}</pre>{:else}<p class="muted small">No result yet.</p>{/if}
                 </details>
               </li>

@@ -92,6 +92,7 @@ body {
 .brand-text span {
   font-size: var(--fs-xs);
   color: var(--ink-muted);
+  white-space: nowrap;
 }
 
 .brand .mark {
@@ -482,16 +483,42 @@ td.actions {
   text-align: right;
 }
 
-table.log {
+/* The activity table. (Not ".log": that is the chat transcript's class.) */
+table.actlog {
   font-size: 12px;
+  table-layout: fixed;
 }
 
-table.log td.args {
+table.actlog .c-time {
+  width: 64px;
+}
+
+table.actlog .c-session {
+  width: 84px;
+}
+
+table.actlog .c-tool {
+  width: 112px;
+}
+
+table.actlog .c-result {
+  width: 22%;
+}
+
+table.actlog td {
+  overflow-wrap: anywhere;
+}
+
+table.actlog td.args {
   word-break: break-word;
 }
 
-table.log tr.fail td {
+table.actlog tr.fail td {
   color: var(--bad);
+}
+
+.filters > label:first-child {
+  min-width: 0;
 }
 
 .bar {
@@ -1043,4 +1070,8 @@ code {
   background: color-mix(in srgb, var(--bg) 85%, transparent);
   font-size: var(--fs-lg);
   pointer-events: none;
+}
+
+.rawname {
+  margin: 4px 0;
 }

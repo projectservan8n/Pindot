@@ -12,6 +12,7 @@
   ];
   const steps = [
     u('u1', 'What is in my notes about the Lisbon trip?'),
+    st('s0', 'mcp__desktop__request_access', 'Notes', 'The user approved for this session: Notes.'),
     st('s1', 'Glob', 'Lisbon*.md', '/Users/sam/Notes/Trips/Lisbon plan.md\n/Users/sam/Notes/Trips/Lisbon food.md'),
     st('s2', 'Read', '/Users/sam/Notes/Trips/Lisbon plan.md', '# Lisbon plan\n\nFlights: TP 1355, 12 March, 07:40\nHotel: Alfama, 4 nights\nTo book: Sintra day trip'),
     st('s3', 'Read', '/Users/sam/Notes/Trips/Lisbon food.md', null),

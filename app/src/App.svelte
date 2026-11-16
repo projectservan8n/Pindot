@@ -78,7 +78,7 @@
       <svg class="mark" viewBox="40 40 176 176" width="28" height="28" aria-hidden="true"><path fill="#ff2d95" fill-rule="evenodd" d="M46.12 71.59 A20 20 0 0 1 71.59 46.12 L197.59 90.12 A20 20 0 0 1 200.99 126.32 L153.64 153.64 L126.32 200.99 A20 20 0 0 1 90.12 197.59 Z M97.0 113.0 a8.0 8.0 0 0 1 16 0 v12 a8.0 8.0 0 0 1 -16 0 Z M127.0 113.0 a8.0 8.0 0 0 1 16 0 v12 a8.0 8.0 0 0 1 -16 0 Z"/></svg>
       <div class="brand-text">
         <strong>Pindot</strong>
-        <span>works with Claude Code</span>
+        <span>for Claude Code</span>
       </div>
     </div>
     <nav aria-label="Main">
