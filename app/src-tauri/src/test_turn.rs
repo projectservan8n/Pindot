@@ -98,7 +98,7 @@ pub fn run(state: Arc<ServerState>, urls: ServerUrls, args: TurnArgs) -> Result<
     let alive = pid.map(|p| {
         std::process::Command::new("kill").args(["-0", &p.to_string()]).status().map(|s| s.success()).unwrap_or(false)
     });
-    println!("test-turn: child claude still running after /exit: {alive:?}");
+    println!("test-turn: child claude still running after Ctrl+C: {alive:?}");
     state.end_session(&session_key);
     Ok(ok)
 }

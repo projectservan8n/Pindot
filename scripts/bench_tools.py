@@ -7,7 +7,7 @@ PINDOT_TEST_AUTO_APPROVE; otherwise answer the approval window yourself.
 
   macOS:
     swiftc -O -o spikes/test-target/test-target spikes/test-target/main.swift
-    spikes/test-target/test-target &
+    spikes/test-target/test-target --regular --seconds 600 &   # --regular: an app request_access can name
     cargo build --release -p pindot-core --bin spike_mcp --features test-switches
     PINDOT_DATA_DIR=/tmp/pindot-bench PINDOT_TEST_AUTO_APPROVE=test-target \\
         target/release/spike_mcp --port 47999 &

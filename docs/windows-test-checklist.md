@@ -542,41 +542,67 @@ the browser was Edge with a profile of its own on `docs/vault/test-page`.
 header has the commands). Release builds, a small test window with one
 button, each call timed around its HTTP request. The Windows column was
 measured on the test PC (Ryzen 5 5600X, two 1920x1080 monitors) on 16 Nov
-2026; the Mac column is to be filled in on a Mac. `docs/phase3` has the
-Mac's screenshot figures from an earlier run: 50.7 ms back to back, 86.1 ms
-spaced.
+2026. The macOS column was measured the same day on a MacBook (macOS 26,
+one built-in display 1470x956 pt at scale 2, VS Code and seven other apps
+open), three runs of `spike_mcp` against `spikes/test-target`.
+`docs/phase3` has the Mac's screenshot figures from an earlier run on
+another display: 50.7 ms back to back, 86.1 ms spaced.
 
 | Median (p95) | Windows | macOS |
 |---|---|---|
-| `screenshot`, 40 back to back | 66 to 76 ms (89 to 103) | |
-| `screenshot`, 12 two seconds apart | 66 to 69 ms (67 to 91) | |
-| `read_window` | 30 to 37 ms (32 to 57) | |
-| `read_window` with menus | 30 to 34 ms (31 to 73) | |
-| `find` | 30 to 35 ms (36 to 49) | |
-| `desktop_context` | 2 ms (3 to 19) | |
-| `click` by ref, a press | 13 to 16 ms (18 to 34) | |
-| `claude` ready after start | 2.5 s | 2.1 s (`docs/phase2`) |
-| Speech starts after its text | 35 to 70 ms warmed up; 110 to 230 ms in real use | 43 to 124 ms (`docs/phase2`) |
+| `screenshot`, 40 back to back | 66 to 76 ms (89 to 103) | 68 ms (72 to 76) |
+| `screenshot`, 12 two seconds apart | 66 to 69 ms (67 to 91) | 121 to 123 ms (126 to 132) |
+| `read_window` | 30 to 37 ms (32 to 57) | 1.5 to 3.7 ms (4 to 8) |
+| `read_window` with menus | 30 to 34 ms (31 to 73) | 1.5 to 4.0 ms (3 to 9) |
+| `find` | 30 to 35 ms (36 to 49) | 2.8 to 5.9 ms (6 to 10) |
+| `desktop_context` | 2 ms (3 to 19) | 1.8 to 3.2 ms (4 to 7) |
+| `click` by ref, a press | 13 to 16 ms (18 to 34) | 106 ms (108) |
+| `claude` ready after start | 2.5 s | 3.1 s (one `--test-turn`); 2.1 s (`docs/phase2`) |
+| Speech starts after its text | 35 to 70 ms warmed up; 110 to 230 ms in real use | 6.7 ms warmed up (`voice_check tts`); 43 to 124 ms (`docs/phase2`) |
+
+On the Mac a press by ref takes about 106 ms every time, against 13 to 16
+ms on Windows. The press path on macOS was not changed by the Windows work;
+where the time goes was not measured. In the first of the three runs one
+press of ten failed with AXError -25204 (cannot complete) and the window
+logged no click; it did not come back in two more runs and three presses
+on a freshly opened window.
 
 ## After pulling on a Mac
 
 The Windows work changed code that macOS runs too. `scripts\check-macos.ps1`
-showed that it compiles for macOS; none of it has run there.
+showed that it compiles for macOS. Run on a MacBook on 16 Nov 2026, after
+pulling 8edb60e:
 
-- [ ] `cargo test --workspace`, then `scripts/build-mac.sh`.
-- [ ] Quitting `claude`: Ctrl+C until it goes, not `/exit`. Quit Pindot and
-      look for a `claude` left behind.
-- [ ] The speech model is warmed up when it loads: the log says "Phonon
-      loaded ... (warm-up ...)" and the first reply starts as fast as the
-      later ones.
-- [ ] The AI cursor lands where it did: the overlay's monitor geometry
-      (`MonitorRect::unit`, 1 on macOS) and `overlay.js` were reworked.
-- [ ] A closed menu's item pressed by ref still opens its menu and tries
-      again when the first press fails (`retry_with_menu_open`).
-- [ ] A shortcut with `cmd` works as before (`win` is pressed as the same
-      key on macOS).
-- [ ] `python3 scripts/bench_tools.py --app test-target`, and the figures
-      into the table above.
+- [x] `cargo test --workspace`: 202 + 24 + 6 passed, 1 ignored, no
+      warnings; vitest 12 passed; svelte-check 0 errors. `cargo build
+      --release -p pindot` without warnings.
+      (Not done: `scripts/build-mac.sh`. The signed bundle was the running
+      Pindot, and rebuilding it under a running app can crash it.)
+- [x] Quitting `claude`: Ctrl+C until it goes. One `--test-turn` (haiku,
+      Ask) pressed the test window's button by ref (logged by the window),
+      the Stop hook and the transcript agreed, and after `exit`: "child
+      claude still running: false", no "killing it" warning, no `claude`
+      left behind. (Quitting the whole app with a voice brain running was
+      not tried: the user's own Pindot was running and was left alone.)
+- [x] The speech model is warmed up when it loads: "Phonon loaded ... in
+      45.5ms (warm-up 28.1ms)", then the first audio after 6.7 ms
+      (`voice_check tts`; the text came back word for word).
+      (The full voice loop, `--test-voice`, was not run: its synthetic Fn
+      would also reach a Pindot that is already running.)
+- [x] The AI cursor lands where it did: the app logs "1 pt per page pixel";
+      with `--capturable`, `point` and `click` by ref on the test button
+      (centre at 340,285 pt) put the cursor's tip at about 340,283 pt in
+      `screencapture`, with the "here" and "Press Pindot Test Button"
+      labels. One display only.
+- [x] A closed menu's item pressed by ref: Calculator > About Calculator,
+      found with `find` and pressed by ref, opened the About window.
+      (Whether the first press failed and the retry ran is not logged.)
+- [x] A shortcut with `cmd`: `cmd+w` closed that About window and `win+q`
+      quit Calculator (`win` is Command on a Mac).
+- [x] `python3 scripts/bench_tools.py --app test-target`: figures in the
+      table above. The test window needs `--regular` (or request_access
+      can't name it) and a `--seconds` longer than the run; the script's
+      header now says so.
 - [ ] After the Windows fixes to the pull of 16 Nov 2026: a picture sent
       in Chat shows as a picture, not a "?" tile (the message now keeps
       the file's whole path); the vault still knows Safari and Chrome
