@@ -13,6 +13,28 @@ use super::{
     Rect, Side,
 };
 
+// ------------------------------------------------------------- the key hook's clock
+
+/// How often the hook thread looks at the keys that are really down. The
+/// hook is blind while an administrator's window is in front (and when
+/// Windows has removed it); hold-to-talk then starts from this look, so it
+/// must be quick: half a second late clipped the first word.
+pub const KEY_POLL_MS: u32 = 50;
+/// How many looks make one re-install of the hook (twice a second).
+pub const REHOOK_EVERY: u32 = 10;
+
+/// Counts the hook thread's looks at the key state.
+#[derive(Debug, Default)]
+pub struct HookClock(u32);
+
+impl HookClock {
+    /// One more look. True when the hook is due to be put back.
+    pub fn look(&mut self) -> bool {
+        self.0 = (self.0 + 1) % REHOOK_EVERY;
+        self.0 == 0
+    }
+}
+
 // ------------------------------------------------------------- one instance
 
 /// The name of the kernel objects by which a second Pindot finds the first
@@ -743,6 +765,16 @@ mod tests {
         // Pindot itself runs as administrator: nothing is above it.
         assert!(!input_is_blocked(true, Elevation::Elevated));
         assert!(!input_is_blocked(true, Elevation::Denied));
+    }
+
+    #[test]
+    fn the_keys_are_looked_at_often_and_the_hook_put_back_twice_a_second() {
+        assert!(KEY_POLL_MS <= 50, "a late start clips the first word");
+        assert_eq!(KEY_POLL_MS * REHOOK_EVERY, 500);
+        let mut clock = HookClock::default();
+        let due: Vec<bool> = (0..20).map(|_| clock.look()).collect();
+        assert_eq!(due.iter().filter(|d| **d).count(), 2, "{due:?}");
+        assert!(due[9] && due[19], "on every tenth look: {due:?}");
     }
 
     #[test]

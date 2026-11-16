@@ -16,11 +16,12 @@
 //!
 //! Windows removes a low-level hook it finds too slow, without telling the
 //! app, and a hook never sees keys typed on the lock screen, a UAC prompt or
-//! into an elevated (administrator) window. So every `TICK_MS` the hook
-//! thread corrects its state from the keys that are really down
-//! (`GetAsyncKeyState`) and installs the hook again; it logs when Windows
-//! had removed it. Hold-to-talk therefore still works with a dead hook,
-//! half a second late, and heals. The handlers only update a little state
+//! into an elevated (administrator) window. So every `KEY_POLL_MS` (50 ms)
+//! the hook thread corrects its state from the keys that are really down
+//! (`GetAsyncKeyState`), and twice a second it installs the hook again; it
+//! logs when Windows had removed it. Hold-to-talk therefore still works
+//! with a blind or dead hook, at most 50 ms late (it was half a second,
+//! which clipped the first word), and heals. The handlers only update a little state
 //! and send on a channel, so the hook itself stays fast.
 
 use std::cell::RefCell;
@@ -42,7 +43,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::platform::windows_logic::{
-    EscFilter, KeyEvent, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MASK, VK_RCONTROL, VK_RMENU, VK_RSHIFT,
+    EscFilter, HookClock, KEY_POLL_MS, KeyEvent, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MASK, VK_RCONTROL, VK_RMENU, VK_RSHIFT,
     VK_RWIN, WinChord,
 };
 use crate::platform::{
@@ -53,8 +54,6 @@ use crate::platform::{
 pub const INPUT_MARKER: usize = 0x5049_4E44;
 
 const HC_ACTION: i32 = 0;
-/// How often the hook thread checks itself (see the module comment).
-const TICK_MS: u32 = 500;
 /// After a key, the real key state may not have settled yet: leave the
 /// tracked state alone this long.
 const KEY_QUIET: Duration = Duration::from_millis(150);
@@ -69,7 +68,7 @@ struct Verdict {
 /// What one listener does with keys, and on the timer.
 trait HookLogic: Send {
     fn key(&mut self, e: KeyEvent) -> Verdict;
-    /// Every `TICK_MS`: correct the state from the keys that are really down.
+    /// Every `KEY_POLL_MS`: correct the state from the keys that are really down.
     fn tick(&mut self) -> Verdict {
         Verdict::default()
     }
@@ -181,7 +180,8 @@ fn run_hook(what: &'static str, handler: Box<dyn HookLogic>) -> Result<ListenerH
             }
             let _ = ready_tx.send(Ok(unsafe { GetCurrentThreadId() }));
             // A thread timer: WM_TIMER arrives in this thread's queue.
-            let timer = unsafe { SetTimer(null_mut(), 0, TICK_MS, None) };
+            let timer = unsafe { SetTimer(null_mut(), 0, KEY_POLL_MS, None) };
+            let mut clock = HookClock::default();
             // Windows calls `hook_proc` from inside GetMessageW. WM_QUIT
             // (from the handle) ends the loop; -1 is an error.
             while unsafe { GetMessageW(&mut msg, null_mut(), 0, 0) } > 0 {
@@ -195,7 +195,8 @@ fn run_hook(what: &'static str, handler: Box<dyn HookLogic>) -> Result<ListenerH
                 if verdict.mask {
                     press_mask_key();
                 }
-                if busy {
+                // The hook itself is put back twice a second, not on every look.
+                if !clock.look() || busy {
                     continue;
                 }
                 // Take the hook out and put it back. If taking it out fails,

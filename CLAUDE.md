@@ -477,11 +477,17 @@ then 2.1.325). What was run and seen is in
   slow, with no notice, and one voice loop came up with a hook that was
   never called (its thread used no CPU cycles while keys were pressed). A
   single 1.5 s stall does not get a hook removed on this build; what did
-  was not found. Every 500 ms the hook thread now corrects the tracked
-  modifiers from `GetAsyncKeyState` (`WinChord::resync`) and takes the hook
-  out and puts it back, unless a hold is in progress or a key was pressed
-  in the last 150 ms. It logs when Windows had removed the hook, and each
-  hold-to-talk Down/Up/Cancel is logged. A missed key-up (lock screen, UAC
+  was not found. Every 50 ms (`KEY_POLL_MS`) the hook thread corrects the
+  tracked modifiers from `GetAsyncKeyState` (`WinChord::resync`), and twice
+  a second it takes the hook out and puts it back, unless a hold is in
+  progress or a key was pressed in the last 150 ms. It logs when Windows
+  had removed the hook, and each hold-to-talk Down/Up/Cancel is logged. The
+  look was every 500 ms at first. In real use two holds in 34 came "from
+  the key state, not from the keyboard hook" (the hook is blind while an
+  administrator's window is in front), so the start was up to half a
+  second late and a hold shorter than that could be missed: with the hook
+  made blind in a test, a median 537 ms late and one hold in eight lost,
+  now none lost. A missed key-up (lock screen, UAC
   prompt, an administrator's window) no longer leaves a modifier "held".
 - **Desktop control** (`capture`, `apps`, `input`; all raw Win32 through
   `windows-sys`, no xcap or enigo):
@@ -785,9 +791,11 @@ then 2.1.325). What was run and seen is in
   (interrupted in 100 ms), and the tray menu. Speech began 110 to 230 ms
   after its text.
 - **Windows, not checked**: a monitor above 100%
-  (the mapping is unit-tested, not run), sleep and wake (nothing is held
-  open across it: the microphone and the speaker are opened for each use,
-  and the key hook is put back every half second), a click refused on an administrator's window (the check
+  (the mapping is unit-tested, not run), a real sleep and wake (nothing is held open across it: the microphone
+  and the speaker are opened for each use, and the key hook is put back
+  twice a second; when the owner chose Sleep on 16 Nov 2026 this PC went
+  into Away Mode instead, screen off and still running, and the next hold
+  was heard and answered), a click refused on an administrator's window (the check
   flags such windows; no click was aimed at one), a window that is
   invisible but not click-through (it would block clicks under it), and
   a hand on the installer (its pages and the uninstaller's were walked by

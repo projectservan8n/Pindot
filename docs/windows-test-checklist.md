@@ -7,7 +7,7 @@ was seen on that PC; a note after a box says how far an unticked one got.
 
 On Windows today:
 
-- **Works**: the build (see "Build"), `cargo test --workspace` (197 + 24 + 6
+- **Works**: the build (see "Build"), `cargo test --workspace` (198 + 24 + 6
   tests), the app with Setup, Settings and Activity, the MCP server and its
   guards, the overlay on both monitors, the microphone check, hold-to-talk
   (`Hotkey`, self-healing), the Esc stop key (`StopKey`), speech to text,
@@ -217,6 +217,16 @@ Only click and type in windows you opened for the test.
       link"); on File Explorer's search box (a XAML control). A classic
       text box answered "done" and showed no menu, so classic controls get
       a real right-click: its menu came up and Esc closed it.
+- [ ] Sleep and wake, then a hold. (Tried by the PC's owner on 16 Nov
+      2026: Start > Power > Sleep. Windows logged "The system is entering
+      Away Mode", not a suspend: the screen went off and the PC kept
+      running. The hold ten seconds later was heard and answered; it was
+      reported from the key state, not by the hook. A real suspend is still
+      to see.)
+- [x] Hold-to-talk with a blind hook (an administrator's window in front):
+      the keys are looked at every 50 ms. With the hook made blind in a
+      test, eight short holds were all reported; before, with a look every
+      500 ms, the start was a median 537 ms late and one hold was lost.
 - [x] `scripts\check-macos.ps1`: both crates type-check for
       `aarch64-apple-darwin` from this PC, the macOS-only files and the
       test switches included. Rust only: nothing is linked or run.
