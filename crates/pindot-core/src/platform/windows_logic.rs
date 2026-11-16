@@ -736,8 +736,42 @@ impl EscFilter {
     }
 }
 
+// ------------------------------------------------------------- streaming mode
+
+/// `GetWindowDisplayAffinity` value of a window that capture sees.
+pub const WDA_NONE: u32 = 0;
+/// Hidden from every capture (Windows 10 2004 and newer).
+pub const WDA_EXCLUDEFROMCAPTURE: u32 = 0x11;
+
+/// One top-level window: its handle, whether it is visible and its display
+/// affinity.
+pub type OwnWindow = (isize, bool, u32);
+
+/// Streaming mode takes one screenshot with our own overlay hidden from the
+/// compositor. Which of our windows to set to `WDA_EXCLUDEFROMCAPTURE` for
+/// that one capture: those that are visible and capture can see now. A
+/// window that is already excluded (the main window, the approval popup)
+/// is left alone, so nothing of ours is ever made visible by the restore.
+pub fn windows_to_exclude(own: &[OwnWindow]) -> Vec<isize> {
+    own.iter().filter(|&&(_, visible, affinity)| visible && affinity == WDA_NONE).map(|&(h, _, _)| h).collect()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_visible_unprotected_windows_are_excluded_for_a_capture() {
+        use super::{WDA_EXCLUDEFROMCAPTURE, WDA_NONE, windows_to_exclude};
+        let own = [
+            (1, true, WDA_NONE),                // the overlay in streaming mode
+            (2, true, WDA_EXCLUDEFROMCAPTURE),  // the main window: already hidden, stays as it is
+            (3, false, WDA_NONE),               // not on screen: nothing to hide
+            (4, true, 1),                       // WDA_MONITOR (an older protection): left alone
+            (5, true, WDA_NONE),
+        ];
+        assert_eq!(windows_to_exclude(&own), vec![1, 5]);
+        assert!(windows_to_exclude(&[]).is_empty());
+    }
+
     use super::*;
 
     fn raw(class: &str, ex_style: u32) -> RawWindow<'_> {
