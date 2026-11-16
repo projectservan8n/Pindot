@@ -42,17 +42,21 @@
     stopped: () => { stay(200, 120); F('pindot:acting', true); at(300, () => F('pindot:stopped')); },
     hide: () => { stay(200, 120); at(300, () => F('pindot:hide')); },
     resting: () => { stay(200, 120); F('pindot:acting', true); at(200, () => F('pindot:acting', false)); },
+    // slow short trip, for zoomed eye strips
+    eyestravel: () => { stay(190, 120); at(100, () => F('pindot:cursor', { from: P(190, 120), to: P(250, 120), ms: 1800, label: '' })); },
+    eyesblink: () => stay(200, 120),
     eyes: () => {
       // travel, then sample the eyes every 25 ms into the log
       stay(40, 220); at(200, () => F('pindot:cursor', { from: P(40, 220), to: P(440, 80), ms: 1600, label: '' }));
       const e = document.getElementById('eyes'), r = document.querySelectorAll('.eye');
       const seen = { tx: [], blinks: 0 }; let was = false;
       const t = setInterval(() => {
-        const m = new DOMMatrix(getComputedStyle(e).transform);
-        seen.tx.push(+m.e.toFixed(2));
+        const mm = /translate\((-?[\d.]+)px/.exec(e.style.transform || '');
+        seen.tx.push(mm ? +mm[1] : 0);
+        const cs = getComputedStyle(e).transform; if (cs !== 'none') seen.cs = (seen.cs || 0) + 1;
         const b = r[0].classList.contains('blink'); if (b && !was) seen.blinks++; was = b;
       }, 25);
-      at(3800, () => { clearInterval(t); window.__logs.push('eyes ' + JSON.stringify({ min: Math.min(...seen.tx), max: Math.max(...seen.tx), blinks: seen.blinks })); });
+      at(3800, () => { clearInterval(t); window.__logs.push('eyes ' + JSON.stringify({ min: Math.min(...seen.tx), max: Math.max(...seen.tx), blinks: seen.blinks, computedSeen: seen.cs || 0, n: seen.tx.length, hasCursorOn: document.body.className })); });
     },
   };
   (S[scene] || S.glide)();
