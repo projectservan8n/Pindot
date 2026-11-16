@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use uuid::Uuid;
 
-use super::config::{ALLOWED_TOOLS_RULE, PermissionMode, write_brain_hook_settings, write_brain_mcp_config};
+use super::config::{ALLOWED_TOOLS_RULE, PermissionMode, write_brain_hook_settings_for, write_brain_mcp_config};
 use super::pty::{ClaudeSession, SpawnOptions};
 use super::tailer::{TranscriptEvent, TranscriptTailer};
 use super::turn::{PERMISSION_PROMPT_MARKERS, SUBMIT_CHECK};
@@ -61,6 +61,10 @@ pub struct BrainConfig {
     /// Ask (only our tools) or auto mode with a few built-in tools.
     pub permission_mode: PermissionMode,
     pub system_prompt: String,
+    /// The user's brain folder, when one is set and exists (`None` = the
+    /// isolated session in `cwd`). Checked again at every start, so a folder
+    /// that vanished later falls back to `cwd` instead of failing.
+    pub brain_folder: Option<PathBuf>,
 }
 
 /// `<data dir>/session`, user-only: the working folder of the voice brain.
@@ -382,12 +386,14 @@ impl Worker {
 
     fn spawn_options(&self, bin: PathBuf, resume: bool) -> Result<SpawnOptions> {
         let mut opts = SpawnOptions::new(bin, self.config.cwd.clone());
+        let folder = self.config.brain_folder.as_deref().filter(|f| f.is_dir());
         opts.session_id = self.session_id;
         opts.resume = resume;
         let key = self.session_id.to_string();
         let mode = self.config.permission_mode;
         opts.settings = Some(
-            write_brain_hook_settings(&self.config.stop_hook_url, &self.config.token, mode).context("hook settings")?,
+            write_brain_hook_settings_for(&self.config.stop_hook_url, &self.config.token, mode, folder)
+                .context("hook settings")?,
         );
         opts.mcp_config =
             Some(write_brain_mcp_config(&self.config.mcp_url, &self.config.token, &key).context("MCP config")?);
@@ -397,6 +403,9 @@ impl Worker {
         opts.model = self.config.model.clone();
         opts.effort = self.config.effort.clone();
         opts.append_system_prompt = Some(self.config.system_prompt.clone());
+        if let Some(f) = folder {
+            super::folder::apply(&mut opts, f);
+        }
         Ok(opts)
     }
 

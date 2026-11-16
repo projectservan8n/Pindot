@@ -205,6 +205,17 @@ fn show(app: &AppHandle, state: Display, notice: Option<String>) {
     let _ = app.emit("pindot:voice", VoiceStatus { state, notice });
 }
 
+/// The brain folder to start in. A saved folder that is gone is announced
+/// (overlay notice and log) and the session starts the plain, isolated way.
+fn brain_folder_for_start(app: &AppHandle, settings: &VoiceSettings) -> Option<PathBuf> {
+    let state = pindot_core::brain::folder::FolderState::of(settings.brain_folder.as_deref());
+    if let Some(msg) = state.notice() {
+        println!("voice: {msg}");
+        show(app, Display::Idle, Some(msg));
+    }
+    state.ready_path()
+}
+
 fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: ServerLink, opts: VoiceOptions) -> Result<()> {
     let settings = VoiceSettings::load();
     if let Some(w) = &opts.test_wav {
@@ -237,7 +248,19 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
 
     let mic: Box<dyn Microphone> = match &opts.test_wav {
         Some(p) => Box::new(WavMicrophone { path: p.clone() }),
-        None => Box::new(CpalMicrophone::new()),
+        None => {
+            // Listing devices opens no stream. A saved microphone that is not
+            // plugged in is announced, then the system default is used.
+            let present = audio::list_devices().map(|d| d.inputs).unwrap_or_default();
+            let choice = audio::InputChoice::resolve(settings.input_device.as_deref(), &present);
+            if let Some(msg) = choice.notice() {
+                println!("voice: {msg}");
+                show(app, Display::Idle, Some(msg));
+            }
+            let app_n = app.clone();
+            let on_notice: audio::MicNotice = Arc::new(move |msg| show(&app_n, Display::Idle, Some(msg)));
+            Box::new(CpalMicrophone::with_device(settings.input_device.clone(), Some(on_notice)))
+        }
     };
     let recorder = Recorder::start(mic, stt, handle.clone())?;
 
@@ -288,6 +311,7 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
         effort: settings.effort.clone(),
         permission_mode: settings.permission_mode,
         system_prompt: voice_system_prompt(&settings),
+        brain_folder: brain_folder_for_start(app, &settings),
     };
     let (h, p) = (handle.clone(), probe.clone());
     let brain = PersistentBrain::start(

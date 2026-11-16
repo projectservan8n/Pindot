@@ -204,16 +204,61 @@ fn set_mic_level(v: f32) {
     MIC_LEVEL.store(v.to_bits(), std::sync::atomic::Ordering::Relaxed);
 }
 
-/// The default input device through cpal. Each `start` opens a fresh stream
-/// on a dedicated thread; `stop` closes it.
+/// Which microphone to listen with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InputChoice {
+    /// The system default (nothing saved).
+    Default,
+    /// The saved device, present right now.
+    Named(String),
+    /// A device is saved but is not plugged in: use the default and say so.
+    Missing(String),
+}
+
+impl InputChoice {
+    /// Decide from the saved name and the names of the devices present.
+    pub fn resolve(saved: Option<&str>, present: &[String]) -> Self {
+        match saved.map(str::trim).filter(|s| !s.is_empty()) {
+            None => Self::Default,
+            Some(n) if present.iter().any(|p| p == n) => Self::Named(n.to_string()),
+            Some(n) => Self::Missing(n.to_string()),
+        }
+    }
+
+    /// The line shown to the user when the saved device is gone.
+    pub fn notice(&self) -> Option<String> {
+        match self {
+            Self::Missing(n) => {
+                Some(format!("Microphone \"{n}\" isn't connected, so I'm using the system default instead."))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Called with a notice when the saved microphone is gone at the moment of
+/// listening (it was there when the app started).
+pub type MicNotice = Arc<dyn Fn(String) + Send + Sync>;
+
+/// An input device through cpal (the named one, else the system default).
+/// Each `start` opens a fresh stream on a dedicated thread (a cpal stream is
+/// not `Send` on macOS); `stop` closes it.
 #[derive(Default)]
 pub struct CpalMicrophone {
     running: Option<(Arc<AtomicBool>, JoinHandle<Result<(Vec<f32>, u32)>>)>,
+    device: Option<String>,
+    on_notice: Option<MicNotice>,
 }
 
 impl CpalMicrophone {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Listen with the device of this name (`None` = the system default).
+    /// `on_notice` hears about a saved device that has gone missing.
+    pub fn with_device(device: Option<String>, on_notice: Option<MicNotice>) -> Self {
+        Self { running: None, device, on_notice }
     }
 }
 
@@ -225,9 +270,21 @@ impl Microphone for CpalMicrophone {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_t = stop.clone();
         let (ready_tx, ready_rx) = mpsc::channel::<Result<()>>();
+        let wanted = self.device.clone();
+        let on_notice = self.on_notice.clone();
         let handle = std::thread::Builder::new().name("pindot-mic".into()).spawn(move || {
             let host = cpal::default_host();
-            let dev = match host.default_input_device() {
+            let named = wanted.as_deref().and_then(|w| {
+                host.input_devices().ok().and_then(|mut it| it.find(|d| d.to_string() == w))
+            });
+            if named.is_none() {
+                if let (Some(w), Some(n)) = (&wanted, &on_notice) {
+                    if let Some(msg) = InputChoice::Missing(w.clone()).notice() {
+                        n(msg);
+                    }
+                }
+            }
+            let dev = match named.or_else(|| host.default_input_device()) {
                 Some(d) => d,
                 None => {
                     let _ = ready_tx.send(Err(anyhow!("no microphone (no default input device)")));
@@ -518,6 +575,19 @@ impl AudioSink for WavSink {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_saved_microphone_is_used_only_while_it_is_there() {
+        let present = vec!["Built-in Microphone".to_string(), "USB Mic".to_string()];
+        assert_eq!(InputChoice::resolve(None, &present), InputChoice::Default);
+        assert_eq!(InputChoice::resolve(Some("  "), &present), InputChoice::Default);
+        assert_eq!(InputChoice::resolve(Some("USB Mic"), &present), InputChoice::Named("USB Mic".into()));
+        let gone = InputChoice::resolve(Some("Old Headset"), &present);
+        assert_eq!(gone, InputChoice::Missing("Old Headset".into()));
+        let note = gone.notice().expect("a missing device is announced");
+        assert!(note.contains("Old Headset") && note.contains("system default"));
+        assert!(InputChoice::Default.notice().is_none() && InputChoice::Named("USB Mic".into()).notice().is_none());
+    }
 
     #[test]
     fn resampler_keeps_duration_and_a_tone() {

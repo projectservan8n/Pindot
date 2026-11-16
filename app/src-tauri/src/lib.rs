@@ -189,11 +189,14 @@ pub fn run() {
     let builder = builder.plugin(tauri_nspanel::init()).activate_ignoring_other_apps(false);
 
     builder
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             approval::approval_answer,
             ui::app_info,
             ui::settings_get,
             ui::settings_save,
+            ui::choose_brain_folder,
+            ui::list_input_devices,
             ui::hotkey_check,
             ui::claude_status,
             ui::permissions,

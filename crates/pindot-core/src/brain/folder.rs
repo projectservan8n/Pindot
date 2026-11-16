@@ -48,11 +48,19 @@ impl FolderState {
         }
     }
 
+    /// The folder to start in, when there is one and it exists.
+    pub fn ready_path(&self) -> Option<PathBuf> {
+        match self {
+            FolderState::Ready(p) => Some(p.clone()),
+            _ => None,
+        }
+    }
+
     /// The notice to show when the folder cannot be used.
     pub fn notice(&self) -> Option<String> {
         match self {
             FolderState::Missing(p) => Some(format!(
-                "Brain folder not found ({}). Rusty started without it; choose the folder again in Settings.",
+                "Brain folder not found ({}). The assistant started without it; choose the folder again in Settings.",
                 p.display()
             )),
             _ => None,

@@ -172,6 +172,10 @@ impl Settings {
         if !crate::voice::assistant_problems(&v.assistant_name, "").is_empty() {
             v.assistant_name = crate::voice::DEFAULT_ASSISTANT_NAME.into();
         }
+        // Blank means "not set" for the two optional text settings.
+        for opt in [&mut v.brain_folder, &mut v.input_device] {
+            *opt = opt.take().map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+        }
         if v.talk_notes.chars().count() > crate::voice::TALK_NOTES_MAX {
             v.talk_notes = v.talk_notes.chars().take(crate::voice::TALK_NOTES_MAX).collect();
         }
@@ -230,6 +234,11 @@ impl Settings {
         }
         if !cursor_color_ok(self.cursor_color.trim()) {
             problems.push("Cursor colour: use the form #rrggbb".into());
+        }
+        if let Some(f) = self.voice.brain_folder.as_deref().map(str::trim).filter(|f| !f.is_empty()) {
+            if !Path::new(f).is_absolute() {
+                problems.push("Brain folder: pick a folder with the Choose button".into());
+            }
         }
         problems.extend(crate::voice::assistant_problems(&self.voice.assistant_name, &self.voice.talk_notes));
         if problems.is_empty() { Ok(()) } else { Err(problems) }
@@ -450,6 +459,34 @@ mod tests {
         let (back, _) = Settings::load_in(&dir).unwrap();
         assert_eq!(back.cursor_color, "#3b82f6");
         assert_eq!(back.validate(), Ok(()));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn brain_folder_and_microphone_default_to_none_and_round_trip() {
+        let d = Settings::default();
+        assert_eq!((d.voice.brain_folder.clone(), d.voice.input_device.clone()), (None, None));
+        let dir = temp_dir("brain-mic");
+        // An old file without the fields loads as "not set".
+        fs::write(Settings::path_in(&dir), r#"{"voice":{"volume":0.5}}"#).unwrap();
+        let (old, _) = Settings::load_in(&dir).unwrap();
+        assert_eq!((old.voice.brain_folder, old.voice.input_device), (None, None));
+        // Blank text counts as not set.
+        fs::write(Settings::path_in(&dir), r#"{"voice":{"brain_folder":"  ","input_device":""}}"#).unwrap();
+        let (blank, _) = Settings::load_in(&dir).unwrap();
+        assert_eq!((blank.voice.brain_folder, blank.voice.input_device), (None, None));
+        // Saved values survive a reload.
+        let mut s = Settings::default();
+        s.voice.brain_folder = Some(std::env::temp_dir().to_string_lossy().into_owned());
+        s.voice.input_device = Some("USB Mic".into());
+        assert_eq!(s.validate(), Ok(()));
+        s.save_in(&dir).unwrap();
+        let (back, _) = Settings::load_in(&dir).unwrap();
+        assert_eq!(back.voice.brain_folder, s.voice.brain_folder);
+        assert_eq!(back.voice.input_device.as_deref(), Some("USB Mic"));
+        // A relative folder from a hand-edit is reported by validate.
+        s.voice.brain_folder = Some("notes".into());
+        assert!(s.validate().unwrap_err().iter().any(|p| p.starts_with("Brain folder")));
         fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -110,6 +110,11 @@ pub struct VoiceSettings {
     pub talk_style: TalkStyle,
     /// The user's own words on how to be talked to ("Call me Sam").
     pub talk_notes: String,
+    /// A folder the voice brain starts in so it knows the user (`None` = no
+    /// brain folder: the isolated session used before this setting existed).
+    pub brain_folder: Option<String>,
+    /// Name of the microphone to listen with (`None` = the system default).
+    pub input_device: Option<String>,
 }
 
 impl Default for VoiceSettings {
@@ -130,6 +135,8 @@ impl Default for VoiceSettings {
             assistant_name: DEFAULT_ASSISTANT_NAME.into(),
             talk_style: TalkStyle::Friendly,
             talk_notes: String::new(),
+            brain_folder: None,
+            input_device: None,
         }
     }
 }

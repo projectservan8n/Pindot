@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use pindot_core::brain::config::{write_hook_settings, write_mcp_config};
+use pindot_core::brain::folder::FolderState;
 use pindot_core::brain::{self, AuthState};
 use pindot_core::connect::{self, ConnectStatus};
 use pindot_core::platform::{self, HotkeyBinding, Os, Permission, PermissionState, PermissionStatus};
@@ -498,6 +499,9 @@ pub struct SettingsView {
     default_port: u16,
     running_port: Option<u16>,
     os: &'static str,
+    /// Why the saved brain folder cannot be used right now (`None` = fine
+    /// or not set).
+    brain_folder_notice: Option<String>,
 }
 
 const OVERRIDE_VARS: &[&str] = &[
@@ -529,7 +533,32 @@ pub fn settings_get(app: AppHandle) -> SettingsView {
         default_port: pindot_core::DEFAULT_PORT,
         running_port: app.try_state::<RunningServer>().map(|s| s.addr.port()),
         os: if cfg!(target_os = "macos") { "macos" } else { "windows" },
+        brain_folder_notice: FolderState::of(app.state::<Ui>().settings().voice.brain_folder.as_deref()).notice(),
     }
+}
+
+/// Native choose-folder dialog. `None` when the user cancels.
+#[tauri::command]
+pub async fn choose_brain_folder(app: AppHandle) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = app.dialog().file().set_title("Choose your brain folder").blocking_pick_folder()?;
+    picked.into_path().ok().map(|p| p.to_string_lossy().into_owned())
+}
+
+#[derive(Serialize)]
+pub struct InputDevices {
+    /// Names of the microphones present now.
+    devices: Vec<String>,
+    /// What the system default is called (for the dropdown's first row).
+    default: Option<String>,
+}
+
+/// The microphones present now. Only lists them: no stream is opened, so
+/// the microphone is never used by this call.
+#[tauri::command]
+pub fn list_input_devices() -> Result<InputDevices, String> {
+    let d = pindot_core::voice::audio::list_devices().map_err(|e| format!("Listing microphones: {e:#}"))?;
+    Ok(InputDevices { devices: d.inputs, default: d.default_input })
 }
 
 #[derive(Serialize)]
@@ -559,6 +588,9 @@ pub fn settings_save(app: AppHandle, settings: Settings) -> Result<SaveResult, V
     if new.hotkey != old.hotkey || new.voice != old.voice || new.voice_enabled != old.voice_enabled {
         restart_voice(&app);
         notes.push("Hold-to-talk restarts with the new settings.".into());
+        if new.voice.brain_folder != old.voice.brain_folder {
+            notes.push("The next request starts a fresh conversation with the new brain folder.".into());
+        }
     }
     if new.voice.assistant_name != old.voice.assistant_name {
         send_assistant_name(&app);
