@@ -940,6 +940,21 @@ ideas only.
 - Tests: unit tests per module, and `crates/pindot-core/tests/native_loop.rs`
   (Pindot's real server on mock platform parts plus a fake Chat
   Completions server in axum).
+- **The Anthropic API** (17 Nov 2026, spec
+  `docs/superpowers/specs/2026-11-17-anthropic-api-design.md`): a second
+  wire format (`providers::Wire`), not a second loop. `native/anthropic.rs`
+  speaks the Messages API in raw HTTP (no Rust SDK): `x-api-key`,
+  `anthropic-version: 2026-10-21`, streamed events, `max_tokens` 64000,
+  `cache_control` at the top level, tools with `eager_input_streaming`,
+  `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) on the
+  models that take it. Thinking is left at each model's default; its
+  signed blocks are kept in `Msg::Assistant.raw` and replayed unchanged;
+  when trimming edits the history, `context::strip_thinking` removes all of
+  them (the API's history-editing check accepts that, and refuses edited
+  history with old blocks). Tool pictures follow the tool results in the
+  same user message. Models from `GET /v1/models` (`max_input_tokens`,
+  `capabilities.image_input.supported`). This key is only ever the loop's:
+  Claude Code still never gets an API key.
 
 ## Known risks (open)
 

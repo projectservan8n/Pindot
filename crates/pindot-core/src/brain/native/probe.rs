@@ -10,7 +10,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use super::openai::{CallError, Endpoint};
-use super::providers::{self, PROVIDERS};
+use super::providers::{self, PROVIDERS, Wire};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ModelInfo {
@@ -44,11 +44,11 @@ fn as_u32(v: &Value) -> Option<u32> {
     v.as_u64().map(|c| c.min(u32::MAX as u64) as u32)
 }
 
-fn get_json(agent: &ureq::Agent, url: &str, key: Option<&str>) -> Result<Value, CallError> {
-    let mut r = agent.get(url);
-    if let Some(k) = key {
-        r = r.header("Authorization", format!("Bearer {k}"));
-    }
+fn get_json(agent: &ureq::Agent, url: &str) -> Result<Value, CallError> {
+    read_json(agent.get(url))
+}
+
+fn read_json(r: ureq::RequestBuilder<ureq::typestate::WithoutBody>) -> Result<Value, CallError> {
     let resp = r.call().map_err(|e| CallError::Unreachable(e.to_string()))?;
     let code = resp.status().as_u16();
     let body = resp.into_body().with_config().limit(16 * 1024 * 1024).read_to_string().unwrap_or_default();
@@ -73,8 +73,12 @@ pub fn list_models(provider: &str, base_url: &str, key: Option<&str>) -> Result<
         return Err(CallError::Unreachable("a key is never sent over plain http to another computer".into()));
     }
     let agent = Endpoint::agent(Duration::from_secs(3));
-    let ep = Endpoint { base_url: base_url.into(), key: key.map(str::to_string) };
-    let list = get_json(&agent, &ep.url("models"), key)?;
+    let wire = providers::find(provider).map_or(Wire::OpenAi, |p| p.wire);
+    let ep = Endpoint { base_url: base_url.into(), key: key.map(str::to_string), wire };
+    if wire == Wire::Anthropic {
+        return anthropic_models(&agent, &ep);
+    }
+    let list = read_json(ep.get(&agent, "models")?)?;
     let mut out: Vec<ModelInfo> = vec![];
     for m in list.get("data").and_then(Value::as_array).into_iter().flatten() {
         let Some(id) = m.get("id").and_then(Value::as_str) else { continue };
@@ -109,7 +113,7 @@ pub fn list_models(provider: &str, base_url: &str, key: Option<&str>) -> Result<
             });
         }
         "lmstudio" => {
-            if let Ok(v) = get_json(&agent, &format!("{root}/api/v0/models"), None) {
+            if let Ok(v) = get_json(&agent, &format!("{root}/api/v0/models")) {
                 for m in v.get("data").and_then(Value::as_array).into_iter().flatten() {
                     let id = m.get("id").and_then(Value::as_str).unwrap_or_default();
                     let kind = m.get("type").and_then(Value::as_str).unwrap_or_default();
@@ -125,7 +129,7 @@ pub fn list_models(provider: &str, base_url: &str, key: Option<&str>) -> Result<
             }
         }
         "llamacpp" => {
-            if let Ok(v) = get_json(&agent, &format!("{root}/props"), None) {
+            if let Ok(v) = get_json(&agent, &format!("{root}/props")) {
                 let ctx = v.pointer("/default_generation_settings/n_ctx").and_then(as_u32);
                 let vision = v.pointer("/modalities/vision").and_then(Value::as_bool);
                 for info in &mut out {
@@ -135,6 +139,38 @@ pub fn list_models(provider: &str, base_url: &str, key: Option<&str>) -> Result<
             }
         }
         _ => {}
+    }
+    Ok(out)
+}
+
+/// Anthropic's models, from the Models API (paged): the context is
+/// `max_input_tokens`, vision is `capabilities.image_input.supported`, and
+/// every model uses tools.
+fn anthropic_models(agent: &ureq::Agent, ep: &Endpoint) -> Result<Vec<ModelInfo>, CallError> {
+    let mut out = vec![];
+    let mut after: Option<String> = None;
+    for _ in 0..10 {
+        let path = match &after {
+            Some(a) => format!("models?limit=1000&after_id={a}"),
+            None => "models?limit=1000".to_string(),
+        };
+        let page = read_json(ep.get(agent, &path)?)?;
+        for m in page.get("data").and_then(Value::as_array).into_iter().flatten() {
+            let Some(id) = m.get("id").and_then(Value::as_str) else { continue };
+            out.push(ModelInfo {
+                id: id.to_string(),
+                vision: m.pointer("/capabilities/image_input/supported").and_then(Value::as_bool),
+                tools: Some(true),
+                context: m.get("max_input_tokens").and_then(as_u32),
+            });
+        }
+        if page.get("has_more").and_then(Value::as_bool) != Some(true) {
+            break;
+        }
+        after = page.get("last_id").and_then(Value::as_str).map(str::to_string);
+        if after.is_none() {
+            break;
+        }
     }
     Ok(out)
 }

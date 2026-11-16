@@ -9,13 +9,21 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+use super::providers::Wire;
+
 /// One message of a conversation, as the loop keeps it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Msg {
     System(String),
     /// What the user said or typed (with pictures they attached).
     User { text: String, images: Vec<Image> },
-    Assistant { text: String, calls: Vec<ToolCall> },
+    Assistant {
+        text: String,
+        calls: Vec<ToolCall>,
+        /// The provider's own content blocks, replayed unchanged (Anthropic:
+        /// signed thinking blocks must come back as they were).
+        raw: Option<Value>,
+    },
     Tool { call_id: String, text: String },
     /// Pictures returned by tools (`screenshot`, `zoom`), sent as a user
     /// message after the tool results: many servers take text only there.
@@ -57,7 +65,7 @@ fn message(m: &Msg) -> Value {
             parts.extend(images.iter().map(image_part));
             json!({"role": "user", "content": parts})
         }
-        Msg::Assistant { text, calls } => {
+        Msg::Assistant { text, calls, .. } => {
             let content = if text.is_empty() && !calls.is_empty() { Value::Null } else { json!(text) };
             let mut v = json!({"role": "assistant", "content": content});
             if !calls.is_empty() {
@@ -95,6 +103,8 @@ pub struct Reply {
     pub thinking: String,
     pub calls: Vec<ToolCall>,
     pub finish: Option<String>,
+    /// The provider's own content blocks (Anthropic), to replay unchanged.
+    pub raw: Option<Value>,
 }
 
 #[derive(Default)]
@@ -192,6 +202,7 @@ impl StreamParser {
                 })
                 .collect(),
             finish: self.finish,
+            raw: None,
         }
     }
 }
@@ -245,6 +256,7 @@ pub fn complete_reply(body: &str) -> Result<Reply, String> {
         thinking,
         calls,
         finish: v.pointer("/choices/0/finish_reason").and_then(Value::as_str).map(str::to_string),
+        raw: None,
     })
 }
 
@@ -270,7 +282,8 @@ pub struct Who {
 pub fn is_context_overflow(e: &CallError) -> bool {
     let CallError::Status { code: 400 | 413, body } = e else { return false };
     let b = body.to_ascii_lowercase();
-    b.contains("context") && ["length", "too long", "exceed", "maximum", "window"].iter().any(|w| b.contains(w))
+    b.contains("prompt is too long")
+        || (b.contains("context") && ["length", "too long", "exceed", "maximum", "window"].iter().any(|w| b.contains(w)))
 }
 
 /// A server error's own message, if its body has one.
@@ -289,7 +302,7 @@ pub fn describe(e: &CallError, who: &Who) -> String {
         CallError::Unreachable(_) => format!("Can't reach {p}. Check the internet connection."),
         CallError::Status { code: 401 | 403, .. } => format!("{p} refused the API key. Check it in Settings > Brain."),
         CallError::Status { code: 402, .. } => format!("Your {p} account is out of credit."),
-        CallError::Status { code: 429, .. } => format!("{p} is busy or rate-limiting. Try again in a moment."),
+        CallError::Status { code: 429 | 529, .. } => format!("{p} is busy or rate-limiting. Try again in a moment."),
         CallError::Status { code: 404, .. } => format!("{m} isn't available on {p}. Pick another in Settings > Brain."),
         CallError::Status { code, body } => format!("{p} answered with an error ({code}): {}", server_message(body)),
         CallError::Stream(s) => format!("{p} stopped in the middle of a reply: {s}"),
@@ -298,12 +311,17 @@ pub fn describe(e: &CallError, who: &Who) -> String {
     }
 }
 
-/// Where requests go: the base URL (ending in `/v1` or similar) and the key.
+/// Where requests go: the base URL (ending in `/v1`), the key, and the
+/// format the provider speaks (which also decides how the key is sent).
 #[derive(Clone)]
 pub struct Endpoint {
     pub base_url: String,
     pub key: Option<String>,
+    pub wire: Wire,
 }
+
+/// The Messages API version Pindot speaks.
+pub const ANTHROPIC_VERSION: &str = "2026-10-21";
 
 impl Endpoint {
     pub fn url(&self, path: &str) -> String {
@@ -319,17 +337,30 @@ impl Endpoint {
             .into()
     }
 
-    /// A POST with the key, refused if the key would cross the network in
-    /// the clear.
-    pub fn post(&self, agent: &ureq::Agent, path: &str) -> Result<ureq::RequestBuilder<ureq::typestate::WithBody>, CallError> {
-        let mut r = agent.post(self.url(path));
+    /// The headers this provider wants, the key among them; refused if the
+    /// key would cross the network in the clear.
+    fn auth<B>(&self, mut r: ureq::RequestBuilder<B>) -> Result<ureq::RequestBuilder<B>, CallError> {
+        if self.wire == Wire::Anthropic {
+            r = r.header("anthropic-version", ANTHROPIC_VERSION);
+        }
         if let Some(k) = &self.key {
             if super::providers::plain_http_remote(&self.base_url) {
                 return Err(CallError::Unreachable("a key is never sent over plain http to another computer".into()));
             }
-            r = r.header("Authorization", format!("Bearer {k}"));
+            r = match self.wire {
+                Wire::OpenAi => r.header("Authorization", format!("Bearer {k}")),
+                Wire::Anthropic => r.header("x-api-key", k),
+            };
         }
         Ok(r)
+    }
+
+    pub fn post(&self, agent: &ureq::Agent, path: &str) -> Result<ureq::RequestBuilder<ureq::typestate::WithBody>, CallError> {
+        self.auth(agent.post(self.url(path)))
+    }
+
+    pub fn get(&self, agent: &ureq::Agent, path: &str) -> Result<ureq::RequestBuilder<ureq::typestate::WithoutBody>, CallError> {
+        self.auth(agent.get(self.url(path)))
     }
 }
 
@@ -339,13 +370,20 @@ enum Line {
     End,
 }
 
-/// One streamed chat request. Runs on a helper thread so `cancel` (Esc)
-/// takes effect at once; a server that sends nothing for `idle` (before or
-/// between chunks) gives `Timeout`.
-pub fn chat(ep: &Endpoint, body: &Value, cancel: &AtomicBool, idle: Duration) -> Result<Reply, CallError> {
-    let agent = Endpoint::agent(Duration::from_secs(5));
-    let req = ep.post(&agent, "chat/completions")?.header("Accept", "text/event-stream").header("Content-Type", "application/json");
-    let body = body.to_string();
+/// Posts `body` and hands each `data:` line of the streamed answer to
+/// `on_data` as it arrives (it returns true once the reply is complete).
+/// The request runs on a helper thread so `cancel` (Esc) takes effect at
+/// once; nothing for `idle` (before or between chunks) gives `Timeout`.
+/// Returns the body's other text: a server that ignored `stream` sends its
+/// whole answer as plain JSON.
+pub fn stream_post(
+    req: ureq::RequestBuilder<ureq::typestate::WithBody>,
+    body: String,
+    cancel: &AtomicBool,
+    idle: Duration,
+    on_data: &mut dyn FnMut(&str) -> Result<bool, String>,
+) -> Result<String, CallError> {
+    let req = req.header("Accept", "text/event-stream").header("Content-Type", "application/json");
     let (tx, rx) = mpsc::channel::<Line>();
     std::thread::Builder::new()
         .name("pindot-loop-http".into())
@@ -381,7 +419,6 @@ pub fn chat(ep: &Endpoint, body: &Value, cancel: &AtomicBool, idle: Duration) ->
         })
         .map_err(|e| CallError::Stream(e.to_string()))?;
 
-    let mut parser = StreamParser::default();
     let mut plain = String::new();
     let mut last = Instant::now();
     loop {
@@ -392,22 +429,16 @@ pub fn chat(ep: &Endpoint, body: &Value, cancel: &AtomicBool, idle: Duration) ->
             Ok(Line::Line(l)) => {
                 last = Instant::now();
                 if l.starts_with("data:") {
-                    parser.line(&l).map_err(CallError::Stream)?;
-                    if parser.is_done() {
-                        return Ok(parser.finish());
+                    if on_data(&l).map_err(CallError::Stream)? {
+                        return Ok(plain);
                     }
-                } else if !l.starts_with(':') {
+                } else if !l.starts_with(':') && !l.starts_with("event:") {
                     plain.push_str(&l);
                     plain.push('\n');
                 }
             }
             Ok(Line::Failed(e)) => return Err(e),
-            Ok(Line::End) | Err(mpsc::RecvTimeoutError::Disconnected) => {
-                if parser.saw_data() {
-                    return Ok(parser.finish());
-                }
-                return complete_reply(&plain).map_err(CallError::Stream);
-            }
+            Ok(Line::End) | Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(plain),
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 if last.elapsed() > idle {
                     return Err(CallError::Timeout);
@@ -415,6 +446,18 @@ pub fn chat(ep: &Endpoint, body: &Value, cancel: &AtomicBool, idle: Duration) ->
             }
         }
     }
+}
+
+/// One streamed Chat Completions request.
+pub fn chat(ep: &Endpoint, body: &Value, cancel: &AtomicBool, idle: Duration) -> Result<Reply, CallError> {
+    let agent = Endpoint::agent(Duration::from_secs(5));
+    let req = ep.post(&agent, "chat/completions")?;
+    let mut parser = StreamParser::default();
+    let plain = stream_post(req, body.to_string(), cancel, idle, &mut |l| {
+        parser.line(l)?;
+        Ok(parser.is_done())
+    })?;
+    if parser.saw_data() { Ok(parser.finish()) } else { complete_reply(&plain).map_err(CallError::Stream) }
 }
 
 #[cfg(test)]
@@ -429,6 +472,7 @@ mod tests {
             Msg::Assistant {
                 text: String::new(),
                 calls: vec![ToolCall { id: "c1".into(), name: "click".into(), arguments: "{\"ref\":\"r1\"}".into() }],
+                raw: None,
             },
             Msg::Tool { call_id: "c1".into(), text: "done".into() },
             Msg::ToolImages(vec![Image { mime: "image/png".into(), base64: "AAAA".into() }]),
@@ -520,8 +564,8 @@ mod tests {
 
     #[test]
     fn a_key_never_goes_to_another_computer_over_plain_http() {
-        let ep = Endpoint { base_url: "http://192.168.1.9:8080/v1".into(), key: Some("sk-secret-123456".into()) };
+        let ep = Endpoint { base_url: "http://192.168.1.9:8080/v1".into(), key: Some("sk-secret-123456".into()), wire: Wire::OpenAi };
         assert!(matches!(ep.post(&Endpoint::agent(Duration::from_secs(1)), "chat/completions"), Err(CallError::Unreachable(_))));
-        assert_eq!(Endpoint { base_url: "http://x/v1/".into(), key: None }.url("/models"), "http://x/v1/models");
+        assert_eq!(Endpoint { base_url: "http://x/v1/".into(), key: None, wire: Wire::OpenAi }.url("/models"), "http://x/v1/models");
     }
 }

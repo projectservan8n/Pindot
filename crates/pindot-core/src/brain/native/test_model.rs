@@ -7,7 +7,7 @@ use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use super::mcp_client::McpClient;
-use super::openai::{Endpoint, Msg};
+use super::openai::Msg;
 use super::run::{Conversation, TurnEnd, TurnEvent, TurnLimits, run_turn};
 use super::settings::BrainSettings;
 use super::{HttpModel, system_prompt, who};
@@ -24,7 +24,7 @@ const LIMITS: TurnLimits = TurnLimits { max_tool_calls: 3, deadline: Duration::f
 
 pub fn test_model(brain: &BrainSettings, key: Option<String>, mcp_url: &str, token: &str, state: &ServerState) -> ModelTest {
     let who = who(brain);
-    let mut model = HttpModel { endpoint: Endpoint { base_url: brain.base_url.clone(), key }, model: brain.model.clone() };
+    let mut model = HttpModel::new(brain, key);
     let session = format!("model-test-{}", uuid::Uuid::new_v4());
     let mcp = McpClient::new(mcp_url, token, &session);
     let result = (|| -> Result<(), String> {

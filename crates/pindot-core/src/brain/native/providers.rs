@@ -1,6 +1,16 @@
 //! The providers Pindot's own loop knows: local servers and API services
-//! that speak OpenAI's Chat Completions. Check a URL against the
-//! provider's current documentation before changing it.
+//! that speak OpenAI's Chat Completions, and Anthropic's Messages API.
+//! Check a URL against the provider's current documentation before
+//! changing it.
+
+/// The request format a provider speaks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wire {
+    /// OpenAI Chat Completions (`/chat/completions`).
+    OpenAi,
+    /// Anthropic's Messages API (`/messages`).
+    Anthropic,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Provider {
@@ -13,10 +23,11 @@ pub struct Provider {
     pub needs_key: bool,
     /// How its keys usually start, to catch a key pasted for another one.
     pub key_prefix: Option<&'static str>,
+    pub wire: Wire,
 }
 
 const fn p(id: &'static str, name: &'static str, base_url: &'static str, local: bool, key_prefix: Option<&'static str>) -> Provider {
-    Provider { id, name, base_url, local, needs_key: key_prefix.is_some(), key_prefix }
+    Provider { id, name, base_url, local, needs_key: key_prefix.is_some(), key_prefix, wire: Wire::OpenAi }
 }
 
 pub const PROVIDERS: &[Provider] = &[
@@ -24,6 +35,15 @@ pub const PROVIDERS: &[Provider] = &[
     p("lmstudio", "LM Studio", "http://127.0.0.1:1234/v1", true, None),
     p("llamacpp", "llama.cpp", "http://127.0.0.1:8080/v1", true, None),
     p("openai", "OpenAI", "https://api.openai.com/v1", false, Some("sk-")),
+    Provider {
+        id: "anthropic",
+        name: "Anthropic",
+        base_url: "https://api.anthropic.com/v1",
+        local: false,
+        needs_key: true,
+        key_prefix: Some("sk-ant-"),
+        wire: Wire::Anthropic,
+    },
     p("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", false, Some("sk-or-")),
     p("deepseek", "DeepSeek", "https://api.deepseek.com/v1", false, Some("sk-")),
     p("groq", "Groq", "https://api.groq.com/openai/v1", false, Some("gsk_")),
@@ -110,5 +130,18 @@ mod tests {
         assert!(!plain_http_remote("http://[::1]:8080/v1"));
         assert!(!plain_http_remote("https://api.openai.com/v1"));
         assert!(plain_http_remote("http://192.168.1.20:11434/v1"));
+    }
+
+    #[test]
+    fn anthropic_speaks_its_own_format_and_its_keys_are_told_apart() {
+        let anthropic = find("anthropic").unwrap();
+        assert_eq!(anthropic.wire, Wire::Anthropic);
+        assert_eq!(find("openai").unwrap().wire, Wire::OpenAi);
+        assert_eq!(key_warning(anthropic, "sk-ant-api03-abc"), None);
+        assert_eq!(
+            key_warning(find("openai").unwrap(), "sk-ant-api03-abc"),
+            Some("This looks like an Anthropic key, not an OpenAI one.".into())
+        );
+        assert_eq!(key_warning(anthropic, "sk-proj-abc"), Some("Anthropic keys usually start with \"sk-ant-\".".into()));
     }
 }

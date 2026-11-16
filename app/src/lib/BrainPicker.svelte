@@ -156,7 +156,7 @@
       <input type="radio" name="brain-kind" checked={choice === 'api'} onchange={() => pick('api')} />
       <span>
         <strong>An API key</strong>
-        <span class="small muted">OpenAI, OpenRouter, DeepSeek, Groq, or another OpenAI-compatible service.</span>
+        <span class="small muted">Anthropic, OpenAI, OpenRouter, DeepSeek, Groq, or another OpenAI-compatible service.</span>
       </span>
     </label>
   </div>

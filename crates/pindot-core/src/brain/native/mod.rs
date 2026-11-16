@@ -4,6 +4,7 @@
 //! desktop tools are reached through Pindot's own MCP server, so
 //! approvals, Esc, the overlay and the activity log apply unchanged.
 
+pub mod anthropic;
 pub mod context;
 pub mod log;
 pub mod mcp_client;
@@ -26,6 +27,7 @@ use base64::Engine;
 use self::log::ConversationLog;
 use self::mcp_client::McpClient;
 use self::openai::{CallError, Endpoint, Image, Msg, Reply, ToolDef, Who, chat, describe, request_body};
+use self::providers::Wire;
 use self::run::{Conversation, LIMITS, Model, TurnEnd, TurnEvent, run_turn};
 use self::settings::{BrainSettings, Vision};
 use super::Brain;
@@ -59,9 +61,20 @@ pub struct HttpModel {
     pub model: String,
 }
 
+impl HttpModel {
+    /// The model a brain setting names, in the format its provider speaks.
+    pub fn new(brain: &BrainSettings, key: Option<String>) -> Self {
+        let wire = providers::find(&brain.provider).map_or(Wire::OpenAi, |p| p.wire);
+        Self { endpoint: Endpoint { base_url: brain.base_url.clone(), key, wire }, model: brain.model.clone() }
+    }
+}
+
 impl Model for HttpModel {
     fn reply(&mut self, messages: &[Msg], tools: &[ToolDef], cancel: &AtomicBool) -> Result<Reply, CallError> {
-        chat(&self.endpoint, &request_body(&self.model, messages, tools), cancel, IDLE)
+        match self.endpoint.wire {
+            Wire::OpenAi => chat(&self.endpoint, &request_body(&self.model, messages, tools), cancel, IDLE),
+            Wire::Anthropic => anthropic::chat(&self.endpoint, &anthropic::request_body(&self.model, messages, tools), cancel, IDLE),
+        }
     }
 }
 
@@ -186,8 +199,7 @@ struct Worker {
 impl Worker {
     fn new(config: LoopConfig, state: Arc<ServerState>, emit: InputSink, cancel: Arc<AtomicBool>) -> Self {
         let who = who(&config.brain);
-        let model =
-            HttpModel { endpoint: Endpoint { base_url: config.brain.base_url.clone(), key: config.key.clone() }, model: config.brain.model.clone() };
+        let model = HttpModel::new(&config.brain, config.key.clone());
         Self { config, state, emit, cancel, model, who, session: None, problem: None }
     }
 

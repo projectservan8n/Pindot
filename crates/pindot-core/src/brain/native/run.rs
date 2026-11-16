@@ -94,12 +94,16 @@ pub fn run_turn(
         if started.elapsed() > limits.deadline {
             return TurnEnd::Failed("This took longer than 15 minutes, so I stopped.".into());
         }
-        context::fit(&mut conv.messages, budget);
+        if context::fit(&mut conv.messages, budget) {
+            context::strip_thinking(&mut conv.messages);
+        }
         let reply = match model.reply(&conv.messages, tools, cancel) {
             Ok(r) => r,
             Err(CallError::Cancelled) => return interrupted(log),
             Err(e) if is_context_overflow(&e) => {
-                context::fit(&mut conv.messages, budget / 2);
+                if context::fit(&mut conv.messages, budget / 2) {
+                    context::strip_thinking(&mut conv.messages);
+                }
                 match model.reply(&conv.messages, tools, cancel) {
                     Ok(r) => r,
                     Err(CallError::Cancelled) => return interrupted(log),
@@ -114,7 +118,7 @@ pub fn run_turn(
         if let Some(l) = log {
             l.assistant(&reply.thinking, &reply.text, &reply.calls);
         }
-        conv.messages.push(Msg::Assistant { text: reply.text.clone(), calls: reply.calls.clone() });
+        conv.messages.push(Msg::Assistant { text: reply.text.clone(), calls: reply.calls.clone(), raw: reply.raw.clone() });
         if !reply.text.is_empty() {
             last_text = Some(reply.text.clone());
             emit(TurnEvent::Text(reply.text.clone()));

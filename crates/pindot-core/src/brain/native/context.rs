@@ -9,6 +9,18 @@ pub const IMAGE_TOKENS: usize = 1100;
 /// Old tool results are cut to this many characters when trimming.
 pub const SHORT_RESULT: usize = 300;
 
+/// Removes every thinking block from replayed provider content. After the
+/// history was edited (trimmed), Anthropic's check would refuse thinking
+/// blocks signed against the old history; removing all of them is
+/// accepted, and new blocks are signed against the new history.
+pub fn strip_thinking(messages: &mut [Msg]) {
+    for m in messages {
+        if let Msg::Assistant { raw: Some(serde_json::Value::Array(blocks)), .. } = m {
+            blocks.retain(|b| !matches!(b.get("type").and_then(serde_json::Value::as_str), Some("thinking" | "redacted_thinking")));
+        }
+    }
+}
+
 /// A rough token count: four characters a token, plus pictures.
 pub fn estimate(messages: &[Msg]) -> usize {
     messages
@@ -17,7 +29,7 @@ pub fn estimate(messages: &[Msg]) -> usize {
             4 + match m {
                 Msg::System(t) | Msg::Tool { text: t, .. } => t.len() / 4,
                 Msg::User { text, images } => text.len() / 4 + images.len() * IMAGE_TOKENS,
-                Msg::Assistant { text, calls } => {
+                Msg::Assistant { text, calls, .. } => {
                     (text.len() + calls.iter().map(|c| c.name.len() + c.arguments.len()).sum::<usize>()) / 4
                 }
                 Msg::ToolImages(i) => i.len() * IMAGE_TOKENS,
@@ -80,10 +92,11 @@ mod tests {
             Msg::Assistant {
                 text: String::new(),
                 calls: vec![ToolCall { id: format!("c{n}"), name: "screenshot".into(), arguments: "{}".into() }],
+                raw: None,
             },
             Msg::Tool { call_id: format!("c{n}"), text: "x".repeat(2000) },
             Msg::ToolImages(vec![img()]),
-            Msg::Assistant { text: format!("done {n}"), calls: vec![] },
+            Msg::Assistant { text: format!("done {n}"), calls: vec![], raw: None },
         ]
     }
 
@@ -126,5 +139,18 @@ mod tests {
         assert_eq!(m.iter().filter(|x| matches!(x, Msg::User { .. })).count(), 4, "no turn dropped");
         let short = m.iter().filter(|x| matches!(x, Msg::Tool { text, .. } if text.ends_with("(shortened)"))).count();
         assert_eq!(short, 2, "all but the last two results");
+    }
+
+    #[test]
+    fn after_an_edit_every_thinking_block_goes_and_the_rest_stays() {
+        let raw = serde_json::json!([
+            {"type": "thinking", "thinking": "", "signature": "a"},
+            {"type": "redacted_thinking", "data": "x"},
+            {"type": "text", "text": "Done."}
+        ]);
+        let mut m = vec![Msg::System("s".into()), Msg::Assistant { text: "Done.".into(), calls: vec![], raw: Some(raw) }];
+        strip_thinking(&mut m);
+        let Msg::Assistant { raw: Some(r), .. } = &m[1] else { panic!() };
+        assert_eq!(*r, serde_json::json!([{"type": "text", "text": "Done."}]));
     }
 }

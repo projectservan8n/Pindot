@@ -65,8 +65,9 @@ Anthropic's names for their products.
   - **A model on your computer**, served by [Ollama](https://ollama.com),
     LM Studio or llama.cpp. Free and private, but it has to be good at
     using tools: small models often aren't.
-  - **An API key** for OpenAI, OpenRouter, DeepSeek, Groq or another
-    service that speaks OpenAI's format. You pay that provider per use.
+  - **An API key** for Anthropic (Claude models without a Claude plan),
+    OpenAI, OpenRouter, DeepSeek, Groq or another service that speaks
+    OpenAI's format. You pay that provider per use.
 - About 231 MB of disk for the voice models, downloaded once during setup.
   Chat works without them.
 

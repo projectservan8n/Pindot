@@ -62,7 +62,7 @@
     brain_providers: () => [
       ['ollama', 'Ollama', 'http://127.0.0.1:11434/v1', true], ['lmstudio', 'LM Studio', 'http://127.0.0.1:1234/v1', true],
       ['llamacpp', 'llama.cpp', 'http://127.0.0.1:8080/v1', true], ['openai', 'OpenAI', 'https://api.openai.com/v1', false],
-      ['openrouter', 'OpenRouter', 'https://openrouter.ai/api/v1', false], ['custom', 'Other (OpenAI-compatible)', '', false],
+      ['anthropic', 'Anthropic', 'https://api.anthropic.com/v1', false], ['openrouter', 'OpenRouter', 'https://openrouter.ai/api/v1', false], ['custom', 'Other (OpenAI-compatible)', '', false],
     ].map(([id, name, base_url, local]) => ({ id, name, base_url, local, needs_key: !local && id !== 'custom', has_key: id === 'openai' })),
     brain_find_local: () => [{ provider: 'ollama', name: 'Ollama', base_url: 'http://127.0.0.1:11434/v1', models: [
       { id: 'qwen3:8b', vision: false, tools: true, context: 40960 }, { id: 'gemma3:12b', vision: true, tools: false, context: 131072 }] }],

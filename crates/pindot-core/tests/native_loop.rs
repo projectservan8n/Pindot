@@ -298,3 +298,121 @@ fn the_model_test_passes_a_model_that_uses_tools_and_explains_one_that_does_not(
     let down = test_model(&brain("http://127.0.0.1:9/v1"), None, &p.server.mcp_url(), TOKEN, &p.state);
     assert!(!down.ok && down.note.contains("Can't reach"), "{}", down.note);
 }
+
+// ------------------------------------------------------------ Anthropic
+
+/// A fake Messages API: `/v1/models` in Anthropic's shape and
+/// `/v1/messages` playing scripted event streams; records each request's
+/// body and its auth headers.
+fn fake_anthropic(rt: &tokio::runtime::Runtime, replies: Vec<String>) -> (String, Arc<Mutex<Vec<(Value, String, String)>>>) {
+    use axum::http::HeaderMap;
+    #[derive(Clone)]
+    struct S(Arc<Mutex<Vec<String>>>, Arc<Mutex<Vec<(Value, String, String)>>>);
+    let seen = Arc::new(Mutex::new(vec![]));
+    let s = S(Arc::new(Mutex::new(replies)), seen.clone());
+    let app = Router::new()
+        .route(
+            "/v1/models",
+            get(|| async {
+                Json(json!({"data": [{"id": "claude-haiku-5-5", "display_name": "Claude Haiku 5.5", "max_input_tokens": 1000000,
+                    "capabilities": {"image_input": {"supported": true}}}], "has_more": false}))
+            }),
+        )
+        .route(
+            "/v1/messages",
+            post(|State(s): State<S>, h: HeaderMap, Json(b): Json<Value>| async move {
+                let header = |k: &str| h.get(k).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+                s.1.lock().unwrap().push((b, header("x-api-key"), header("anthropic-version")));
+                let mut q = s.0.lock().unwrap();
+                let body = if q.len() > 1 { q.remove(0) } else { q[0].clone() };
+                ([("content-type", "text/event-stream")], body)
+            }),
+        )
+        .with_state(s);
+    let listener = rt.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).unwrap();
+    let addr = listener.local_addr().unwrap();
+    rt.spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{addr}/v1"), seen)
+}
+
+/// A Messages API event stream: signed thinking, text, tool calls.
+fn events(text: &str, calls: &[(&str, &str, &str)]) -> String {
+    let mut ev = vec![json!({"type": "message_start", "message": {"id": "msg", "content": []}})];
+    let mut i = 0;
+    ev.push(json!({"type": "content_block_start", "index": i, "content_block": {"type": "thinking", "thinking": "", "signature": ""}}));
+    ev.push(json!({"type": "content_block_delta", "index": i, "delta": {"type": "signature_delta", "signature": format!("sig{i}")}}));
+    ev.push(json!({"type": "content_block_stop", "index": i}));
+    if !text.is_empty() {
+        i += 1;
+        ev.push(json!({"type": "content_block_start", "index": i, "content_block": {"type": "text", "text": ""}}));
+        ev.push(json!({"type": "content_block_delta", "index": i, "delta": {"type": "text_delta", "text": text}}));
+        ev.push(json!({"type": "content_block_stop", "index": i}));
+    }
+    for (id, name, args) in calls {
+        i += 1;
+        ev.push(json!({"type": "content_block_start", "index": i, "content_block": {"type": "tool_use", "id": id, "name": name, "input": {}}}));
+        ev.push(json!({"type": "content_block_delta", "index": i, "delta": {"type": "input_json_delta", "partial_json": args}}));
+        ev.push(json!({"type": "content_block_stop", "index": i}));
+    }
+    let stop = if calls.is_empty() { "end_turn" } else { "tool_use" };
+    ev.push(json!({"type": "message_delta", "delta": {"stop_reason": stop}}));
+    ev.push(json!({"type": "message_stop"}));
+    ev.iter().map(|e| format!("event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap())).collect()
+}
+
+#[test]
+fn a_request_runs_through_the_anthropic_api_with_its_headers_and_replayed_thinking() {
+    use pindot_core::brain::Brain;
+    use pindot_core::brain::native::settings::{BrainKind, BrainSettings};
+    use pindot_core::brain::native::{LoopBrain, LoopConfig};
+    use pindot_core::voice::machine::Input;
+
+    let p = pindot();
+    let (base_url, seen) = fake_anthropic(
+        &p.rt,
+        vec![
+            events("Opening TextEdit.", &[("toolu_1", "request_access", r#"{"apps":["TextEdit"],"reason":"asked"}"#)]),
+            events("TextEdit is ready.", &[]),
+        ],
+    );
+    let (tx, rx) = std::sync::mpsc::channel::<Input>();
+    let tx = Mutex::new(tx);
+    let data = std::env::temp_dir().join(format!("pindot-anthropic-{}", uuid::Uuid::new_v4()));
+    let brain = LoopBrain::start(
+        LoopConfig {
+            brain: BrainSettings { kind: BrainKind::Loop, provider: "anthropic".into(), base_url, model: "claude-haiku-5-5".into(), ..BrainSettings::default() },
+            key: Some("sk-ant-test-0123456789".into()),
+            mcp_url: p.server.mcp_url(),
+            token: TOKEN.into(),
+            system_prompt: "Be brief.".into(),
+            data_dir: data.clone(),
+        },
+        p.state.clone(),
+        Arc::new(move |i| {
+            let _ = tx.lock().unwrap().send(i);
+        }),
+    )
+    .unwrap();
+    let next = || rx.recv_timeout(Duration::from_secs(10)).expect("an input from the brain");
+    let Input::SessionReady { session_id } = next() else { panic!("not ready") };
+    brain.send("open text edit");
+    let last = loop {
+        let i = next();
+        if matches!(i, Input::Stop { .. } | Input::TurnFailed { .. }) {
+            break i;
+        }
+    };
+    assert_eq!(last, Input::Stop { session_id, last_message: Some("TextEdit is ready.".into()) });
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 2);
+    let (first, key, version) = &seen[0];
+    assert_eq!((key.as_str(), version.as_str()), ("sk-ant-test-0123456789", "2026-10-21"));
+    assert_eq!(first["system"].as_str().map(|s| s.starts_with("Be brief.")), Some(true));
+    assert!(first["tools"].as_array().unwrap().iter().any(|t| t["name"] == "screenshot"), "this model can see, so it has the screenshot tool");
+    let msgs = seen[1].0["messages"].as_array().unwrap().clone();
+    assert_eq!(msgs[1]["content"][0], json!({"type": "thinking", "thinking": "", "signature": "sig0"}), "signed thinking replayed unchanged");
+    assert_eq!(msgs[2]["content"][0]["type"], "tool_result");
+    assert!(msgs[2]["content"][0]["content"].as_str().unwrap().contains("Approved for this session: TextEdit"));
+    drop(brain);
+    std::fs::remove_dir_all(&data).ok();
+}
