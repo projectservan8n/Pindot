@@ -67,6 +67,15 @@
   #arrow { position: absolute; left: -2px; top: -1px; display: block; overflow: visible;
            filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.32)) drop-shadow(0 0 1px rgba(0, 0, 0, 0.45)); }
 
+  /* The cursor's colours. These live here, in the style sheet, and never in
+     a style="..." attribute: the app's content security policy drops every
+     style attribute in the markup (Tauri adds a nonce, which switches
+     'unsafe-inline' off), and a stop with no colour is black. The
+     stop-color attributes are the pink fallback. */
+  .stop-lit { stop-color: var(--accent-lit); }
+  .stop-accent { stop-color: var(--accent); }
+  .stop-deep { stop-color: var(--accent-deep); }
+
   /* Rusty's eyes. Only transforms and fills, so nothing forces layout.
      fill-box keeps every squash around the eyes' own centre in WebKit and
      Chromium alike. */
@@ -211,8 +220,8 @@
     <defs>
       <!-- Runs from the trail's oldest point (clear) to the tip (the accent). -->
       <linearGradient id="trail-grad" gradientUnits="userSpaceOnUse">
-        <stop offset="0" style="stop-color: var(--accent)" stop-opacity="0"/>
-        <stop offset="1" style="stop-color: var(--accent)" stop-opacity="0.62"/>
+        <stop class="stop-accent" offset="0" stop-color="#ff2d95" stop-opacity="0"/>
+        <stop class="stop-accent" offset="1" stop-color="#ff2d95" stop-opacity="0.62"/>
       </linearGradient>
     </defs>
     <path id="drag-under"/>
@@ -231,9 +240,9 @@
         <svg id="arrow" width="28" height="30" viewBox="0 0 28 30" aria-hidden="true">
           <defs>
             <linearGradient id="body" x1="0" y1="0" x2="0.55" y2="1">
-              <stop offset="0" style="stop-color: var(--accent-lit)"/>
-              <stop offset="0.55" style="stop-color: var(--accent)"/>
-              <stop offset="1" style="stop-color: var(--accent-deep)"/>
+              <stop class="stop-lit" offset="0" stop-color="#ff7cb9"/>
+              <stop class="stop-accent" offset="0.55" stop-color="#ff2d95"/>
+              <stop class="stop-deep" offset="1" stop-color="#cf1673"/>
             </linearGradient>
           </defs>
           <!-- Rusty, the logo (docs/brand): the rounded tip lands on (2,1). -->
