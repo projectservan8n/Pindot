@@ -3,6 +3,7 @@
 //! `claude` CLI inside a pseudo-terminal.
 
 pub mod brain;
+pub mod chat;
 pub mod connect;
 pub mod coords;
 pub mod paths;

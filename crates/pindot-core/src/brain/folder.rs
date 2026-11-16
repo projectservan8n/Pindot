@@ -71,7 +71,7 @@ impl FolderState {
 /// A path as a permission rule wants it: forward slashes, and on Unix a
 /// leading `//` for "from the root of the disk" (a single `/` would mean
 /// "from the project root"). Not tested on Windows.
-fn rule_path(p: &Path) -> String {
+pub(crate) fn rule_path(p: &Path) -> String {
     let s = p.display().to_string().replace('\\', "/");
     if s.starts_with('/') { format!("/{s}") } else { s }
 }
