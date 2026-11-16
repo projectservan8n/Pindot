@@ -327,7 +327,7 @@ main.fill {
   align-items: center;
   gap: var(--s2);
   height: 30px;
-  padding: 0 var(--s3) 0 6px;
+  padding: 0 var(--s3) 0 8px;
   border: 1px solid var(--line);
   border-radius: 15px;
   font-size: var(--fs-sm);
@@ -335,8 +335,19 @@ main.fill {
   background: var(--card);
 }
 
+/* The mark is a block inside a fixed box: as an inline SVG it sat on the text
+   baseline, which pushed it up against the top of the pill in WebKit. */
 .status .rusty-sm {
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+}
+
+.status .rusty-sm .rusty {
+  display: block;
 }
 
 .status[data-kind='acting'],
