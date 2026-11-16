@@ -144,9 +144,11 @@ recorded; everything else was renamed (crates, bundle id `dev.pindot.app`,
   `SCScreenshotManager`, macOS 14+, excluding every window owned by our own
   pid, no pointer) instead of xcap; with it off the xcap path runs as before.
   On macOS 13 the checkbox is disabled and the overlay is never switched. On
-  Windows `WinCapture` sets `WDA_EXCLUDEFROMCAPTURE` on our visible,
-  unprotected windows for one `BitBlt` and restores them in a `Drop` guard
-  (type-checked only). If ScreenCaptureKit fails, the screenshot fails
+  Windows `WinCapture` sets `WDA_EXCLUDEFROMCAPTURE` on the overlay windows
+  only (ours, visible, unprotected and click-through) for one `BitBlt` and
+  restores them in a `Drop` guard, unless the mode was switched off
+  meanwhile (type-checked only). It never changes the main window or the
+  approval popup, so a restore can never expose them. If ScreenCaptureKit fails, the screenshot fails
   rather than falling back to xcap, which would show the cursor. Order of a
   live flip: the capture flag first on the way in, the overlay first on the
   way out. `--capturable` wins over it.

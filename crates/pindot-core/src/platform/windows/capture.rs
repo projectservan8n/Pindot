@@ -23,8 +23,8 @@ use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::Graphics::Dwm::DwmFlush;
 use windows_sys::Win32::System::Threading::GetCurrentProcessId;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetWindowDisplayAffinity, GetWindowThreadProcessId, IsWindowVisible, MONITORINFOF_PRIMARY,
-    SetWindowDisplayAffinity,
+    EnumWindows, GWL_EXSTYLE, GetWindowDisplayAffinity, GetWindowLongPtrW, GetWindowThreadProcessId, IsWindowVisible,
+    MONITORINFOF_PRIMARY, SetWindowDisplayAffinity,
 };
 
 use crate::platform::windows_logic::{OwnWindow, WDA_EXCLUDEFROMCAPTURE, WDA_NONE, display_info, windows_to_exclude};
@@ -100,7 +100,8 @@ unsafe extern "system" fn collect_own(h: HWND, data: LPARAM) -> i32 {
         if pid == GetCurrentProcessId() {
             let mut affinity = 0u32;
             GetWindowDisplayAffinity(h, &mut affinity);
-            (*(data as *mut Vec<OwnWindow>)).push((h as isize, IsWindowVisible(h) != 0, affinity));
+            let ex_style = GetWindowLongPtrW(h, GWL_EXSTYLE) as u32;
+            (*(data as *mut Vec<OwnWindow>)).push((h as isize, IsWindowVisible(h) != 0, affinity, ex_style));
         }
     }
     1
@@ -111,10 +112,10 @@ unsafe extern "system" fn collect_own(h: HWND, data: LPARAM) -> i32 {
 /// expose them in the middle of the second's copy.
 static EXCLUDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Streaming mode: while this lives, our own visible windows that capture
-/// can see (the overlay) are excluded from capture, so the screenshot Pindot
-/// takes leaves them out although OBS sees them the rest of the time. Dropping
-/// it puts every window back, on every path, errors included.
+/// Streaming mode: while this lives, the overlay windows are excluded from
+/// capture, so the screenshot Pindot takes leaves them out although OBS sees
+/// them the rest of the time. Dropping it puts them back, on every path,
+/// errors included. No other window of ours is ever touched.
 struct OwnWindowsExcluded {
     set: Vec<isize>,
     _one_at_a_time: std::sync::MutexGuard<'static, ()>,
@@ -147,9 +148,23 @@ impl OwnWindowsExcluded {
 
 impl Drop for OwnWindowsExcluded {
     fn drop(&mut self) {
+        // Streaming mode was switched off during the copy: the overlay is
+        // meant to stay hidden from now on, so it is not put back.
+        if !crate::platform::streaming_capture() {
+            return;
+        }
         for &h in &self.set {
             // SAFETY: as in `begin`. A window that closed meanwhile makes this fail harmlessly.
             unsafe { SetWindowDisplayAffinity(h as HWND, WDA_NONE) };
+        }
+        // Switched off between the check and the restore: hide it again. (The
+        // switch itself hides the overlay once more after it flips the flag,
+        // so whichever of the two runs last leaves the overlay hidden.)
+        if !crate::platform::streaming_capture() {
+            for &h in &self.set {
+                // SAFETY: as above.
+                unsafe { SetWindowDisplayAffinity(h as HWND, WDA_EXCLUDEFROMCAPTURE) };
+            }
         }
     }
 }

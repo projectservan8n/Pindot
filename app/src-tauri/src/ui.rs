@@ -640,6 +640,10 @@ pub fn apply_streaming(app: &AppHandle) {
     } else {
         crate::overlay::set_visible_to_capture(app, ui.capturable);
         platform::set_streaming_capture(false);
+        // Once more now that the flag is off: on Windows a screenshot that
+        // was mid-copy when the flag flipped may have just put the overlay
+        // back, and nothing restores it after this point.
+        crate::overlay::set_visible_to_capture(app, ui.capturable);
     }
     println!("streaming mode: {}", if on { "on (the overlay is visible to screen capture)" } else { "off" });
 }
