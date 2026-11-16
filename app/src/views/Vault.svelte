@@ -299,7 +299,7 @@
       <tbody>
         {#each logins as l (l.id)}
           <tr class:sel={selected === l.id}>
-            <td><button class="link" onclick={() => pick(l.id)} aria-expanded={selected === l.id}>{l.name}</button>{#if l.has_2fa} <span class="pill" title="Has an authenticator key">2FA</span>{/if}
+            <td><button class="link" onclick={() => pick(l.id)} aria-expanded={selected === l.id}>{l.name}</button>{#if l.has_2fa}<span class="pill" title="Has an authenticator key">2FA</span>{/if}
               <div class="small muted">{#if l.locked}Can't be opened{:else}{l.username}{/if}</div></td>
             <td><code>{l.origin}</code></td>
                         <td class="nowrap">
@@ -371,6 +371,7 @@
     margin: var(--s2) 0;
   }
   .pill {
+    margin-left: 6px;
     border: 1px solid var(--line);
     border-radius: 999px;
     padding: 0 var(--s2);
