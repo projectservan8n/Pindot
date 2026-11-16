@@ -257,6 +257,37 @@ pub fn chat_stop(window: tauri::WebviewWindow, app: AppHandle) -> Result<(), Str
     Ok(())
 }
 
+/// An attached image as a data URL, so the page can show it under its strict
+/// policy. Only files inside Pindot's own attachments folder, only images,
+/// and only up to the image cap.
+#[tauri::command]
+pub fn chat_image(window: tauri::WebviewWindow, hub: tauri::State<'_, Arc<ChatHub>>, path: String) -> Result<String, String> {
+    use base64::Engine;
+    main_only(&window)?;
+    let data = hub.inner.lock().unwrap().data_dir.clone().ok_or("No data folder.")?;
+    let root = attachments::root_in(&data).canonicalize().map_err(|_| "That picture is no longer on this computer.")?;
+    let p = PathBuf::from(&path).canonicalize().map_err(|_| "That picture is no longer on this computer.")?;
+    if !p.starts_with(&root) {
+        return Err("Only pictures attached in this chat can be shown.".into());
+    }
+    let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if attachments::kind_of(&name) != attachments::Kind::Image {
+        return Err("That file is not a picture.".into());
+    }
+    let size = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+    if size > attachments::MAX_IMAGE_BYTES {
+        return Err("That picture is too big to show here.".into());
+    }
+    let mime = match name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).as_deref() {
+        Some("png") => "image/png",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        _ => "image/jpeg",
+    };
+    let bytes = std::fs::read(&p).map_err(|e| format!("Could not read the picture: {e}"))?;
+    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+}
+
 #[tauri::command]
 pub fn chat_history(window: tauri::WebviewWindow, hub: tauri::State<'_, Arc<ChatHub>>) -> Result<Vec<Entry>, String> {
     main_only(&window)?;

@@ -9,6 +9,8 @@ repo="$here/../../.."
 out="$1"; shift
 work="$(mktemp -d)"
 (cd "$repo/app" && npx vite build --outDir "$work/dist" --emptyOutDir >/dev/null 2>&1)
+# LIGHT=1: the light theme (headless Chrome is dark), by switching off the dark media query.
+[ -n "$LIGHT" ] && sed -i '' 's/prefers-color-scheme:dark/prefers-color-scheme:none/g; s/prefers-color-scheme: dark/prefers-color-scheme: none/g' "$work"/dist/assets/*.css
 cp "$here/tauri-mock.js" "$work/dist/"
 cp "$here"/mock-*.js "$work/dist/" 2>/dev/null || true
 extra=""
@@ -25,7 +27,7 @@ chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 for spec in "$@"; do
   name="${spec%%=*}"; url="${spec#*=}"
   prof="$(mktemp -d)"
-  "$chrome" --headless=new --disable-gpu --hide-scrollbars --user-data-dir="$prof" --force-device-scale-factor=1 \
+  "$chrome" --headless=new --disable-gpu --hide-scrollbars --user-data-dir="$prof" --force-device-scale-factor=1 $CHROME_EXTRA \
     --window-size=${W:-820},${H:-640} --virtual-time-budget=4000 --screenshot="$out/$name.png" \
     "http://127.0.0.1:$port/index.html$url" >/dev/null 2>&1 || true
   rm -rf "$prof"

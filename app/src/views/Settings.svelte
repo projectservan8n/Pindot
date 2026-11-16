@@ -231,6 +231,55 @@
       <label for="aname">Name</label>
       <input id="aname" bind:value={view.settings.voice.assistant_name} maxlength={NAME_MAX} placeholder="Rusty" />
     </div>
+    <fieldset>
+      <legend>How {assistantName} talks to you</legend>
+      {#each talkStyles as t (t.value)}
+        <label class="row">
+          <input type="radio" bind:group={view.settings.voice.talk_style} value={t.value} />
+          {t.label}<span class="small muted">{t.hint}</span>
+        </label>
+      {/each}
+    </fieldset>
+    <label for="anotes" class="notes-label">Anything else about how it talks to you? <span class="small muted">Optional</span></label>
+    <textarea
+      id="anotes"
+      class="notes"
+      rows="2"
+      maxlength={NOTES_MAX}
+      bind:value={view.settings.voice.talk_notes}
+      placeholder="e.g. Call me Sam. Tell me what you did, not how."
+    ></textarea>
+    <p class="small muted">
+      {view.settings.voice.talk_notes.length}/{NOTES_MAX} · Used from your next request. These change the tone, not the
+      safety rules: {assistantName} still asks before anything risky.
+    </p>
+  </section>
+
+  <section>
+    <h2>Brain folder</h2>
+    <div class="row">
+      <label for="brain">Brain folder</label>
+      <input id="brain" readonly value={view.settings.voice.brain_folder ?? ''} placeholder="None" />
+      <button onclick={chooseBrainFolder}>Choose…</button>
+      <button onclick={() => view && (view.settings.voice.brain_folder = null)} disabled={!view.settings.voice.brain_folder}>Clear</button>
+    </div>
+    <p class="small muted">
+      A folder of notes or a Claude Code project. {assistantName} starts there, reads its CLAUDE.md, opens only the notes
+      a request needs, and can save things you ask it to remember in a pindot-notes folder inside it. Save to apply: it
+      starts a fresh conversation.
+    </p>
+    {#if view.settings.voice.brain_folder}
+      <p class="small warn-text">
+        The folder's own Claude settings (hooks, permissions) apply to {assistantName}, and what it reads is sent to
+        Anthropic through your Claude Code. Only pick a folder you trust.
+      </p>
+    {/if}
+    {#if view.brain_folder_notice}<p class="small bad">{view.brain_folder_notice}</p>{/if}
+  </section>
+
+  <section>
+    <h2>On-screen cursor</h2>
+    <p class="small muted">The coloured cursor {assistantName} uses on your screen. This colour is for that cursor only.</p>
     <fieldset class="colour">
       <legend>Cursor colour</legend>
       <div class="swatches">
@@ -256,46 +305,14 @@
         </svg>
       </div>
     </fieldset>
-    <fieldset>
-      <legend>How {assistantName} talks to you</legend>
-      {#each talkStyles as t (t.value)}
-        <label class="row">
-          <input type="radio" bind:group={view.settings.voice.talk_style} value={t.value} />
-          {t.label}<span class="small muted">{t.hint}</span>
-        </label>
-      {/each}
-    </fieldset>
-    <label for="anotes" class="notes-label">Anything else about how it talks to you? <span class="small muted">Optional</span></label>
-    <textarea
-      id="anotes"
-      class="notes"
-      rows="2"
-      maxlength={NOTES_MAX}
-      bind:value={view.settings.voice.talk_notes}
-      placeholder="e.g. Call me Sam. Tell me what you did, not how."
-    ></textarea>
-    <p class="small muted">
-      {view.settings.voice.talk_notes.length}/{NOTES_MAX} · Used from your next request. These change the tone, not the
-      safety rules: {assistantName} still asks before anything risky.
-    </p>
-    <div class="row">
-      <label for="brain">Brain folder</label>
-      <input id="brain" readonly value={view.settings.voice.brain_folder ?? ''} placeholder="None" />
-      <button onclick={chooseBrainFolder}>Choose…</button>
-      <button onclick={() => view && (view.settings.voice.brain_folder = null)} disabled={!view.settings.voice.brain_folder}>Clear</button>
-    </div>
-    <p class="small muted">
-      A folder of notes or a Claude Code project. {assistantName} starts there, reads its CLAUDE.md, opens only the notes
-      a request needs, and can save things you ask it to remember in a pindot-notes folder inside it. Save to apply: it
-      starts a fresh conversation.
-    </p>
-    {#if view.settings.voice.brain_folder}
-      <p class="small warn-text">
-        The folder's own Claude settings (hooks, permissions) apply to {assistantName}, and what it reads is sent to
-        Anthropic through your Claude Code. Only pick a folder you trust.
-      </p>
-    {/if}
-    {#if view.brain_folder_notice}<p class="small bad">{view.brain_folder_notice}</p>{/if}
+    <label class="row">
+      <input type="checkbox" bind:checked={view.settings.voice.companion} />
+      Keep the AI cursor next to mine while I talk: it shows my voice, then flies off to act and comes back
+    </label>
+    <label class="row">
+      <input type="checkbox" bind:checked={view.settings.voice.captions} />
+      Show what {assistantName} says in a bubble next to the cursor
+    </label>
   </section>
 
   <section>
@@ -339,19 +356,11 @@
   </section>
 
   <section>
-    <h2>Voice</h2>
+    <h2>Listening</h2>
     <div class="row">
       <label for="stt">Speech to text</label>
       <select id="stt" bind:value={view.settings.voice.stt_model}>
         {#each view.stt_models as m (m.id)}
-          <option value={m.id}>{m.display} ({m.license}, {formatBytes(m.size)})</option>
-        {/each}
-      </select>
-    </div>
-    <div class="row">
-      <label for="tts">Text to speech</label>
-      <select id="tts" bind:value={view.settings.voice.tts_model}>
-        {#each view.tts_models as m (m.id)}
           <option value={m.id}>{m.display} ({m.license}, {formatBytes(m.size)})</option>
         {/each}
       </select>
@@ -370,6 +379,18 @@
     {/if}
     {#if micNote}<p class="small bad">{micNote}</p>{/if}
     <p class="small muted">Used from your next request after you Save.</p>
+  </section>
+
+  <section>
+    <h2>Speaking</h2>
+    <div class="row">
+      <label for="tts">Text to speech</label>
+      <select id="tts" bind:value={view.settings.voice.tts_model}>
+        {#each view.tts_models as m (m.id)}
+          <option value={m.id}>{m.display} ({m.license}, {formatBytes(m.size)})</option>
+        {/each}
+      </select>
+    </div>
     <div class="row">
       <label for="ttsv">Voice</label>
       <select
@@ -405,14 +426,6 @@
         Only the final reply
       </label>
     </fieldset>
-    <label class="row">
-      <input type="checkbox" bind:checked={view.settings.voice.companion} />
-      Keep the AI cursor next to mine while I talk: it shows my voice, then flies off to act and comes back
-    </label>
-    <label class="row">
-      <input type="checkbox" bind:checked={view.settings.voice.captions} />
-      Show what {assistantName} says in a bubble next to the cursor
-    </label>
     <div class="row">
       <label for="vol">Volume</label>
       <input id="vol" type="range" min="0" max="1" step="0.05" bind:value={view.settings.voice.volume} />

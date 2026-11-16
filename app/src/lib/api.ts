@@ -204,6 +204,73 @@ export interface ActivityView {
   total: number;
 }
 
+export type VoiceDisplay = 'idle' | 'listening' | 'thinking' | 'acting' | 'speaking';
+
+/** The `pindot:voice` event: what the voice loop is doing, and a notice to show. */
+export interface VoiceEvent {
+  state: VoiceDisplay;
+  notice: string | null;
+}
+
+export type ChatItem =
+  | { kind: 'user'; id: string; text: string; files: string[] }
+  | { kind: 'assistant'; id: string; text: string }
+  | { kind: 'thinking'; id: string; text: string }
+  | { kind: 'step'; id: string; name: string; summary: string; result: string | null; is_error: boolean }
+  | { kind: 'interrupted'; id: string };
+
+export interface ChatView {
+  session_id: string | null;
+  items: ChatItem[];
+  display: VoiceDisplay;
+  /** False when the voice loop is not running (no typed messages then). */
+  can_send: boolean;
+}
+
+export interface Attached {
+  name: string;
+  path: string;
+  size: number;
+  kind: 'image' | 'pdf' | 'file';
+}
+
+export interface Rejected {
+  name: string;
+  reason: string;
+}
+
+export interface Imported {
+  attached: Attached[];
+  rejected: Rejected[];
+}
+
+export interface HistoryEntry {
+  session_id: string;
+  title: string;
+  started: number;
+  updated: number;
+}
+
+export interface OpenedChat {
+  title: string;
+  items: ChatItem[];
+}
+
+export interface AppRequest {
+  name: string;
+  bundle_id: string | null;
+  running: boolean;
+  warning: string | null;
+}
+
+export interface ApprovalRequest {
+  id: string;
+  session: string;
+  apps: AppRequest[];
+  /** Claude's own words: untrusted, shown as plain text only. */
+  reason: string;
+}
+
 export const api = {
   appInfo: () => invoke<AppInfo>('app_info'),
   settingsGet: () => invoke<SettingsView>('settings_get'),
@@ -232,6 +299,17 @@ export const api = {
   onboardingFinish: () => invoke<void>('onboarding_finish'),
   voiceSetEnabled: (on: boolean) => invoke<void>('voice_set_enabled', { on }),
   voiceCheck: () => invoke<string[]>('voice_check'),
+  chatState: () => invoke<ChatView>('chat_state'),
+  chatSend: (text: string, files: string[], speak: boolean) => invoke<void>('chat_send', { text, files, speak }),
+  chatAttachPaths: (paths: string[]) => invoke<Imported>('chat_attach_paths', { paths }),
+  chatAttachBytes: (name: string, data: string) => invoke<Imported>('chat_attach_bytes', { name, data }),
+  chatChooseFiles: () => invoke<Imported | null>('chat_choose_files'),
+  chatStop: () => invoke<void>('chat_stop'),
+  chatImage: (path: string) => invoke<string>('chat_image', { path }),
+  chatHistory: () => invoke<HistoryEntry[]>('chat_history'),
+  chatOpen: (sessionId: string) => invoke<OpenedChat>('chat_open', { sessionId }),
+  approvalsPending: () => invoke<ApprovalRequest[]>('approvals_pending'),
+  approvalAnswerInline: (id: string, allow: boolean) => invoke<void>('approval_answer_inline', { id, allow }),
 };
 
 export const events = {
@@ -240,6 +318,25 @@ export const events = {
     listen<string>('pindot:navigate', (e) => cb(e.payload)),
   download: (cb: (e: DownloadEvent) => void): Promise<UnlistenFn> =>
     listen<DownloadEvent>('pindot:download', (e) => cb(e.payload)),
+  voice: (cb: (e: VoiceEvent) => void): Promise<UnlistenFn> => listen<VoiceEvent>('pindot:voice', (e) => cb(e.payload)),
+  chat: (cb: () => void): Promise<UnlistenFn> => listen('pindot:chat', () => cb()),
+  approval: (cb: (r: ApprovalRequest) => void): Promise<UnlistenFn> =>
+    listen<ApprovalRequest>('pindot:approval', (e) => cb(e.payload)),
+  approvalDone: (cb: (id: string) => void): Promise<UnlistenFn> =>
+    listen<{ id: string }>('pindot:approval-done', (e) => cb(e.payload.id)),
+  /** Files dropped on the window (Tauri gives paths; the page never sees the file). */
+  dragDrop: (cb: (e: { type: 'enter' | 'over' | 'drop' | 'leave'; paths: string[] }) => void): Promise<UnlistenFn> =>
+    listen<{ paths?: string[] }>('tauri://drag-drop', (e) => cb({ type: 'drop', paths: e.payload.paths ?? [] })).then(
+      async (a) => {
+        const b = await listen('tauri://drag-enter', () => cb({ type: 'enter', paths: [] }));
+        const c = await listen('tauri://drag-leave', () => cb({ type: 'leave', paths: [] }));
+        return () => {
+          a();
+          b();
+          c();
+        };
+      },
+    ),
   activity: (cb: (e: ActivityEntry) => void): Promise<UnlistenFn> =>
     listen<ActivityEntry>('pindot:activity', (e) => cb(e.payload)),
 };

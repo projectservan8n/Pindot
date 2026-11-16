@@ -202,6 +202,7 @@ pub fn run() {
             chat::chat_choose_files,
             chat::chat_stop,
             chat::chat_history,
+            chat::chat_image,
             chat::chat_open,
             ui::app_info,
             ui::settings_get,
