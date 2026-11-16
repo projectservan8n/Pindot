@@ -61,5 +61,20 @@ prompt is answered with Esc and the turn fails with a spoken reason
 Edit(`pindot-notes`) scopes Write too: the Write in run C was allowed with no
 prompt and the Write in run D was not.
 
-Not run: Grep/Glob outside the folder (the Read rule is documented to cover
-them; not exercised), Windows (rule paths on Windows are unverified).
+## Grep and Glob outside the folder (16 Nov 2026)
+
+Same method (`spike_brain`, haiku, the same test folder, `PINDOT_DATA_DIR=/tmp/pindot-data0`
+so the real data dir was not used). A file `outside/grepme.txt` ("kumquat-8842") sat next
+to the brain folder, not inside it.
+
+| Run | Prompt | Result |
+| --- | --- | --- |
+| F. Grep outside | Grep the outside folder for "kumquat" | Stopped at a permission prompt (`PermissionPrompt`, "Searching for 1 pattern"); the number was never returned |
+| G. Glob outside | Glob `*.txt` with path = the outside folder | Stopped at a permission prompt; no file names returned |
+| H. Grep inside (control) | Grep `brain/notes` for "rambutan" | Allowed with no prompt; answered `notes/favourites.md` |
+
+So `Read(//folder/**)` already covers Grep and Glob: no rule change was needed.
+In the app a permission prompt is answered with Esc and the turn fails, so
+"outside" means refused.
+
+Not run: Windows (rule paths on Windows are unverified).
