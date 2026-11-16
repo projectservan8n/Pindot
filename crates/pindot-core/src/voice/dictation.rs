@@ -89,6 +89,69 @@ impl Microphone for Box<dyn Microphone> {
     }
 }
 
+/// What to do with one press of the hold-to-talk key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Route {
+    /// Not ours: the voice loop gets it.
+    Voice,
+    /// Taken by dictation: the voice loop must not see it.
+    Taken,
+    /// Taken, but dictation could not start; tell the person why.
+    TakenRefused(String),
+}
+
+/// Decides, per key press, whether dictation or the voice loop gets it. A
+/// press is routed once, on key down, and its release and cancel follow the
+/// same way, so a hold can never start in one place and end in the other.
+#[derive(Default)]
+pub struct HotkeyRouter {
+    held: Option<u64>,
+    /// The key went down while it was ours but nothing started: swallow its release.
+    swallow: bool,
+}
+
+impl HotkeyRouter {
+    /// `focused`: the chat box has focus. `begin` starts a dictation.
+    pub fn down(&mut self, focused: bool, begin: impl FnOnce() -> std::result::Result<u64, String>) -> Route {
+        if !focused {
+            return Route::Voice;
+        }
+        match begin() {
+            Ok(id) => {
+                self.held = Some(id);
+                Route::Taken
+            }
+            Err(m) => {
+                self.swallow = true;
+                Route::TakenRefused(m)
+            }
+        }
+    }
+
+    /// Key released: `Some(id)` = finish that dictation; `None` with `Taken`
+    /// = swallow it; `Voice` = not ours.
+    pub fn up(&mut self) -> (Route, Option<u64>) {
+        if let Some(id) = self.held.take() {
+            (Route::Taken, Some(id))
+        } else if std::mem::take(&mut self.swallow) {
+            (Route::Taken, None)
+        } else {
+            (Route::Voice, None)
+        }
+    }
+
+    /// Another key joined the chord: drop it the way it started.
+    pub fn cancel(&mut self) -> (Route, bool) {
+        if self.held.take().is_some() {
+            (Route::Taken, true)
+        } else if std::mem::take(&mut self.swallow) {
+            (Route::Taken, false)
+        } else {
+            (Route::Voice, false)
+        }
+    }
+}
+
 enum Cmd {
     Begin(u64),
     Finish(u64),
@@ -593,5 +656,30 @@ mod tests {
         let arbiter = r.arbiter.clone();
         drop(r);
         assert_eq!(arbiter.owner(), None);
+    }
+
+    #[test]
+    fn the_key_goes_to_dictation_only_while_the_box_is_focused_and_stays_there() {
+        let mut r = HotkeyRouter::default();
+        // Not focused: the voice loop gets the whole hold.
+        assert_eq!(r.down(false, || panic!("must not start")), Route::Voice);
+        assert_eq!(r.up(), (Route::Voice, None));
+        // Focused: dictation takes it, and so does the release, even if focus moved meanwhile.
+        assert_eq!(r.down(true, || Ok(7)), Route::Taken);
+        assert_eq!(r.up(), (Route::Taken, Some(7)));
+        assert_eq!(r.up(), (Route::Voice, None));
+        // Another key joins: dictation is cancelled, not the voice turn.
+        assert_eq!(r.down(true, || Ok(8)), Route::Taken);
+        assert_eq!(r.cancel(), (Route::Taken, true));
+        assert_eq!(r.cancel(), (Route::Voice, false));
+    }
+
+    #[test]
+    fn a_refused_dictation_still_keeps_the_key_from_the_voice_loop() {
+        let mut r = HotkeyRouter::default();
+        let refused = r.down(true, || Err("Dictation is already listening.".into()));
+        assert_eq!(refused, Route::TakenRefused("Dictation is already listening.".into()));
+        assert_eq!(r.up(), (Route::Taken, None), "the release is swallowed too");
+        assert_eq!(r.up(), (Route::Voice, None));
     }
 }

@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use pindot_core::platform::{self, HotkeyEvent, Permission, PermissionState};
 use pindot_core::voice::audio::{self, CpalMicrophone, Microphone};
-use pindot_core::voice::dictation::{Backend, Dictation, Event, Problem, Sink, State};
+use pindot_core::voice::dictation::{Backend, Dictation, Event, HotkeyRouter, Problem, Route, Sink, State};
 use pindot_core::voice::engines::{SpeechToText, load_stt};
 use pindot_core::voice::models::{self, ModelKind};
 use serde_json::json;
@@ -39,15 +39,6 @@ impl Source {
     }
 }
 
-/// How the hold-to-talk key is being routed right now.
-#[derive(Default)]
-struct Routing {
-    /// The dictation the key is holding open.
-    held: Option<u64>,
-    /// The key went down while it was not ours to use: swallow its release.
-    swallow: bool,
-}
-
 pub struct DictationHub {
     app: AppHandle,
     d: Dictation,
@@ -55,7 +46,7 @@ pub struct DictationHub {
     /// The running dictation's id and where it started. The lock is held
     /// while one begins, so no event can show before its source is known.
     current: Arc<Mutex<Option<(u64, Source)>>>,
-    routing: Mutex<Routing>,
+    routing: Mutex<HotkeyRouter>,
     stop: Arc<AtomicBool>,
 }
 
@@ -164,38 +155,31 @@ impl DictationHub {
     pub fn hotkey(&self, e: HotkeyEvent) -> bool {
         let mut r = self.routing.lock().unwrap();
         match e {
-            HotkeyEvent::Down => {
-                if !self.focused.load(Ordering::SeqCst) {
-                    return false;
-                }
-                match self.begin(Source::Hotkey) {
-                    Ok(id) => r.held = Some(id),
-                    Err(m) => {
-                        // Still the box's key: say why, and stay quiet to Rusty.
-                        r.swallow = true;
-                        let _ = self.app.emit(
-                            "pindot:dictation",
-                            json!({ "kind": "error", "id": 0, "problem": Problem::Busy, "message": m, "source": "hotkey" }),
-                        );
-                    }
-                }
-                true
-            }
-            HotkeyEvent::Up => {
-                if let Some(id) = r.held.take() {
-                    self.d.finish(id);
+            HotkeyEvent::Down => match r.down(self.focused.load(Ordering::SeqCst), || self.begin(Source::Hotkey)) {
+                Route::Voice => false,
+                Route::Taken => true,
+                Route::TakenRefused(m) => {
+                    // Still the box's key: say why, and stay quiet to the voice loop.
+                    let _ = self.app.emit(
+                        "pindot:dictation",
+                        json!({ "kind": "error", "id": 0, "problem": Problem::Busy, "message": m, "source": "hotkey" }),
+                    );
                     true
-                } else {
-                    std::mem::take(&mut r.swallow)
                 }
+            },
+            HotkeyEvent::Up => {
+                let (route, id) = r.up();
+                if let Some(id) = id {
+                    self.d.finish(id);
+                }
+                route != Route::Voice
             }
             HotkeyEvent::Cancel => {
-                if r.held.take().is_some() {
+                let (route, was_held) = r.cancel();
+                if was_held {
                     self.d.cancel();
-                    true
-                } else {
-                    std::mem::take(&mut r.swallow)
                 }
+                route != Route::Voice
             }
         }
     }
