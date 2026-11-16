@@ -11,6 +11,7 @@
     type VaultView,
   } from '../lib/api';
   import { shortTime } from '../lib/format';
+  import { assistant, refreshAssistant } from '../lib/assistant.svelte';
 
   let view = $state<VaultView | null>(null);
   let message = $state('');
@@ -160,6 +161,7 @@
   }
 
   onMount(() => {
+    refreshAssistant();
     load();
   });
 
@@ -173,7 +175,7 @@
 
   <div class="row">
     <p class="muted small grow">
-      Saved logins Claude can use. Pindot types them itself; Claude never sees a password. The key is kept in the {view.place}.
+      Saved logins {assistant.name} can use. Pindot types them itself; {assistant.name} never sees a password. The key is kept in the {view.place}.
     </p>
     <span class="spacer"></span>
     <button onclick={chooseImport} disabled={busy}>Import passwords…</button>
@@ -203,8 +205,10 @@
         <label for="v-auth">Authenticator key</label>
         <input
           id="v-auth"
+          type="password"
           bind:value={form.auth}
-          autocomplete="off"
+          autocomplete="new-password"
+          spellcheck="false"
           disabled={form.clearAuth}
           placeholder={form.id === null ? 'Optional: setup key or otpauth:// link' : 'Leave blank to keep the saved one'}
         />
@@ -213,7 +217,7 @@
         <label class="check"><input type="checkbox" bind:checked={form.clearAuth} /> Remove the saved authenticator key</label>
       {/if}
       <p class="small muted">
-        Pindot saves only the scheme, host and port of the website. A password can never be shown again once saved.
+        Pindot saves only the scheme, host and port of the website. A password or authenticator key can never be shown again once saved.
       </p>
       {#if formError}<p class="small err" role="alert">{formError}</p>{/if}
       <div class="row">
@@ -283,7 +287,7 @@
     <div class="card">
       <strong>No saved logins yet</strong>
       <p class="muted">
-        Import a CSV exported from Chrome, 1Password or Bitwarden, or add a login by hand. Once saved, Claude can ask Pindot to
+        Import a CSV exported from Chrome, 1Password or Bitwarden, or add a login by hand. Once saved, {assistant.name} can ask Pindot to
         sign in; you approve each login for the session first.
       </p>
     </div>
@@ -313,7 +317,7 @@
               <td colspan="3">
                 <strong class="small">Use history</strong>
                 {#if uses.length === 0}
-                  <p class="small muted">Nothing yet. Each time Claude asks to sign in with this login, it is listed here.</p>
+                  <p class="small muted">Nothing yet. Each time {assistant.name} asks to sign in with this login, it is listed here.</p>
                 {:else}
                   <table class="actlog inner">
                     <thead><tr><th>Time</th><th>Field</th><th>Result</th><th>Session</th></tr></thead>
