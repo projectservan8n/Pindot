@@ -163,6 +163,26 @@ mod mac {
         Ok(())
     }
 
+    /// Streaming mode: let screen capture see (or not see) every overlay
+    /// panel. `ReadOnly` is the normal readable value; `None` hides the panel
+    /// from every capture. Runs on the main thread, where AppKit wants it.
+    pub fn set_visible_to_capture(app: &AppHandle, on: bool) {
+        use tauri::Manager;
+        use tauri_nspanel::ManagerExt;
+        let app2 = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            for (label, _) in app2.webview_windows() {
+                if !label.starts_with("overlay-") {
+                    continue;
+                }
+                if let Ok(panel) = app2.get_webview_panel(&label) {
+                    let kind = if on { NSWindowSharingType::ReadOnly } else { NSWindowSharingType::None };
+                    panel.as_panel().setSharingType(kind);
+                }
+            }
+        });
+    }
+
     /// Prints the live NSApp activation policy (Accessory = no Dock icon,
     /// never the active app unless a window asks for it).
     pub fn log_activation_policy() {
@@ -176,7 +196,7 @@ mod mac {
 }
 
 #[cfg(target_os = "macos")]
-pub use mac::{create_panel, log_activation_policy};
+pub use mac::{create_panel, log_activation_policy, set_visible_to_capture};
 
 /// Windows: a plain transparent, always-on-top, click-through webview window.
 /// Built but untested in Phase 0 (see docs/windows-test-checklist.md).
@@ -221,9 +241,40 @@ pub fn create_panel(app: &AppHandle, index: usize, m: &MonitorRect, capturable: 
     Ok(())
 }
 
+/// Streaming mode: let screen capture see (or not see) every overlay
+/// window. Only the overlay: the main window and the approval popup stay
+/// protected.
+#[cfg(not(target_os = "macos"))]
+pub fn set_visible_to_capture(app: &AppHandle, on: bool) {
+    use tauri::Manager;
+    for (label, w) in app.webview_windows() {
+        if label.starts_with("overlay-") {
+            if let Err(e) = w.set_content_protected(!on) {
+                tracing::warn!("{label}: content protection did not change: {e}");
+            }
+        }
+    }
+}
+
+/// Is streaming mode really in force? The setting must be on, this OS must
+/// be able to do it (macOS 14+), and `--capturable` (everything visible, our
+/// own screenshots too) takes over when given.
+pub fn streaming_in_force(setting: bool, supported: bool, capturable: bool) -> bool {
+    setting && supported && !capturable
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streaming_needs_the_setting_the_os_and_no_capturable_flag() {
+        assert!(streaming_in_force(true, true, false));
+        assert!(!streaming_in_force(false, true, false));
+        // macOS 13: never switch the overlay to capturable.
+        assert!(!streaming_in_force(true, false, false));
+        assert!(!streaming_in_force(true, true, true));
+    }
 
     #[test]
     fn on_macos_a_point_is_a_css_pixel() {

@@ -93,6 +93,16 @@ unticked. The physical-keyboard pass was done by the PC's owner on 16 Nov
       window, and a screen copy with the Setup window up differed from one
       without it by 1.2%, against 23.9% with `--capturable`. Our own
       `screenshot` tool does not exist on Windows yet.)
+- [ ] Streaming mode (Settings, "Streaming mode" on; not tested on Windows
+      yet): the AI cursor and its caption bubble show up in OBS (window or
+      display capture); Rusty's own `screenshot` leaves the cursor out (the
+      overlay is switched to `WDA_EXCLUDEFROMCAPTURE` for the length of one
+      copy, so a viewer sees the cursor blink out for a moment); the main
+      window and the approval popup are still absent from OBS, also a
+      popup that opens while Rusty is taking screenshots; after a
+      capture that failed (unplug a display mid-capture, or ask for a
+      display that is gone) the cursor is visible to OBS again; switching
+      the setting off hides the cursor from OBS again with no restart.
 - [ ] The process is per-monitor DPI aware v2: cursor positions match the
       screen on a mixed-DPI setup.
 

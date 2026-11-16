@@ -45,6 +45,9 @@ pub struct Settings {
     /// The AI cursor's colour as `#rrggbb`. Top level rather than in `voice`
     /// because changing it must not restart hold-to-talk.
     pub cursor_color: String,
+    /// Streaming mode: OBS and screen shares see the AI cursor and its
+    /// caption bubble; Pindot's own screenshots still leave them out.
+    pub streaming_mode: bool,
     pub voice: VoiceSettings,
     /// Fields this version doesn't know, kept as they were.
     #[serde(flatten)]
@@ -60,6 +63,7 @@ impl Default for Settings {
             voice_enabled: true,
             onboarding_done: false,
             cursor_color: DEFAULT_CURSOR_COLOR.into(),
+            streaming_mode: false,
             voice: VoiceSettings::default(),
             extra: Default::default(),
         }
@@ -458,6 +462,22 @@ mod tests {
         s.save_in(&dir).unwrap();
         let (back, _) = Settings::load_in(&dir).unwrap();
         assert_eq!(back.cursor_color, "#3b82f6");
+        assert_eq!(back.validate(), Ok(()));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn streaming_mode_defaults_off_and_round_trips() {
+        assert!(!Settings::default().streaming_mode);
+        let dir = temp_dir("streaming-mode");
+        // An old file without the field loads as off.
+        fs::write(Settings::path_in(&dir), r#"{"port":4000}"#).unwrap();
+        assert!(!Settings::load_in(&dir).unwrap().0.streaming_mode);
+        let mut s = Settings::default();
+        s.streaming_mode = true;
+        s.save_in(&dir).unwrap();
+        let (back, _) = Settings::load_in(&dir).unwrap();
+        assert!(back.streaming_mode);
         assert_eq!(back.validate(), Ok(()));
         fs::remove_dir_all(&dir).unwrap();
     }

@@ -62,6 +62,8 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSArray"] }
 # The main dispatch queue: macOS asserts that keyboard-layout lookups run there.
 dispatch2 = "0.3.1"
+# ScreenCaptureKit: the screenshot that leaves our own windows out (streaming mode).
+objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = ["std", "block2", "objc2-core-graphics", "SCScreenshotManager", "SCShareableContent", "SCStream", "libc"] }
 apple-native-keyring-store = { version = "1", features = ["keychain"] }
 
 # Windows, all through the raw Win32 API: the microphone privacy switches

@@ -548,6 +548,32 @@ impl PermissionStatus {
     }
 }
 
+static STREAMING_CAPTURE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Streaming mode on or off for screen capture. When on, our own overlay
+/// windows are visible to other capturers (OBS, screen share) and the
+/// captures Pindot takes itself leave them out another way. Read at the
+/// start of every capture, so it applies live.
+pub fn set_streaming_capture(on: bool) {
+    STREAMING_CAPTURE.store(on, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn streaming_capture() -> bool {
+    STREAMING_CAPTURE.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Can this OS do streaming mode? macOS needs 14 (ScreenCaptureKit
+/// screenshots); Windows can always.
+#[cfg(target_os = "macos")]
+pub fn streaming_supported() -> bool {
+    macos::sck::available()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn streaming_supported() -> bool {
+    cfg!(windows)
+}
+
 /// The real implementations for the OS this was built for.
 #[derive(Clone)]
 pub struct NativePlatform {

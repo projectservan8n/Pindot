@@ -10,7 +10,7 @@
   const GB = 1024 * 1024 * 1024;
   const settings = {
     version: 1, hotkey: 'Ctrl+Alt+Space', port: 47831, voice_enabled: true, onboarding_done: true,
-    cursor_color: '#ff2d95',
+    cursor_color: '#ff2d95', streaming_mode: false,
     voice: {
       stt_model: 'parakeet-tdt-0.6b-v3', tts_model: 'phonon', tts_voice: 'Aria', idle_reset_secs: 600,
       speak_mode: 'each_message', volume: 0.8, model: null, effort: null, permission_mode: 'ask',
@@ -45,7 +45,7 @@
   ];
   const routes = {
     app_info: () => info,
-    settings_get: () => ({ settings, overrides: [], stt_models: models.filter((x) => x.kind === 'SpeechToText').map((x) => ({ id: x.id, display: x.display, license: x.license, size: x.size })), tts_models: models.filter((x) => x.kind === 'TextToSpeech').map((x) => ({ id: x.id, display: x.display, license: x.license, size: x.size })), tts_voices: voices, default_port: 47831, running_port: 47831, os: 'macos', brain_folder_notice: null }),
+    settings_get: () => ({ settings, overrides: [], stt_models: models.filter((x) => x.kind === 'SpeechToText').map((x) => ({ id: x.id, display: x.display, license: x.license, size: x.size })), tts_models: models.filter((x) => x.kind === 'TextToSpeech').map((x) => ({ id: x.id, display: x.display, license: x.license, size: x.size })), tts_voices: voices, default_port: 47831, running_port: 47831, os: 'macos', streaming_supported: true, brain_folder_notice: null }),
     list_input_devices: () => ({ devices: ['MacBook Pro Microphone', 'Studio Display Microphone'], default: 'MacBook Pro Microphone' }),
     claude_status: () => ({ path: '/usr/local/bin/claude', version: '2.1.325', signed_in: true, method: 'Claude subscription', problem: null, hint: '' }),
     permissions: () => perms,

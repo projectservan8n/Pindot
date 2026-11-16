@@ -135,6 +135,23 @@ recorded; everything else was renamed (crates, bundle id `dev.pindot.app`,
   including ours. Verified on macOS 26.5 with `screencapture` and xcap; Apple
   has changed this behaviour before, so re-check it on every macOS major
   release. `--capturable` turns it off for tests.
+  **Streaming mode** (setting `streaming_mode`, default off, applies live):
+  only the overlay panels become visible to capture (sharing type back to
+  `ReadOnly`), so OBS and screen shares see the cursor and its caption
+  bubble. The main window (the Vault) and the approval popup stay hidden.
+  Our own screenshots still leave the overlay out: with it on, `MacCapture`
+  takes the ScreenCaptureKit path (`platform/macos/sck.rs`,
+  `SCScreenshotManager`, macOS 14+, excluding every window owned by our own
+  pid, no pointer) instead of xcap; with it off the xcap path runs as before.
+  On macOS 13 the checkbox is disabled and the overlay is never switched. On
+  Windows `WinCapture` sets `WDA_EXCLUDEFROMCAPTURE` on the overlay windows
+  only (ours, visible, unprotected and click-through) for one `BitBlt` and
+  restores them in a `Drop` guard, unless the mode was switched off
+  meanwhile (type-checked only). It never changes the main window or the
+  approval popup, so a restore can never expose them. If ScreenCaptureKit fails, the screenshot fails
+  rather than falling back to xcap, which would show the cursor. Order of a
+  live flip: the capture flag first on the way in, the overlay first on the
+  way out. `--capturable` wins over it.
 - **Overlay feedback** (Tony's request): tools tell the overlay what they
   did through `Overlay::action(CursorAction)` → `pindot:action`: a ripple
   for a real click, an inward ring for an accessibility press, chevrons for
@@ -738,7 +755,8 @@ then 2.1.325). What was run and seen is in
   `find_transcript` searches by session id, so the slug is never built.
 - **Overlay**: transparent, click-through, topmost and non-activating on
   both monitors, and absent from screen captures by default
-  (`WDA_EXCLUDEFROMCAPTURE`). The overlay windows are titled "Tauri App"
+  (`WDA_EXCLUDEFROMCAPTURE`; Streaming mode lifts that for the overlay only
+  and re-applies it for the length of each of our own screenshots). The overlay windows are titled "Tauri App"
   and have `WS_EX_APPWINDOW`, so they may show in Alt+Tab: not checked.
 - **Driving the app in tests**: `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=
   --remote-debugging-port=<port>` exposes the main window and each overlay

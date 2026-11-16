@@ -285,6 +285,16 @@ pub fn run() {
                 println!("settings: {load_note}");
             }
             let port = settings.effective().port;
+            // Streaming mode from the saved setting, before any overlay exists.
+            let streaming = overlay::streaming_in_force(
+                settings.streaming_mode,
+                pindot_core::platform::streaming_supported(),
+                args.capturable,
+            );
+            pindot_core::platform::set_streaming_capture(streaming);
+            if streaming {
+                println!("NOTE: streaming mode: the overlay is visible to screen capture; Pindot's own screenshots leave it out");
+            }
             app.manage(ui::Ui::new(args.capturable, args.voice, args.model.clone(), settings, load_note));
             chat::start(app.handle());
             // Each overlay page asks for the assistant's name and the cursor
@@ -309,7 +319,7 @@ pub fn run() {
                     "monitor {i}: origin ({}, {}) size {}x{} pt, scale {}, {} pt per page pixel",
                     m.x, m.y, m.width, m.height, m.scale, m.unit
                 );
-                overlay::create_panel(app.handle(), i, m, args.capturable)?;
+                overlay::create_panel(app.handle(), i, m, args.capturable || streaming)?;
             }
             let ov = Arc::new(TauriOverlay::new(app.handle().clone(), monitors.first().map_or(1.0, |m| m.unit)));
             app.manage(ov.clone());

@@ -736,8 +736,53 @@ impl EscFilter {
     }
 }
 
+// ------------------------------------------------------------- streaming mode
+
+/// `GetWindowDisplayAffinity` value of a window that capture sees.
+pub const WDA_NONE: u32 = 0;
+/// Hidden from every capture (Windows 10 2004 and newer).
+pub const WDA_EXCLUDEFROMCAPTURE: u32 = 0x11;
+
+/// One top-level window: its handle, whether it is visible, its display
+/// affinity and its extended style.
+pub type OwnWindow = (isize, bool, u32, u32);
+
+/// Streaming mode takes one screenshot with our own overlay hidden from the
+/// compositor. Which of our windows to set to `WDA_EXCLUDEFROMCAPTURE` for
+/// that one capture: the overlay only, which is the one window of ours that
+/// is click-through, when it is visible and capture can see it now.
+///
+/// Every other window of ours (the main window with the Vault, the approval
+/// popup) is never touched, whatever its affinity says at that moment: the
+/// restore after the capture sets `WDA_NONE`, and a popup caught in the
+/// instant between being created and being protected would otherwise end up
+/// visible to OBS for good.
+pub fn windows_to_exclude(own: &[OwnWindow]) -> Vec<isize> {
+    own.iter()
+        .filter(|&&(_, visible, affinity, ex_style)| visible && affinity == WDA_NONE && ex_style & WS_EX_TRANSPARENT != 0)
+        .map(|&(h, ..)| h)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_the_visible_unprotected_overlay_is_excluded_for_a_capture() {
+        use super::{WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_EX_LAYERED, WS_EX_TRANSPARENT, windows_to_exclude};
+        let overlay = WS_EX_TRANSPARENT | WS_EX_LAYERED | 0x8;
+        let own = [
+            (1, true, WDA_NONE, overlay),               // the overlay in streaming mode
+            (2, true, WDA_EXCLUDEFROMCAPTURE, 0),       // the main window: already hidden, stays as it is
+            (3, false, WDA_NONE, overlay),              // not on screen: nothing to hide
+            (4, true, 1, overlay),                      // WDA_MONITOR (an older protection): left alone
+            (5, true, WDA_NONE, overlay),               // a second monitor's overlay
+            (6, true, WDA_NONE, 0x8),                   // an approval popup caught before its protection: never ours to restore
+            (7, true, WDA_EXCLUDEFROMCAPTURE, overlay), // the overlay with streaming mode off
+        ];
+        assert_eq!(windows_to_exclude(&own), vec![1, 5]);
+        assert!(windows_to_exclude(&[]).is_empty());
+    }
+
     use super::*;
 
     fn raw(class: &str, ex_style: u32) -> RawWindow<'_> {
