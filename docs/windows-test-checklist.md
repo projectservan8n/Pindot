@@ -93,8 +93,22 @@ unticked. The physical-keyboard pass was done by the PC's owner on 16 Nov
       window, and a screen copy with the Setup window up differed from one
       without it by 1.2%, against 23.9% with `--capturable`. Our own
       `screenshot` tool does not exist on Windows yet.)
-- [ ] Streaming mode (Settings, "Streaming mode" on; not tested on Windows
-      yet): the AI cursor and its caption bubble show up in OBS (window or
+- [x] Streaming mode, the mechanism (16 Nov 2026, a copy with no main
+      window, the mode set in `settings.json`): with it on, both overlay
+      windows read `WDA_NONE` while idle, so capture sees them; during
+      each of Pindot's own `screenshot` calls they read
+      `WDA_EXCLUDEFROMCAPTURE` (about 60 ms per screenshot in a debug
+      build) and `WDA_NONE` again afterwards. With it off they read
+      `WDA_EXCLUDEFROMCAPTURE` throughout. The window library's own
+      invisible, untitled window is click-through and unprotected too, so
+      it is switched and put back with them; nothing is drawn in it. 25
+      screenshots in the release build: median 110 ms with the mode on,
+      120 ms with it off (two monitors, timed to 10 ms), so no cost that
+      shows.
+- [ ] Streaming mode, with a recorder (Settings, "Streaming mode" on; not
+      tried: no cursor was drawn and no OBS was run, and the switch was
+      not flipped in Settings while running): the AI cursor and its
+      caption bubble show up in OBS (window or
       display capture); Rusty's own `screenshot` leaves the cursor out (the
       overlay is switched to `WDA_EXCLUDEFROMCAPTURE` for the length of one
       copy, so a viewer sees the cursor blink out for a moment); the main
