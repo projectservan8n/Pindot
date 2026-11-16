@@ -1,7 +1,8 @@
 //! What has to be true before the assistant (Chat) starts, and what
 //! has to be true on top of that before hold-to-talk starts.
 //!
-//! Chat needs only the local server, a finished Setup and Claude Code.
+//! Chat needs only the local server, a finished Setup and a brain: Claude
+//! Code, or a loop brain (Pindot's own) whose settings are complete.
 //! Voice also needs hold-to-talk switched on, both voice models and the
 //! microphone, accessibility and input-monitoring permissions. Typed chat
 //! never waits for any of the voice parts.
@@ -21,6 +22,10 @@ pub struct Facts {
     pub claude_signed_out: bool,
     /// The words for every missing permission that blocks voice.
     pub permission_problems: Vec<String>,
+    /// Pindot's own loop is the brain: Claude Code is not needed.
+    pub loop_brain: bool,
+    /// What is wrong with the loop brain's settings, in words.
+    pub brain_problems: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,7 +47,9 @@ impl Plan {
         if !f.server_running {
             chat.push("the MCP server is not running".into());
         }
-        if !f.claude_installed {
+        if f.loop_brain {
+            chat.extend(f.brain_problems.iter().cloned());
+        } else if !f.claude_installed {
             chat.push("Claude Code (`claude`) is not installed".into());
         } else if f.claude_signed_out {
             chat.push("Claude Code is not signed in (run `claude login`)".into());
@@ -133,5 +140,13 @@ mod tests {
     fn everything_ready_has_no_blockers() {
         let f = Facts { stt_ready: true, tts_ready: true, ..ready_for_chat() };
         assert!(Plan::of(&f).all().is_empty());
+    }
+
+    #[test]
+    fn a_loop_brain_needs_no_claude_code_but_needs_its_settings() {
+        let f = Facts { loop_brain: true, claude_installed: false, ..ready_for_chat() };
+        assert!(Plan::of(&f).chat_can_run(), "{:?}", Plan::of(&f).chat);
+        let f = Facts { loop_brain: true, claude_installed: false, brain_problems: vec!["Brain: choose a model".into()], ..ready_for_chat() };
+        assert_eq!(Plan::of(&f).chat, vec!["Brain: choose a model".to_string()]);
     }
 }

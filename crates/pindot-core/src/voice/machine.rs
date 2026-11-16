@@ -264,7 +264,7 @@ impl Machine {
                 } else if let Some(problem) = &self.brain_problem {
                     fx.push(Effect::Notice(problem.clone()));
                 } else if self.session.is_none() {
-                    fx.push(Effect::Notice("Claude Code is still starting. Try again in a moment.".into()));
+                    fx.push(Effect::Notice("The assistant is still starting. Try again in a moment.".into()));
                 } else {
                     if self.speaking {
                         self.speaking = false;
@@ -284,7 +284,7 @@ impl Machine {
                     } else if let Some(problem) = &self.brain_problem {
                         fx.push(Effect::Notice(problem.clone()));
                     } else if self.session.is_none() {
-                        fx.push(Effect::Notice("Claude Code is still starting. Try again in a moment.".into()));
+                        fx.push(Effect::Notice("The assistant is still starting. Try again in a moment.".into()));
                     } else {
                         self.session_used = true;
                         self.turn = Some(Turn::default());

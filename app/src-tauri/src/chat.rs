@@ -155,7 +155,7 @@ pub fn chat_state(window: tauri::WebviewWindow, app: AppHandle, hub: tauri::Stat
 }
 
 fn session_dir(g: &Inner) -> Result<(String, PathBuf), String> {
-    let sid = g.session.clone().ok_or("Claude Code is still starting. Try again in a moment.")?;
+    let sid = g.session.clone().ok_or("The assistant is still starting. Try again in a moment.")?;
     let data = g.data_dir.clone().ok_or("Pindot has no data folder to keep attachments in.")?;
     let dir = attachments::session_dir_in(&data, &sid).map_err(|e| e.to_string())?;
     Ok((sid, dir))
