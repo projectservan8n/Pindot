@@ -7,500 +7,290 @@
 
 # Pindot
 
-Hold a key, say what you want, and your own Claude Code does it on your
-desktop and answers out loud.
+Hold a key, say what you want, and your assistant does it on your computer
+and answers out loud. Or type it in the chat window.
 
-Pindot works with Claude Code. It is an independent open-source project
-(MIT), not made by, endorsed by or affiliated with Anthropic. "Claude" and
-"Claude Code" are Anthropic's names for their products.
+Pindot gives the Claude Code you already use eyes, hands and a voice. It can
+see your screen, open apps, click, type and scroll, and it shows you every
+move with its own on-screen cursor, Rusty. Ask it to do something and it
+does it; ask "show me how" and it points the way instead.
 
-**Status:** version 0.0.1. Built and tested on macOS 26.5 (Apple silicon).
-Windows 11 works too, since 15 Nov 2026, but has been run on one PC and few
-apps: see "Windows" below. The release builds are unsigned. Evidence for each phase is in `docs/phase0/`
-to `docs/phase3/`; decisions and conventions are in `CLAUDE.md`.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/ui-pass/design/dark/chat-conversation.png">
+    <img src="docs/ui-pass/design/light/chat-conversation.png" alt="The Pindot chat window" width="620">
+  </picture>
+</p>
 
-Pindot was called Deskhand until 15 Nov 2026. Updating from a Deskhand
-build moves its data folder to the new name on first start (settings, token
-and models come along); macOS asks for its permissions once more because the
-app's identity changed.
+Pindot is free and open source (MIT). It is an independent project, not made
+by, endorsed by or affiliated with Anthropic. "Claude" and "Claude Code" are
+Anthropic's names for their products.
 
-## What it is
+> **Early release (0.0.1).** Tested on macOS 26 on Apple silicon, and on one
+> Windows 11 PC with a handful of apps. There is no ready-made download yet:
+> you build it yourself (see [Install](#install)).
 
-A small menu-bar app (Tauri 2) that gives the `claude` command you already
-use two new abilities:
+## What you can do
 
-- **Hands and eyes.** A local MCP server named `desktop` with 15 tools:
-  `desktop_context`, `request_access`, `open_app`, `focus_window`,
-  `read_window` (the accessibility tree as text, with refs), `find`,
-  `screenshot`, `zoom`, `click`, `type_text`, `key`, `scroll`, `drag`,
-  `wait` and `point` (show where something is without clicking).
-- **A voice.** Hold the hold-to-talk key, speak, let go. Speech becomes text
-  on your Mac, goes to your signed-in `claude`, and the replies are spoken.
+- **Talk to it.** Hold the hold-to-talk key, speak, let go. Rusty answers out
+  loud and, if you like, in a caption bubble beside the cursor.
+- **Type to it.** The Chat window is the same conversation as the voice. Drop
+  in files or pictures to share them.
+- **Dictate.** Speak into the chat box instead of typing; nothing is sent
+  until you press Send.
+- **Let it work.** "Open TextEdit and write a shopping list", "find the
+  unread email from Sam", "turn on dark mode". Rusty glides to each button
+  before it clicks, so you always see what it is doing.
+- **Learn from it.** "Show me how to change my wallpaper" makes Rusty point
+  and explain one step at a time without clicking anything.
+- **Sign in for you, without seeing your password.** Save a login in the
+  Vault and Rusty can type it into the right website for you.
+- **Give it your notes.** Point it at a folder of notes and it can look
+  things up there and remember what you ask it to.
+- **Stream or record it.** Streaming mode lets OBS and screen shares show
+  Rusty's cursor and captions.
+- **Use it from your terminal.** One button connects Pindot's desktop tools
+  to Claude Code in your own terminal.
 
-An AI cursor on screen glides to every target before Claude clicks, and a
-banner shows whenever Claude is controlling input. Esc stops everything.
+## What you need
 
-## How it works
-
-```
-hold key -> microphone -> Moonshine (speech to text, on this Mac)
-         -> typed into ONE interactive `claude`, running in a hidden terminal (PTY)
-         -> claude calls Pindot's MCP tools (127.0.0.1 only, bearer token)
-         -> Pindot acts on approved apps, shows the AI cursor, logs every call
-         -> each reply Claude writes -> Phonon (text to speech, on this Mac) -> speaker
-```
-
-- The "brain" is the real interactive `claude` CLI on your own `claude
-  login`, the same program you type into. Pindot never uses `claude -p`,
-  the Agent SDK or an API key, and blanks `ANTHROPIC_API_KEY` for the child
-  so a stray key cannot switch it to API billing.
-- That `claude` runs in its own empty folder (`<data dir>/session`) with
-  `--setting-sources project,local`, so your personal Claude Code settings,
-  hooks and permission mode do not apply to it. Pindot gives it its own
-  settings file (a Stop hook back to Pindot) and `--permission-mode
-  default` with only the desktop tools allowed.
-- Pindot reads Claude's answers from the session transcript that Claude
-  Code writes, not by scraping the terminal screen.
-- After 10 idle minutes the next request starts a fresh session, to keep the
-  context small.
+- A Mac with macOS 13 or later (Apple silicon tested), or Windows 11.
+- [Claude Code](https://github.com/anthropics/claude-code), installed and
+  signed in. Run `claude login` once in a terminal. On Windows, install the
+  native app (`claude.exe`), not the npm package.
+- A Claude plan that includes Claude Code. Pindot uses Claude Code just like
+  you do in a terminal, so it counts against the same usage limits. It never
+  asks for an API key.
+- About 231 MB of disk for the voice models, downloaded once during setup.
+  Chat works without them.
 
 ## Install
 
-There is no signed download yet. Build it from source (below), then open
-`target/release/bundle/dmg/Pindot_0.0.1_aarch64.dmg` and drag Pindot to
-Applications, or run `target/release/bundle/macos/Pindot.app` in place.
+Pindot isn't available as a download yet, so you build it from the source.
+The first build takes a while: it compiles everything and downloads ONNX
+Runtime (about 150 MB).
 
-Because the app is not signed or notarized, macOS blocks the first open:
-open System Settings > Privacy & Security and press "Open Anyway" for
-Pindot (or Control-click the app and choose Open). `docs/release.md` has
-the signing and notarization steps for a real release.
-
-You also need Claude Code installed and signed in: run `claude login` once
-in a terminal. Pindot never signs in for you.
-
-On first start Pindot puts an icon in the menu bar (no Dock icon) and
-opens the **Setup** window. Setup walks through:
-
-1. **Claude Code**: found or not, signed in or not. If not, it tells you to
-   run `claude login` in a terminal and press Check again.
-2. **Permissions** (below).
-3. **Voice models**: about 231 MB, downloaded once. The licenses are shown
-   before anything downloads; every file is checked against a pinned
-   SHA-256. A stopped download resumes; a damaged file is fetched again.
-4. **Terminal mode** (optional, below).
-5. **Finish**: hold-to-talk starts once everything it needs is in place.
-
-The menu-bar menu has Setup, Settings, Activity, a hold-to-talk switch and
-Quit.
-
-## Permissions (macOS)
-
-| Permission | What for | Needed by |
-|---|---|---|
-| Accessibility | Reading windows (the accessibility tree), clicking, typing, the Esc stop key | All tools, hold-to-talk |
-| Input Monitoring | Seeing the hold-to-talk key and Esc | Hold-to-talk |
-| Screen Recording | The `screenshot` and `zoom` tools | Screenshots only |
-| Microphone | Hearing you while you hold the key | Hold-to-talk |
-
-Setup shows the state of each one. The check is read-only and never shows a
-macOS prompt. Each row has "Ask macOS" (shows the system prompt) and "Open
-System Settings" (opens the right list, where you switch Pindot on). Some
-permissions take effect only after Pindot restarts. If you start the
-binary from a terminal, macOS asks on behalf of the terminal app instead.
-
-Windows needs no grant for input or capture; the microphone has a privacy
-switch under Settings > Privacy & security > Microphone.
-
-## Voice mode
-
-Hold the hold-to-talk key (default: **Fn** on macOS, **Ctrl+Win** on
-Windows), speak, let go. A small pill near the top of the screen shows
-Listening, Thinking, Working and Speaking.
-
-- Hold the key while it is speaking to cut it off and talk again.
-- Press **Esc** at any time: it cancels the action in flight, stops speech
-  and interrupts Claude's turn. The Esc key press is swallowed.
-- The first time Claude wants an app, an approval window asks you. Nothing
-  is touched until you press "Allow for this session".
-- Settings > Speak chooses between speaking every message Claude writes as
-  it arrives (default) and only the final reply.
-- Settings > Assistant > Cursor colour changes the AI cursor's colour (pink
-  by default): pick a swatch or any colour. Rusty blinks, looks where he is
-  going and shows what he is doing with his eyes; with "Reduce motion" on
-  he only blinks.
-
-Speech to text is Moonshine v2 Small (English, MIT). Text to speech is
-Phonon 31m (English, Apache-2.0). Both run on your Mac.
-
-## Chat and the new layout
-
-The main window has a left sidebar: **Chat**, **Activity**, **Settings**, and **Setup** (the first-run flow, always reachable; it shows a mark when something blocks the assistant). A status pill at the top of every screen says what Rusty is doing: ready, listening, thinking, speaking, controlling your computer, or what is missing (a voice model, a permission, Claude Code). Once Setup is finished the app opens on Chat.
-
-Chat talks to the **same persistent Claude Code session as the voice**, so you can type and talk in one conversation. Chat works without the voice: with the voice switched off, the speech models missing or no microphone permission, you can still type, and the assistant still starts on its own once Claude Code is installed and signed in (the "Read replies aloud" box only shows when speech is available). Typed messages are answered on screen and not read aloud unless you tick "Read replies aloud". Replies are shown as Markdown (no raw HTML, no images loaded, links shown as text with their address and never followed). They come from the session's transcript under `~/.claude`, which Pindot only reads. Tool calls appear as compact collapsed lines you can expand. Claude Code 2.1.325 writes the thinking blocks to the transcript with the text blanked, so thinking is shown only when a transcript actually carries it (today it does not). A control request from Claude appears as an Allow/Deny card in the chat as well as in the separate always-on-top window; the first answer wins and the same checks apply. Stop is the same as pressing Esc. Past conversations are listed under History and open read only (resuming one is not built yet).
-
-**Attachments.** Drag files onto the window, paste, or use "Attach files". Pindot copies them to `<data dir>/attachments/<session>/` (up to 8 files, 10 MB each, 5 MB for pictures, 25 MB in all; older folders are deleted after 30 days) and tells Claude the paths. Claude may read only that folder, through a scoped `Read(//.../attachments/<session>/**)` rule, never a bare `Read`. **Attached files are sent to Anthropic through your own `claude`, like anything else it reads.**
-
-### Dictation (speak into the chat box)
-
-The microphone button beside **Attach files** types what you say into the message box. It does not send anything, and nothing is spoken back.
-
-- Press the button, speak, press it again (or **Done**) to finish. The words are put in at the caret, replacing any selected text, with a space only where one is needed. Edit them, then send as usual.
-- **Esc** cancels with nothing inserted. Leaving the Chat screen cancels too. A dictation nobody stops ends itself after two minutes.
-- With the message box focused, the hold-to-talk key dictates into the box instead of sending a spoken turn: hold, speak, let go. Anywhere else the key does what it always did. This needs the voice loop (the key is watched by it); the button works without it.
-- It uses the same local speech to text (Moonshine) and the microphone chosen in Settings. Only the speech model is needed, not the voice or the voice switch. Audio is not saved; the samples are dropped as soon as they are turned into text.
-- A dictation and a spoken turn can never record at once. If one is using the microphone the other says so and waits for you to try again.
-- Problems are said in plain words: no speech model (download it under Setup), no microphone or no permission, microphone busy, or nothing recognised.
-
-## Terminal mode
-
-You can use the desktop tools from any `claude` session in a terminal,
-without voice. Settings (or Setup) > "Connect to Claude Code" runs:
+**macOS.** Install the Xcode command line tools (`xcode-select --install`),
+[Rust](https://rustup.rs) and [Node.js](https://nodejs.org) 22 or later, then:
 
 ```sh
-claude mcp add --transport http --scope user desktop http://127.0.0.1:47823/mcp \
-  --header "Authorization: Bearer <token>"
+git clone https://github.com/projectservan8n/pindot.git
+cd pindot/app
+npm ci
+npx tauri build
 ```
 
-This changes your Claude Code user settings (`~/.claude.json`), so it only
-runs when you press the button. "Copy command" copies the same line with
-your token so you can run it yourself. "Disconnect" runs `claude mcp remove
---scope user desktop`. After you regenerate the token or change the port,
-press Connect again. Pindot must be running for the tools to work.
+Open `target/release/bundle/dmg/` (in the `pindot` folder) and drag Pindot to
+Applications. If you rebuild later, macOS may ask for Pindot's permissions
+again.
 
-To try the tools in one session only, without changing any settings:
+**Windows.** Install [Rust](https://rustup.rs) (the MSVC toolchain),
+[Node.js](https://nodejs.org) and the Visual Studio 2022 C++ build tools.
+Then, in PowerShell:
 
-```sh
-claude --mcp-config "$HOME/Library/Application Support/Pindot/claude-mcp.json" \
-  --strict-mcp-config --allowedTools mcp__desktop
+```powershell
+git clone https://github.com/projectservan8n/pindot.git
+cd pindot
+scripts\build-windows.ps1
 ```
+
+Run the installer it makes:
+`target\release\bundle\nsis\Pindot_<version>_x64-setup.exe`. It installs for
+your user only and needs no administrator rights.
+
+## First start
+
+Pindot lives in the menu bar (the taskbar's hidden icons on Windows); there
+is no Dock icon. The first time, it opens **Setup**, which walks you through:
+
+1. **Claude Code**: found and signed in. If not, run `claude login` in a
+   terminal and press Check again.
+2. **Permissions** (macOS, below).
+3. **Voice models**: about 231 MB. You see each license before anything
+   downloads. A stopped download picks up where it left off.
+4. **Finish**: Pindot opens the Chat window, and hold-to-talk starts once
+   everything it needs is in place.
+
+You can come back to Setup at any time from the menu-bar icon.
+
+### macOS permissions
+
+| Permission | What Pindot uses it for |
+|---|---|
+| Accessibility | Reading windows, clicking, typing, and the Esc stop key |
+| Input Monitoring | Noticing the hold-to-talk key and Esc |
+| Screen Recording | Taking screenshots when it needs to look |
+| Microphone | Hearing you while you hold the key |
+
+Setup shows which ones are on. "Ask macOS" brings up the system prompt;
+"Open System Settings" takes you to the right list, where you switch Pindot
+on. Some permissions take effect only after Pindot restarts.
+
+On Windows nothing needs granting, except that the microphone switches under
+Settings > Privacy & security > Microphone must be on.
+
+## Using Pindot
+
+### Talk
+
+Hold **Fn** (macOS) or **Ctrl+Win** (Windows), say what you want, and let go.
+A small pill near the top of the screen shows Listening, Thinking, Working
+and Speaking.
+
+- Hold the key again while Rusty is speaking to cut him off and talk.
+- Or tap the key once to talk hands-free, and tap again to send.
+- Holding Fn never triggers the Globe key's own action.
+- You can change the key in Settings: one to four modifier keys, such as
+  Right Option or Ctrl+Cmd.
+
+### Chat
+
+The Chat window is the same conversation as the voice, so you can switch
+between typing and talking. Typed messages are answered on screen; tick
+**Read replies aloud** to hear them too. Drag files or pictures onto the
+window, paste them, or use **Attach files**. Each step Rusty takes shows as a
+short line you can expand. Earlier conversations are under **History**
+(read only for now).
+
+### Dictate
+
+Press **Dictate** beside Attach files, speak, and press it again. Your words
+land in the message box, ready to edit; nothing is sent until you press Send.
+While the message box has focus, holding the hold-to-talk key dictates
+instead of sending a spoken request. **Esc** cancels.
+
+### Approving apps
+
+Rusty can touch only the apps you allow. The first time he needs an app, a
+window asks you, with his reason. Nothing happens until you press **Allow
+for this session**; no answer within two minutes counts as Deny. Terminals,
+code editors, file managers, system settings and password managers come with
+an extra red warning, because access to them is close to full control of
+your computer.
+
+### Stop
+
+Press **Esc** at any time. It stops what Rusty is doing, stops him speaking
+and ends his turn. While he is working, a banner across the top of the screen
+says so: "Rusty is controlling input · press Esc to stop".
+
+### Saved logins (Vault)
+
+Save a login under **Vault** (website, username, password and, optionally,
+an authenticator key), or import a CSV exported from Chrome, 1Password or
+Bitwarden. When Rusty needs to sign in, Pindot types the login itself.
+Claude only ever sees the login's name and website, never the password.
+
+Pindot types a saved login only when all of these hold:
+
+- you approved that login for this session in Pindot's own window (every
+  login asks separately);
+- the browser in front (Safari, Chrome, Edge, Brave, Chromium, Vivaldi, Arc
+  or Opera) shows exactly the saved website address;
+- a password goes into a password field;
+- fewer than five fills in the last minute, with fills paused after three
+  refusals.
+
+Every fill and every refusal is listed in the Vault and in Activity.
+Passwords are encrypted, and the key is kept in the macOS Keychain or the
+Windows Credential Manager, never in a file. There is no button that reveals
+a saved password; your password manager already has it.
+
+What the Vault does **not** protect against: a hacked page at the right
+address, a keylogger or screen recorder on your computer, or someone using
+your unlocked account. Firefox, app (non-browser) logins and payment cards
+are not supported. Delete an imported CSV afterwards: it isn't encrypted.
+
+### Brain folder
+
+Settings > Brain folder lets Rusty use a folder of notes, or a Claude Code
+project. He reads its `CLAUDE.md`, opens only the notes a request needs, and
+can write only inside a `pindot-notes/` folder in it, for things you ask him
+to remember. Pick a folder you trust: its own Claude settings apply.
+
+### Streaming and recording
+
+Normally Rusty's cursor is invisible to screen recorders. Turn on
+**Streaming mode** in Settings to show his cursor and captions in OBS and
+screen shares. The Pindot window, the Vault and approval windows stay hidden
+from viewers either way. Needs macOS 14 or later.
+
+### From Claude Code in your terminal
+
+Settings > "Claude Code in your terminal" > **Connect** adds Pindot's desktop
+tools to Claude Code in your terminal, so any `claude` session can use them
+while Pindot is running. **Disconnect** removes them. Only one terminal
+session should use them at a time: they share app approvals.
 
 ## Settings
 
-Stored in `settings.json` in the data dir (`~/Library/Application
-Support/Pindot/` on macOS, `%APPDATA%\Pindot\` on Windows), file mode
-600. Earlier `voice-settings.json` files are moved in automatically.
+Open Settings from the menu-bar icon.
 
-- **Assistant**: its name (Rusty by default), how it talks to you
-  (friendly, brief, professional or playful) and, optionally, your own words
-  on it ("Call me Sam"). Your words shape the tone only; the safety rules in
-  its prompt stay. The name also shows on the "controlling input" banner.
-  Also here, **Brain folder** (optional, none by default): a folder of notes
-  or a Claude Code project. The assistant starts there, reads its CLAUDE.md,
-  opens only the notes a request needs, can read only under that folder, and
-  can write only inside a `pindot-notes/` subfolder (for things you ask it to
-  remember). The folder's own Claude settings (hooks, permissions) apply to
-  it, so pick a folder you trust. Changing it starts a fresh conversation. If
-  the folder is gone at start, Pindot says so and runs without it. Details and
-  test evidence: [docs/brain-folder/README.md](docs/brain-folder/README.md).
-- **Microphone** (next to the other voice settings): pick an input by name,
-  or leave "System default". Press Refresh after plugging one in. Save applies
-  it from your next request, no restart. If the saved microphone is not
-  connected, Pindot says so and uses the default. Listing microphones does not
-  open them. On Windows the list was seen; a chosen microphone was not tried.
-- **Hold-to-talk shortcut**: one to four modifier keys held together, e.g.
-  `Fn`, `Right Option`, `Ctrl+Cmd`, `Right Alt`, `Ctrl+Win`. Pick a preset,
-  type it, or press Record and hold the keys. Pressing any other key while
-  holding cancels the hold, so normal shortcuts still work. A lone Ctrl,
-  Option or Cmd gets a warning (they are part of many shortcuts).
-- **Speech to text and text to speech models**, **speak mode**, **volume**.
-- **MCP port** (default 47823; applies after a restart).
-- **Regenerate token**: the old token stops working at once.
+- **Assistant**: the name (Rusty by default), how he talks to you (friendly,
+  brief, professional or playful) and your own words on it ("Call me Sam").
+  Your words change his tone only, never his safety rules.
+- **On-screen cursor**: its colour, whether it stays beside your pointer
+  while you talk, and the caption bubble.
+- **Hold-to-talk**: the key and tap-to-talk.
+- **Listening and Speaking**: the microphone, the speech models, the voice
+  (37 to choose from), the volume, and whether to speak every message or only
+  the last one.
+- **Claude**: the model, how hard it thinks, and permissions. **Ask**
+  (recommended) lets Claude use only Pindot's desktop tools. **Auto** also lets
+  it run commands, change files and browse the web, as you; read the warning
+  before you turn it on.
+- **Streaming mode**, the **Brain folder** and the terminal connection, as
+  above.
 
-Environment variables override settings without saving them:
-`PINDOT_PORT`, `PINDOT_HOTKEY`, `PINDOT_STT_MODEL`,
-`PINDOT_TTS_MODEL`, `PINDOT_TTS_VOICE`, `PINDOT_SPEAK_MODE`,
-`PINDOT_VOLUME`, `PINDOT_DATA_DIR`, `PINDOT_MODELS_DIR`,
-`PINDOT_CLAUDE_BIN` (path to `claude`).
+## Your privacy
 
-## Guardrails
-
-- **Per-app approval** for every session, answered by you in Pindot's own
-  window. Terminals and IDEs (equal to shell access), file managers, system
-  settings and password managers get an extra red warning. No answer in
-  120 s, Esc or closing the window all mean Deny.
-- **Only approved apps are touched.** A click, scroll or drag at a point is
-  checked against the window under it first; typing needs an approved app
-  in focus; screenshots grey out every window of an app you did not
-  approve; `type_text` refuses password fields.
-- **Streaming mode** (Settings, off by default): shows Rusty's cursor and
-  caption bubble in OBS and screen shares while Rusty's own screenshots
-  still leave them out. The Pindot window, the Vault and approval popups
-  stay hidden. Needs macOS 14 or newer.
-- **Esc stops everything**, as above.
-- **Visible control**: the banner "Claude is controlling input · press Esc
-  to stop" and the AI cursor moving to each target before it clicks.
-- **One controlling session at a time** (an input lock).
-- **The MCP server** listens on 127.0.0.1 only, needs the bearer token,
-  and refuses any request that carries a browser `Origin` header.
-- **Untrusted screen text**: tool results and the voice prompt tell Claude
-  that text on screen is data, never instructions, and to ask you before
-  anything destructive, any purchase, sending a message or typing
-  credentials.
-- **Activity log**: every tool call is written to `activity.jsonl` in the
-  data dir. Open Activity from the menu bar to filter by session or tool,
-  or clear it (it asks first).
-
-**Known limitation: shared session for outside clients.** The `claude` that
-Pindot starts for voice sends a Pindot session header, so its approvals
-end with it. MCP clients that do not send that header (for example a
-terminal `claude` connected through "Connect to Claude Code") all share one
-Pindot session: an app approved in one of them is approved for the others
-until Pindot quits, and they share the input lock. Fine for one terminal
-at a time; not right for several at once.
-
-## Privacy
-
-- **Nothing leaves your machine except what your own `claude` CLI sends.**
-  Your voice is turned into text on your Mac and never saved; the spoken
-  replies are made on your Mac. When Claude calls a tool, the result (window
-  text, a screenshot) goes back to `claude`, and `claude` sends it to
-  Anthropic as part of your conversation, exactly as if you had used Claude
-  Code yourself. Pindot has no server, no account and no telemetry.
-- **A brain folder is read by Claude.** If you set one, the files the
-  assistant opens from it are sent to Anthropic through your own `claude`,
-  like anything else it reads. Nothing is read until a request needs it, and
-  never outside that folder.
-- **Which usage it draws from**: Pindot runs the interactive `claude` CLI,
-  the same way you do in a terminal, on the account you signed in with
-  `claude login`. With a Claude subscription it counts against your plan's
-  normal Claude Code usage limits. (On 14 May 2026 Anthropic announced that
-  `claude -p` and the Agent SDK would move to a separate monthly credit; it
-  put that on hold on 15 June 2026. Pindot uses neither, so it is not
-  affected either way.) If your `claude login` is an Anthropic Console
-  account, usage is billed to that account, as for your own terminal use.
-- **It runs the interactive CLI on your `claude login`.** It never asks for,
-  stores or sets an API key, and never handles your sign-in.
-- The only other network traffic is the one-time model download from
-  Hugging Face (with Handy's mirror, blob.handy.computer, as a fallback for
-  the speech-to-text model).
-- Stored locally, readable by you only: the bearer token (`mcp-token`), the
-  config files that contain it, `settings.json`, `activity.jsonl` (rotated at
-  5 MB) and the models. Claude Code keeps its own transcripts of the
-  sessions under `~/.claude/projects/`. Saved logins (see Vault) are stored
-  encrypted in `vault.json` in the same folder; the key is in your OS
-  credential store, not in a file.
-
-## Vault (saved logins)
-
-The Vault lets Rusty sign in to a website without ever seeing the password.
-Save a login under **Vault** (name, website, username, password and an optional
-authenticator key), or import a CSV exported from Chrome, 1Password or
-Bitwarden. Rusty can then call `vault_logins` (names and sites only) and
-`vault_fill(login, field)`. Pindot types the value itself with its own
-keyboard input; the tool result is only `typed` or the reason it refused.
-There is no "reveal" button on purpose: it would send the password through the
-app's webview, and your password manager already has it. Leave the password
-blank when editing to keep the saved one.
-
-**Storage.** Every value is encrypted with AES-256-GCM and bound (as
-authenticated data) to its record, its purpose and its website, so a copied
-value will not open anywhere else. The 256-bit key is kept in the OS
-credential store: the macOS Keychain (service "Pindot Vault") or the Windows
-Credential Manager. It is created the first time you save or import a login.
-A missing or wrong key stops the Vault and nothing is overwritten; a login the
-key cannot open is shown as "Can't be opened" and can still be deleted.
-Nothing secret is written to the logs, the activity log, error messages or
-tool results.
-
-**Five checks, enforced in code before anything is typed**
-
-1. The app in front is approved, and you approved this login for this session
-   in Pindot's own window. Each login asks separately and is never
-   auto-approved.
-2. The frontmost window is a supported browser (Safari, Chrome, Edge, Brave,
-   Chromium, Vivaldi, Arc, Opera) and the page address, read through
-   accessibility, is exactly the saved scheme, host and port. If it cannot be
-   read, Pindot refuses. There is no suffix or "contains" matching; `http`
-   is accepted only for localhost. Firefox does not expose the address, so it
-   is not supported.
-3. A password goes only into a secure (password) field. A username or code may
-   go into a normal text field once check 2 passes.
-4. The secret is not in the tool result, the activity log, or what
-   `read_window` and `find` return (a password box's value is never listed or
-   searchable). A screenshot shows what the OS draws for a secure field:
-   bullets, not the text.
-5. At most 5 fills a minute, and three refusals lock fills for a while. Esc
-   stops a fill that is in progress.
-
-Every fill and every refusal is recorded (time, login, site, field, result,
-session; no secrets), shown per login in the Vault and in Activity.
-
-**What this does not protect against**
-
-- A malicious page served from the correct address (for example a hacked
-  site, or script injected into the real one) can read what Pindot types.
-- A keylogger or screen recorder on the machine sees the typed text.
-- Anyone using your unlocked account can use the Keychain key and the Vault,
-  and can approve a login in the Pindot window.
-- If you paste a password into the chat, it is in the conversation and
-  Claude's transcript. Pindot does nothing clever about that; use the Vault.
-- Cards and payments are out of scope. So are native app logins: they would
-  need per-app field identification and an app identity check that Pindot
-  does not have.
-- Importing reads the CSV in Pindot's Rust side only; the file is not
-  encrypted, so delete it afterwards.
-
-To try it safely, serve `docs/vault/test-page/` on loopback and save a login
-for `http://localhost:4310`.
+- **Your voice stays on your computer.** Speech is turned into text on your
+  machine and never saved. The spoken replies are made on your machine too.
+- **What Claude sees goes to Anthropic.** When Rusty reads a window, takes a
+  screenshot, or opens a file you attached or a note in your brain folder,
+  that goes to Claude through your own Claude Code, exactly as if you used
+  Claude Code yourself. Screenshots grey out every app you haven't approved.
+- **Pindot has no server, no account and no telemetry.** Its only other
+  network traffic is downloading the voice models, from Hugging Face (with
+  a mirror as a fallback), when you ask for them.
+- **Everything Pindot keeps is on your computer**, readable by you only:
+  settings, the activity log, the voice models and the encrypted Vault.
+  Claude Code keeps its own transcripts of the conversations under
+  `~/.claude/projects/`.
+- **Activity** (in the Pindot window) lists every action Rusty took. You can
+  filter it or clear it.
 
 ## Troubleshooting
 
 - **"Claude Code is not signed in"**: run `claude login` in a terminal, then
   Setup > Check again.
-- **Hold-to-talk does nothing**: the status line at the bottom of the
-  Pindot window says why (permissions, models, `claude`), and Setup >
-  Finish lists what is missing. Check Input Monitoring and Accessibility,
-  then quit and reopen Pindot. If you started it from a terminal, grant the
-  permissions to that terminal app.
-- **"The MCP server is not running ... port"**: another program uses port
-  47823. Change the port in Settings, restart Pindot, press Connect again.
-- **Terminal `claude` gets 401 from `desktop`**: the token was regenerated.
-  Press Connect to Claude Code again.
-- **Every click is refused**: approve the app first (Claude calls
-  `request_access`; answer the window). Pindot's own windows are never
-  clickable by Claude.
-- **A damaged or partial model**: Setup > Voice models > Check files
-  re-checks every SHA-256 and downloads a bad file again.
-- **The Esc key "does nothing" in other apps**: it is only swallowed while
-  Claude is acting or a voice turn runs.
-- **Logs**: start `Pindot.app/Contents/MacOS/pindot` from a terminal to
-  see its log; `--setup` and `--activity` open those views.
+- **Hold-to-talk does nothing**: the status pill and Setup say what is
+  missing (a permission, the voice models, Claude Code). After granting
+  Input Monitoring or Accessibility, quit and reopen Pindot.
+- **Rusty says an app is not allowed**: answer the approval window when it
+  appears. Pindot's own windows are never controllable.
+- **"The connection Claude Code uses is not running"**: another program uses
+  Pindot's port (47823). Change the port in Settings > MCP server, restart
+  Pindot, then press Connect again if you use the terminal connection.
+- **Terminal Claude Code can't reach the desktop tools**: make sure Pindot is
+  running, and press Connect again after changing the port or the token.
+- **A voice model looks damaged**: Setup > Voice models > Check files checks
+  every file and downloads a bad one again.
+- **Windows: Rusty can't click in a window**: Windows doesn't let normal apps
+  control a window running as administrator. Pindot says so instead of
+  clicking.
+- **To see Pindot's log (macOS)**: quit Pindot and start
+  `/Applications/Pindot.app/Contents/MacOS/pindot` from a terminal.
 
-## Build from source
+## Building, testing and contributing
 
-### macOS (tested)
-
-You need macOS 13 or later, the Xcode command line tools, Rust 1.90 or later
-(2024 edition) and Node.js 22 or later (tested with Rust 1.100 and Node 24).
-
-```sh
-git clone <this repo> pindot && cd pindot
-cargo test --workspace                  # Rust tests
-cd app && npm ci
-npm run check && npm test               # type-check and frontend tests
-npx tauri build                         # release .app and .dmg (unsigned)
-```
-
-The bundle lands in `target/release/bundle/macos/Pindot.app` and
-`target/release/bundle/dmg/`. For a quick debug run: `npm run build` in
-`app/`, then `cargo run -p pindot` from the repo root (the frontend is
-embedded at compile time, so rebuild it first). The first build downloads
-ONNX Runtime (about 148 MB) through the `ort` crate.
-
-### Windows (works; new and lightly tested)
-
-First built and run on 15 Nov 2026, on one Windows 11 PC. The app, Setup,
-Settings, Activity, the overlay, hold-to-talk (`Ctrl+Win`), the Esc stop key,
-speech and the Claude Code session work, and Claude can see and control the
-desktop: the window and app list, app approval, opening apps, reading a
-window's elements, clicking, typing, shortcuts, scrolling, dragging and
-screenshots. It has been tried on a test window, on web pages in Edge, on
-Paint, on Settings, on File Explorer and on Word, and with scripted turns from a
-spoken request to an action; not yet across many real apps. Limits to know:
-
-- In a file list a click selects, as with the mouse. A file or a folder
-  is opened with a double-click or Enter.
-
-- Windows does not let a normal app click or type in an administrator's
-  window. Pindot notices such a window and says so instead of sending
-  input that goes nowhere.
-- The items of a closed menu are listed for classic menu bars. Ribbons
-  and newer menus show their items only while open.
-- Claude Code must be the native app (`claude.exe`). An npm install
-  (`claude.cmd`) is detected and Setup says so.
-- A shortcut written the Mac way is translated: `cmd+s` is pressed as
-  Ctrl+S. `win` is the Windows key.
-
-`docs/windows-test-checklist.md` lists what was seen and what is left.
-
-Install Rust (MSVC toolchain), Node.js, the Visual Studio C++ build tools
-(2019 or 2022), WebView2 (part of Windows 11) and Claude Code. Then:
-
-```powershell
-scripts\build-windows.ps1              # the app and its installer
-scripts\build-windows.ps1 -NoBundle    # the app only
-```
-
-That gives `target\release\pindot.exe` and
-`target\release\bundle\nsis\Pindot_<version>_x64-setup.exe`, a 10 MB
-installer for the current user (no administrator rights). Starting Pindot
-while it is already running opens the running one's window instead of a
-second copy.
-
-To work on it:
-
-```powershell
-cargo test --workspace
-cd app; npm ci; npm run check; npm test; npm run build; cd ..
-cargo build --release -p pindot        # target\release\pindot.exe
-```
-
-Use a release build to try voice: a debug build takes over ten seconds to
-start speaking.
-
-The script links ONNX Runtime as a DLL and ships it next to `pindot.exe`.
-Plain `cargo` links it statically, and with the older Visual Studio 2019
-build tools that link step fails in `libort_sys` (unresolved
-`__std_find_trivial_*` symbols): the prebuilt ONNX Runtime needs a newer
-C++ runtime library. Either install the 2022 build tools, or link the DLL
-yourself: unpack `onnxruntime-win-x64-1.28.0.zip` from the ONNX Runtime
-releases on GitHub and set these before running `cargo`:
-
-```powershell
-$env:ORT_LIB_LOCATION = "C:\path\to\onnxruntime-win-x64-1.28.0\lib"
-$env:ORT_PREFER_DYNAMIC_LINK = "1"
-```
-
-`onnxruntime.dll` is then copied next to `pindot.exe` and must stay there.
-
-The microphone: Windows has no permission to grant per app and never asks.
-Pindot hears you when the switches under Settings > Privacy & security >
-Microphone are on, and it appears in the list there only after its first
-recording.
-
-### Developer tools (macOS)
-
-- `python3 scripts/mcp_call.py init`, then `call desktop_context '{}'`,
-  `call request_access '{"apps":["TextEdit"],"reason":"try it"}'`, `end`:
-  call the tools by hand while Pindot runs (one MCP session).
-- `cargo run --release -p pindot-core --bin voice_check`: audio devices,
-  model download and checksum, speech to text on a WAV, text to speech.
-- Phase 0 spikes, each run from a terminal (macOS then asks for permissions
-  on behalf of the terminal):
-  `target/debug/spike_hotkey status | listen --seconds 20 | selftest --control`
-  (hold Fn without the Globe action), `pindot --demo --exit-after 30`
-  (the AI cursor on each monitor), `spike_mcp --seconds 600` (the MCP
-  server alone) and `spike_brain --prompt 'Reply with exactly the word: pong'
-  --model haiku` (interactive `claude` in a PTY, answer through the Stop hook).
-  The Swift test window is
-  `swiftc -O -o spikes/test-target/test-target spikes/test-target/main.swift`.
-  Evidence and details: `docs/phase0/` to `docs/phase3/`.
-
-### Test-only switches
-
-The automated tests use switches that skip the human: auto-approving apps
-(`PINDOT_TEST_AUTO_APPROVE`), a WAV file in place of the microphone and a
-synthetic hotkey press (`--test-voice`), and one scripted `claude` turn
-(`--test-turn`). They are compiled in only with `cargo build -p pindot
---features test-switches`. Such a build prints "!!! TEST BUILD" and shows
-a banner in its window. Normal and release builds ignore these switches
-with a printed warning, and the settings window has no way to reach them.
-
-## Open questions
-
-- **`--restricted`**: Claude Code's stricter isolation flag is not used; it
-  is untested here. Pindot uses `--setting-sources project,local` plus its
-  own session folder instead. Whether to adopt it is open.
-- Settings isolation is partial: user and plugin skills still appear in the
-  voice session's slash menu.
-- `--permission-mode default` is accepted by Claude Code 2.1.325 but is not
-  in its help text; if it stops working, Pindot should switch to `manual`.
+See [docs/development.md](docs/development.md) for how Pindot works inside,
+building from source in detail, the developer tools and tests, and
+[CONTRIBUTING.md](CONTRIBUTING.md) before you open a pull request.
 
 ## License
 
-MIT, see `LICENSE`. Third-party models and their licenses are listed in
-`NOTICE`. Contributions: see `CONTRIBUTING.md`.
-
-The interface fonts, Schibsted Grotesk and Poppins SemiBold (wordmark only), are
-bundled in `app/src/fonts/` under the SIL Open Font License 1.1 (`OFL.txt`
-there). The design notes are in `docs/ui-pass/design-brief.md`.
+MIT, see [`LICENSE`](LICENSE). The speech models and their licenses are
+listed in [`NOTICE`](NOTICE). The interface fonts, Schibsted Grotesk and
+Poppins SemiBold, are bundled under the SIL Open Font License 1.1
+(`app/src/fonts/OFL.txt`).
