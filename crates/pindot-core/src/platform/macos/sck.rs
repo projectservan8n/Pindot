@@ -154,9 +154,19 @@ mod tests {
         let cap = MacCapture;
         let d = cap.displays().unwrap()[0].clone();
         crate::platform::set_streaming_capture(false);
+        let t = std::time::Instant::now();
         let a = cap.capture_display(d.id).unwrap().image;
+        let xcap_ms = t.elapsed().as_millis();
         crate::platform::set_streaming_capture(true);
-        let b = cap.capture_display(d.id).unwrap().image;
+        let mut sck_ms = Vec::new();
+        let mut b = None;
+        for _ in 0..4 {
+            let t = std::time::Instant::now();
+            b = Some(cap.capture_display(d.id).unwrap().image);
+            sck_ms.push(t.elapsed().as_millis());
+        }
+        let b = b.unwrap();
+        println!("time for one screenshot: xcap {xcap_ms} ms, sck {sck_ms:?} ms (first call, then warm)");
         crate::platform::set_streaming_capture(false);
         let a2 = cap.capture_display(d.id).unwrap().image;
         let drift = a.pixels().zip(a2.pixels()).filter(|(p, q)| (0..3).any(|i| (p.0[i] as i32 - q.0[i] as i32).abs() > 8)).count();
