@@ -86,6 +86,17 @@ pub fn hook_settings_json(stop_hook_url: &str, token: &str) -> serde_json::Value
 
 /// As `hook_settings_json`, with the voice brain's permission mode.
 pub fn brain_hook_settings_json(stop_hook_url: &str, token: &str, mode: PermissionMode) -> serde_json::Value {
+    brain_hook_settings_json_for(stop_hook_url, token, mode, None)
+}
+
+/// As `brain_hook_settings_json`, plus the permission rules of a brain
+/// folder when there is one (`None` gives exactly the settings above).
+pub fn brain_hook_settings_json_for(
+    stop_hook_url: &str,
+    token: &str,
+    mode: PermissionMode,
+    brain_folder: Option<&std::path::Path>,
+) -> serde_json::Value {
     let prompt_hook_url = stop_hook_url.replace("/hooks/stop", "/hooks/prompt");
     let hook = |url: &str| {
         json!([{
@@ -97,7 +108,7 @@ pub fn brain_hook_settings_json(stop_hook_url: &str, token: &str, mode: Permissi
             }]
         }])
     };
-    json!({
+    let mut v = json!({
         // Ask before any tool that is not ours (with `--allowedTools` for
         // ours), or auto mode if the user chose it. Set here as well as on
         // the command line, so a project or local settings file can't
@@ -107,7 +118,11 @@ pub fn brain_hook_settings_json(stop_hook_url: &str, token: &str, mode: Permissi
             "Stop": hook(stop_hook_url),
             "UserPromptSubmit": hook(&prompt_hook_url),
         }
-    })
+    });
+    if let Some(folder) = brain_folder {
+        super::folder::add_permissions(&mut v, folder);
+    }
+    v
 }
 
 pub fn write_mcp_config(mcp_url: &str, token: &str) -> Result<PathBuf> {
@@ -135,8 +150,17 @@ pub fn write_brain_mcp_config(mcp_url: &str, token: &str, session_key: &str) -> 
 /// The voice brain's own settings file, so its mode never leaks into the
 /// shared `claude-settings.json`.
 pub fn write_brain_hook_settings(stop_hook_url: &str, token: &str, mode: PermissionMode) -> Result<PathBuf> {
+    write_brain_hook_settings_for(stop_hook_url, token, mode, None)
+}
+
+pub fn write_brain_hook_settings_for(
+    stop_hook_url: &str,
+    token: &str,
+    mode: PermissionMode,
+    brain_folder: Option<&std::path::Path>,
+) -> Result<PathBuf> {
     let p = data_dir()?.join("claude-settings-brain.json");
-    let v = brain_hook_settings_json(stop_hook_url, token, mode);
+    let v = brain_hook_settings_json_for(stop_hook_url, token, mode, brain_folder);
     write_private(&p, serde_json::to_string_pretty(&v)?.as_bytes())?;
     Ok(p)
 }
@@ -177,6 +201,17 @@ mod tests {
         assert_eq!(PermissionMode::Auto.cli(), "auto");
         let v = brain_hook_settings_json(STOP, "tok", PermissionMode::Auto);
         assert_eq!(v["permissions"]["defaultMode"], "auto");
+    }
+
+    #[test]
+    fn no_brain_folder_gives_exactly_the_old_settings() {
+        for mode in [PermissionMode::Ask, PermissionMode::Auto] {
+            assert_eq!(brain_hook_settings_json_for(STOP, "tok", mode, None), brain_hook_settings_json(STOP, "tok", mode));
+            assert!(brain_hook_settings_json(STOP, "tok", mode)["permissions"].get("allow").is_none());
+        }
+        let v = brain_hook_settings_json_for(STOP, "tok", PermissionMode::Ask, Some(std::path::Path::new("/b")));
+        assert_eq!(v["permissions"]["defaultMode"], "default");
+        assert!(v["permissions"]["allow"].as_array().unwrap().iter().any(|r| r == "Edit(//b/pindot-notes/**)"));
     }
 
     #[test]

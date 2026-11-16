@@ -61,6 +61,16 @@ pub const CHILD_ENV: &[(&str, &str)] = &[
     ("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1"),
 ];
 
+/// `CHILD_ENV`, minus the switch that hides CLAUDE.md files when a brain
+/// folder wants its own read.
+pub fn child_env(load_claude_md: bool) -> Vec<(&'static str, &'static str)> {
+    CHILD_ENV
+        .iter()
+        .copied()
+        .filter(|(k, _)| !(load_claude_md && *k == "CLAUDE_CODE_DISABLE_CLAUDE_MDS"))
+        .collect()
+}
+
 const TRUST_MARKERS: &[&str] = &["doyoutrustthefiles", "trustthisfolder", "yes,itrustthisfolder", "yes,proceed"];
 
 /// Settings sources for every `claude` Pindot starts: project and local
@@ -94,6 +104,10 @@ pub struct SpawnOptions {
     pub permission_mode: Option<String>,
     pub model: Option<String>,
     pub append_system_prompt: Option<String>,
+    /// Let `claude` read CLAUDE.md files (the working folder's and its
+    /// parents', as far as `setting_sources` allows). Off by default
+    /// (`CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`); only a brain folder turns it on.
+    pub load_claude_md: bool,
     pub cols: u16,
     pub rows: u16,
 }
@@ -115,6 +129,7 @@ impl SpawnOptions {
             permission_mode: None,
             model: None,
             append_system_prompt: None,
+            load_claude_md: false,
             cols: 220,
             rows: 60,
         }
@@ -304,7 +319,7 @@ impl ClaudeSession {
         for k in PARENT_SESSION_VARS {
             cmd.env_remove(k);
         }
-        for (k, v) in CHILD_ENV {
+        for (k, v) in child_env(opts.load_claude_md) {
             cmd.env(k, v);
         }
 
@@ -628,6 +643,16 @@ mod tests {
         assert_eq!(a[i + 1], "mcp__desktop__click,mcp__desktop__key");
         assert_eq!(a.last().unwrap(), "mcp__desktop");
         assert!(CHILD_ENV.contains(&("ANTHROPIC_API_KEY", "")));
+    }
+
+    #[test]
+    fn claude_md_files_stay_hidden_unless_a_brain_folder_asks() {
+        let o = SpawnOptions::new("/bin/claude".into(), "/tmp".into());
+        assert!(!o.load_claude_md, "default: exactly as before");
+        assert!(child_env(false).contains(&("CLAUDE_CODE_DISABLE_CLAUDE_MDS", "1")));
+        let on = child_env(true);
+        assert!(!on.iter().any(|(k, _)| *k == "CLAUDE_CODE_DISABLE_CLAUDE_MDS"));
+        assert!(on.contains(&("ANTHROPIC_API_KEY", "")), "the rest of the env stays");
     }
 
     #[test]

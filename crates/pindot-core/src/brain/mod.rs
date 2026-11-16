@@ -13,6 +13,7 @@
 //! `last_assistant_message` (primary) and the session transcript (check).
 
 pub mod config;
+pub mod folder;
 pub mod persistent;
 pub mod pty;
 pub mod tailer;

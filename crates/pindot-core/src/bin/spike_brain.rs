@@ -2,6 +2,13 @@
 //!
 //!   spike_brain --prompt "Reply with exactly: pong" [--desktop] [--accept-trust]
 //!               [--model haiku] [--timeout 180] [--cwd DIR] [--permission-mode MODE]
+//!               [--brain-folder DIR] [--voice-prompt]
+//!
+//! `--prompt` may be repeated: the prompts are typed one after the other into
+//! the same session. `--brain-folder DIR` starts the session the way the
+//! voice brain does with a brain folder (its CLAUDE.md, the read tools, writes
+//! only in `pindot-notes/`); `--voice-prompt` appends the real voice system
+//! prompt.
 //!
 //! Starts the Pindot server (MCP tools + Stop hook receiver), writes the
 //! `--mcp-config` / `--settings` files, spawns `claude` (never `-p`) with
@@ -14,7 +21,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, bail};
-use pindot_core::brain::config::{ALLOWED_TOOLS_RULE, write_hook_settings, write_mcp_config};
+use pindot_core::brain::config::{ALLOWED_TOOLS_RULE, PermissionMode, write_brain_hook_settings_for, write_hook_settings, write_mcp_config};
+use pindot_core::brain::folder;
 use pindot_core::brain::transcript::{find_transcript, wait_for_last_turn};
 use pindot_core::brain::turn::{TurnEnd, drive_turn};
 use pindot_core::brain::{ClaudeSession, SpawnOptions, claude_version, find_claude};
@@ -39,7 +47,12 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let opt = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
     let flag = |name: &str| args.iter().any(|a| a == name);
-    let prompt = opt("--prompt").unwrap_or_else(|| "Reply with exactly the word: pong".into());
+    let mut prompts: Vec<String> =
+        args.iter().enumerate().filter(|(_, a)| *a == "--prompt").filter_map(|(i, _)| args.get(i + 1).cloned()).collect();
+    if prompts.is_empty() {
+        prompts.push("Reply with exactly the word: pong".into());
+    }
+    let brain_folder = opt("--brain-folder").map(std::path::PathBuf::from);
     let desktop = flag("--desktop");
     let timeout = Duration::from_secs(opt("--timeout").and_then(|s| s.parse().ok()).unwrap_or(180));
     let cwd = match opt("--cwd") {
@@ -66,14 +79,23 @@ fn main() -> anyhow::Result<()> {
     println!("server: {}", server.mcp_url());
 
     let mut opts = SpawnOptions::new(bin, cwd.clone());
-    opts.settings = Some(write_hook_settings(&server.stop_hook_url(), &token)?);
+    opts.settings = Some(match &brain_folder {
+        Some(f) => write_brain_hook_settings_for(&server.stop_hook_url(), &token, PermissionMode::Ask, Some(f))?,
+        None => write_hook_settings(&server.stop_hook_url(), &token)?,
+    });
+    if flag("--voice-prompt") {
+        opts.append_system_prompt = Some(pindot_core::voice::voice_system_prompt(&Default::default()));
+    }
+    if let Some(f) = &brain_folder {
+        folder::apply(&mut opts, f);
+    }
     if desktop {
         opts.mcp_config = Some(write_mcp_config(&server.mcp_url(), &token)?);
         opts.allowed_tools = vec![ALLOWED_TOOLS_RULE.into()];
     }
     opts.model = opt("--model");
     opts.permission_mode = opt("--permission-mode");
-    println!("cwd: {}", cwd.display());
+    println!("cwd: {}", opts.cwd.display());
     println!("args: {}", opts.args().join(" "));
 
     let t0 = Instant::now();
@@ -85,36 +107,45 @@ fn main() -> anyhow::Result<()> {
     }
 
     session.wait_ready(Duration::from_secs(60), flag("--accept-trust"))?;
-    println!("TUI ready after {:.1}s; typing prompt: {prompt}", t0.elapsed().as_secs_f64());
-    let t1 = Instant::now();
+    println!("TUI ready after {:.1}s", t0.elapsed().as_secs_f64());
     let want = session.session_id.to_string();
-    let end = drive_turn(&mut session, &state, &prompt, timeout, &mut |t| {
-        println!("tool call: {} {} -> {}", t.tool, t.args, t.outcome)
-    })?;
-    let ev: StopHookEvent = match end {
-        TurnEnd::Stopped(ev) => ev,
-        other => {
-            let _ = session.interrupt();
-            let _ = session.exit(Duration::from_secs(5));
-            state.control.shutdown();
-            server.shutdown();
-            bail!("turn did not finish normally: {other:?}");
-        }
-    };
-    println!("Stop hook after {:.1}s: last_assistant_message = {:?}", t1.elapsed().as_secs_f64(), ev.last_assistant_message);
+    let mut last = None;
+    for prompt in &prompts {
+        println!("typing prompt: {prompt}");
+        let t1 = Instant::now();
+        let end = drive_turn(&mut session, &state, prompt, timeout, &mut |t| {
+            println!("tool call: {} {} -> {}", t.tool, t.args, t.outcome)
+        })?;
+        let ev: StopHookEvent = match end {
+            TurnEnd::Stopped(ev) => ev,
+            other => {
+                // A refused permission prompt (see docs/brain-folder) ends up here.
+                println!("turn ended without a Stop hook: {other:?}");
+                let _ = session.interrupt();
+                let _ = session.exit(Duration::from_secs(5));
+                state.control.shutdown();
+                server.shutdown();
+                bail!("turn did not finish normally: {other:?}");
+            }
+        };
+        println!("Stop hook after {:.1}s: last_assistant_message = {:?}", t1.elapsed().as_secs_f64(), ev.last_assistant_message);
 
-    let path = ev
-        .transcript_path
-        .clone()
-        .map(Into::into)
-        .or_else(|| find_transcript(&want))
-        .context("no transcript path")?;
-    println!("transcript: {}", path_display(&path));
-    let (turn, matched) = wait_for_last_turn(&path, ev.last_assistant_message.as_deref(), Duration::from_secs(10))?;
-    println!("transcript prompt: {:?}", turn.prompt);
-    println!("transcript final text: {:?}", turn.final_text);
-    println!("transcript tool calls: {:?}", turn.tool_uses);
-    println!("hook and transcript agree: {matched}");
+        let path = ev
+            .transcript_path
+            .clone()
+            .map(Into::into)
+            .or_else(|| find_transcript(&want))
+            .context("no transcript path")?;
+        println!("transcript: {}", path_display(&path));
+        let (turn, matched) = wait_for_last_turn(&path, ev.last_assistant_message.as_deref(), Duration::from_secs(10))?;
+        println!("transcript prompt: {:?}", turn.prompt);
+        println!("transcript final text: {:?}", turn.final_text);
+        println!("transcript tool calls: {:?}", turn.tool_uses);
+        println!("hook and transcript agree: {matched}");
+        last = Some((turn, matched));
+    }
+    let (turn, matched) = last.context("no prompt")?;
+    let prompt = prompts.last().cloned().unwrap_or_default();
 
     let t2 = Instant::now();
     session.exit(Duration::from_secs(8))?;
