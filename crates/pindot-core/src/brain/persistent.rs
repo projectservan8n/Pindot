@@ -119,6 +119,18 @@ impl PersistentBrain {
     }
 }
 
+impl super::Brain for PersistentBrain {
+    fn send(&self, text: &str) {
+        PersistentBrain::send(self, text)
+    }
+    fn interrupt(&self) {
+        PersistentBrain::interrupt(self)
+    }
+    fn new_session(&self) {
+        PersistentBrain::new_session(self)
+    }
+}
+
 impl Drop for PersistentBrain {
     fn drop(&mut self) {
         let _ = self.tx.send(Command::Shutdown);

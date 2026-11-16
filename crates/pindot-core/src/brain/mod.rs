@@ -25,6 +25,16 @@ use std::process::Command;
 
 pub use pty::{ClaudeSession, SpawnOptions};
 
+/// What the voice loop and Chat need from a brain: the user's Claude Code
+/// (`persistent::PersistentBrain`) or Pindot's own loop
+/// (`native::LoopBrain`). Both report back through `persistent::InputSink`
+/// with `voice::machine::Input`s.
+pub trait Brain: Send {
+    fn send(&self, text: &str);
+    fn interrupt(&self);
+    fn new_session(&self);
+}
+
 /// Find the `claude` executable: `PINDOT_CLAUDE_BIN`, then `PATH`, then
 /// the usual install locations, then the user's login shell (GUI apps on
 /// macOS start with a minimal PATH).
@@ -175,5 +185,30 @@ mod tests {
         assert_eq!(s, AuthState::SignedIn { method: "claude.ai".into() });
         assert_eq!(parse_auth_status(r#"{"loggedIn":false}"#), AuthState::SignedOut);
         assert!(matches!(parse_auth_status("Not logged in"), AuthState::Unknown(_)));
+    }
+
+    #[test]
+    fn a_brain_is_driven_through_the_trait() {
+        use std::sync::{Arc, Mutex};
+        #[derive(Default)]
+        struct Rec(Mutex<Vec<String>>);
+        struct Handle(Arc<Rec>);
+        impl super::Brain for Handle {
+            fn send(&self, text: &str) {
+                self.0.0.lock().unwrap().push(format!("send {text}"));
+            }
+            fn interrupt(&self) {
+                self.0.0.lock().unwrap().push("interrupt".into());
+            }
+            fn new_session(&self) {
+                self.0.0.lock().unwrap().push("new".into());
+            }
+        }
+        let rec = Arc::new(Rec::default());
+        let b: Box<dyn super::Brain> = Box::new(Handle(rec.clone()));
+        b.send("hi");
+        b.interrupt();
+        b.new_session();
+        assert_eq!(*rec.0.lock().unwrap(), vec!["send hi", "interrupt", "new"]);
     }
 }

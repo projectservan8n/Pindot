@@ -430,7 +430,7 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
             let _ = app.emit("pindot:voice", s);
         })
     };
-    let io = LiveIo { recorder, speaker, handle: Some(handle.clone()), brain, control: Some(state.control.clone()), status, shown: Display::Idle };
+    let io = LiveIo { recorder, speaker, handle: Some(handle.clone()), brain: Box::new(brain), control: Some(state.control.clone()), status, shown: Display::Idle };
     let machine = Machine::new(settings.speak_mode, settings.idle_reset(), Instant::now()).with_tap_to_talk(settings.tap_to_talk);
     let runner = VoiceRunner::start(handle.clone(), inbox, machine, Box::new(io))?;
 

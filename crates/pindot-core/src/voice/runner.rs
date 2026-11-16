@@ -15,7 +15,7 @@ use super::audio::Microphone;
 use super::engines::{STT_SAMPLE_RATE, SpeechToText};
 use super::machine::{Display, Effect, Input, Machine};
 use super::speaker::{Speaker, SpeakerEvent};
-use crate::brain::persistent::PersistentBrain;
+use crate::brain::Brain;
 use crate::server::control::Control;
 
 /// How often the machine gets a `Tick` (idle reset).
@@ -313,7 +313,7 @@ pub struct LiveIo {
     /// Answers a `Speak` with "done" when there is no speaker, so the
     /// machine never waits for speech that cannot happen.
     pub handle: Option<VoiceHandle>,
-    pub brain: PersistentBrain,
+    pub brain: Box<dyn Brain>,
     /// `None`: no Esc tap (tests, or a platform without one).
     pub control: Option<Arc<Control>>,
     pub status: StatusSink,
