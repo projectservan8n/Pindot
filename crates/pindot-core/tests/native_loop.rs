@@ -93,3 +93,76 @@ fn tools_are_listed_and_called_in_the_loops_own_session() {
     p.state.end_session("loop-session-1");
     p.state.end_session("loop-session-2");
 }
+
+// ------------------------------------------------------ a fake model server
+
+use axum::extract::State;
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use serde_json::{Value, json};
+
+/// A fake OpenAI-compatible server: `/v1/models`, Ollama's `/api/show`, and
+/// `/v1/chat/completions` playing scripted SSE bodies in order (the last
+/// one repeats). Records every chat request body.
+struct FakeModel {
+    base_url: String,
+    requests: Arc<Mutex<Vec<Value>>>,
+}
+
+fn fake_model(rt: &tokio::runtime::Runtime, replies: Vec<String>) -> FakeModel {
+    #[derive(Clone)]
+    struct S(Arc<Mutex<Vec<String>>>, Arc<Mutex<Vec<Value>>>);
+    let requests = Arc::new(Mutex::new(vec![]));
+    let s = S(Arc::new(Mutex::new(replies)), requests.clone());
+    let app = Router::new()
+        .route("/v1/models", get(|| async { Json(json!({"data": [{"id": "tiny"}, {"id": "nomic-embed"}]})) }))
+        .route(
+            "/api/show",
+            post(|Json(b): Json<Value>| async move {
+                let caps = if b["model"] == "nomic-embed" { json!(["embedding"]) } else { json!(["completion", "tools", "vision"]) };
+                Json(json!({"capabilities": caps, "model_info": {"qwen3.context_length": 40960}}))
+            }),
+        )
+        .route(
+            "/v1/chat/completions",
+            post(|State(s): State<S>, Json(b): Json<Value>| async move {
+                s.1.lock().unwrap().push(b);
+                let mut q = s.0.lock().unwrap();
+                let body = if q.len() > 1 { q.remove(0) } else { q[0].clone() };
+                ([("content-type", "text/event-stream")], body)
+            }),
+        )
+        .with_state(s);
+    let listener = rt.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).unwrap();
+    let addr = listener.local_addr().unwrap();
+    rt.spawn(async move { axum::serve(listener, app).await.unwrap() });
+    FakeModel { base_url: format!("http://{addr}/v1"), requests }
+}
+
+/// An SSE body: text, then tool calls (id, name, JSON arguments), then [DONE].
+fn sse(text: &str, calls: &[(&str, &str, &str)]) -> String {
+    let mut out = String::new();
+    if !text.is_empty() {
+        out += &format!("data: {}\n\n", json!({"choices": [{"delta": {"content": text}}]}));
+    }
+    for (i, (id, name, args)) in calls.iter().enumerate() {
+        let delta = json!({"tool_calls": [{"index": i, "id": id, "function": {"name": name, "arguments": args}}]});
+        out += &format!("data: {}\n\n", json!({"choices": [{"delta": delta}]}));
+    }
+    out + "data: [DONE]\n\n"
+}
+
+#[test]
+fn models_and_what_they_can_do_are_read_from_ollama() {
+    use pindot_core::brain::native::probe;
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let fake = fake_model(&rt, vec![sse("hi", &[])]);
+    let models = probe::list_models("ollama", &fake.base_url, None).unwrap();
+    assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), vec!["tiny"], "embedding models are left out");
+    assert_eq!((models[0].vision, models[0].tools, models[0].context), (Some(true), Some(true), Some(40960)));
+    let unknown = probe::list_models("custom", &fake.base_url, None).unwrap();
+    assert_eq!(unknown.len(), 2);
+    assert_eq!(unknown[0].vision, None);
+    assert!(probe::list_models("ollama", "http://127.0.0.1:9/v1", None).is_err());
+    assert!(fake.requests.lock().unwrap().is_empty());
+}
