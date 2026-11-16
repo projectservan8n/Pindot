@@ -416,6 +416,12 @@ the browser was Edge with a profile of its own on `docs/vault/test-page`.
       fix to `MockStopKey`; eight runs in a row pass after it.
 - [x] The new look: the fonts, Rusty and the sidebar draw as in the Mac's
       screenshots; Setup, Chat, Vault, Activity and Settings open.
+- [x] The AI cursor has its colour (fix `43646b9`, release build). Before
+      it the cursor was black here as on the Mac: every gradient stop
+      computed to `rgb(0, 0, 0)` while `--accent` was `#ff2d95`. After it
+      the stops are the pink ones, `point` drew a pink Rusty with his
+      label, and a colour saved in Settings reached both monitors'
+      overlays at once.
 - [x] Chat without the voice: with hold-to-talk off the assistant started
       by itself; a typed message was answered on screen in 2.5 s.
 - [x] Attachments: a text file and a picture pasted into the message box

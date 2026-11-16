@@ -793,6 +793,11 @@ claude 2.1.325; what was seen is in `docs/windows-test-checklist.md` (h).
   the tap the next action had just started, and
   `esc_cancels_the_action_and_halts_until_the_next_prompt` failed about
   once in seven runs. A real tap ends only itself.
+- **The black cursor was on Windows too**: WebView2 drops the markup's
+  `style="..."` attributes under the app's policy just as WebKit does (the
+  old build's gradient stops all computed to black). With the Mac's fix
+  the release build draws a pink Rusty, and a colour saved in Settings
+  reaches both overlays at once.
 - **Not seen on Windows**: "Allow for this session" on a login and the
   typing that follows (a human's click), dictation and a chosen
   microphone with a real voice (the list of inputs was read: four here),
