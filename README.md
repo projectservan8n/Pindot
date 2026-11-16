@@ -132,6 +132,14 @@ Listening, Thinking, Working and Speaking.
 Speech to text is Moonshine v2 Small (English, MIT). Text to speech is
 Phonon 31m (English, Apache-2.0). Both run on your Mac.
 
+## Chat and the new layout
+
+The main window has a left sidebar: **Chat**, **Activity**, **Settings**, and **Setup** (the first-run flow, always reachable; it shows a mark when something blocks the assistant). A status pill at the top of every screen says what Rusty is doing: ready, listening, thinking, speaking, controlling your computer, or what is missing (a voice model, a permission, Claude Code). Once Setup is finished the app opens on Chat.
+
+Chat talks to the **same persistent Claude Code session as the voice**, so you can type and talk in one conversation. Typed messages are answered on screen and not read aloud unless you tick "Read replies aloud". Replies are shown as Markdown (no raw HTML, no images loaded, links shown as text with their address and never followed). They come from the session's transcript under `~/.claude`, which Pindot only reads. Tool calls appear as compact collapsed lines you can expand. Claude Code 2.1.325 writes the thinking blocks to the transcript with the text blanked, so thinking is shown only when a transcript actually carries it (today it does not). A control request from Claude appears as an Allow/Deny card in the chat as well as in the separate always-on-top window; the first answer wins and the same checks apply. Stop is the same as pressing Esc. Past conversations are listed under History and open read only (resuming one is not built yet).
+
+**Attachments.** Drag files onto the window, paste, or use "Attach files". Pindot copies them to `<data dir>/attachments/<session>/` (up to 8 files, 10 MB each, 5 MB for pictures, 25 MB in all; older folders are deleted after 30 days) and tells Claude the paths. Claude may read only that folder, through a scoped `Read(//.../attachments/<session>/**)` rule, never a bare `Read`. **Attached files are sent to Anthropic through your own `claude`, like anything else it reads.**
+
 ## Terminal mode
 
 You can use the desktop tools from any `claude` session in a terminal,

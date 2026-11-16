@@ -75,7 +75,12 @@
   {/if}
   {#if message}<p class="small">{message}</p>{/if}
   {#if rows.length === 0}
-    <p class="muted">No tool calls yet{session || tool ? ' for this filter' : ''}.</p>
+    <div class="card">
+      <strong>Nothing here yet{session || tool ? ' for this filter' : ''}</strong>
+      <p class="muted">
+        {session || tool ? 'Clear the filters to see everything.' : 'Each time Rusty clicks, types or looks at your screen, it is listed here so you can see what happened. Try asking it to do something in Chat.'}
+      </p>
+    </div>
   {:else}
     <table class="log">
       <thead>
