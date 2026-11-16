@@ -32,7 +32,7 @@
     ['ScreenRecording', 'Screen Recording', 'Lets Pindot see your screen.', scenario === 'setup' ? 'not_asked' : 'granted'],
     ['Microphone', 'Microphone', 'Lets Pindot hear you.', scenario === 'setup' ? 'denied' : 'granted'],
   ].map(([permission, name, why, state]) => ({ permission, granted: state === 'granted', state, name, why, settings_url: 'x-apple.systempreferences:', note: null }));
-  const m = (id, display, kind, size, present) => ({ id, display, kind, license: 'CC-BY-4.0', license_url: 'https://example.com', license_text: '', source: 'huggingface', size, present, in_use: present, fallback: null, dir: null });
+  const m = (id, display, kind, size, present) => ({ id, display, kind, license: 'CC-BY-4.0', license_url: 'https://example.com', license_text: '', source: 'huggingface', size, present, in_use: true, fallback: null, dir: null });
   const models = [
     m('parakeet-tdt-0.6b-v3', 'Parakeet speech recognition', 'SpeechToText', 0.6 * GB, scenario !== 'setup'),
     m('phonon', 'Phonon voice', 'TextToSpeech', 0.3 * GB, scenario !== 'setup'),

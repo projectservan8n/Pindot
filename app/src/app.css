@@ -717,6 +717,21 @@ td.actions {
   text-align: right;
 }
 
+/* Setup's permission rows: the name and its sentence get real room; the two
+   buttons wrap under each other rather than squeezing the name. */
+table.perms td:first-child {
+  width: 36%;
+}
+
+table.perms td.actions {
+  white-space: normal;
+}
+
+table.perms td.actions button {
+  margin: 0 0 4px 6px;
+  white-space: nowrap;
+}
+
 /* The activity table. (Not ".log": that is the chat transcript's class.) */
 table.actlog {
   font-size: var(--fs-xs);
