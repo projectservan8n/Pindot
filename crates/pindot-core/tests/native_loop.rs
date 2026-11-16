@@ -270,3 +270,31 @@ fn a_server_that_is_not_running_is_reported_once_and_a_request_fails_plainly() {
     let second = rx.recv_timeout(Duration::from_secs(10)).unwrap();
     assert!(matches!(second, Input::TurnFailed { message } if message.contains("isn't running")));
 }
+
+// ------------------------------------------------------------ model test
+
+#[test]
+fn the_model_test_passes_a_model_that_uses_tools_and_explains_one_that_does_not() {
+    use pindot_core::brain::native::settings::{BrainKind, BrainSettings};
+    use pindot_core::brain::native::test_model::test_model;
+    let p = pindot();
+    let brain = |url: &str| BrainSettings {
+        kind: BrainKind::Loop,
+        provider: "custom".into(),
+        base_url: url.into(),
+        model: "tiny".into(),
+        ..BrainSettings::default()
+    };
+    let good = fake_model(&p.rt, vec![sse("ready", &[]), sse("", &[("c1", "desktop_context", "{}")]), sse("There is 1 display.", &[])]);
+    let r = test_model(&brain(&good.base_url), None, &p.server.mcp_url(), TOKEN, &p.state);
+    assert!(r.ok, "{}", r.note);
+    let no_tools = fake_model(&p.rt, vec![sse("Ready.", &[]), sse("I can't do that.", &[])]);
+    let r = test_model(&brain(&no_tools.base_url), None, &p.server.mcp_url(), TOKEN, &p.state);
+    assert!(!r.ok);
+    assert_eq!(r.note, "It answered but didn't call the tool: this model may not support tools.");
+    let wrong = fake_model(&p.rt, vec![sse("Hello there!", &[])]);
+    let r = test_model(&brain(&wrong.base_url), None, &p.server.mcp_url(), TOKEN, &p.state);
+    assert!(!r.ok && r.note.starts_with("It didn't answer as asked"), "{}", r.note);
+    let down = test_model(&brain("http://127.0.0.1:9/v1"), None, &p.server.mcp_url(), TOKEN, &p.state);
+    assert!(!down.ok && down.note.contains("Can't reach"), "{}", down.note);
+}
