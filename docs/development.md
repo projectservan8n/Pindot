@@ -17,8 +17,10 @@ hold key -> microphone -> Moonshine (speech to text, on this machine)
          -> each reply Claude writes -> Phonon (text to speech, on this machine) -> speaker
 ```
 
-- The "brain" is the real interactive `claude` CLI on the user's own `claude
-  login`, the same program they type into. Pindot never uses `claude -p`,
+- With Claude Code as the brain (the default), the brain is the real
+  interactive `claude` CLI on the user's own `claude login`, the same program
+  they type into. (For a local model or an API key, see "Pindot's own loop"
+  below.) Pindot never uses `claude -p`,
   the Agent SDK or an API key, and blanks `ANTHROPIC_API_KEY` for the child
   so a stray key cannot switch it to API billing.
 - That `claude` runs in its own empty folder (`<data dir>/session`) with
@@ -46,6 +48,35 @@ A local MCP server named `desktop` with these tools: `desktop_context`,
 accessibility tree as text, with refs), `find`, `screenshot`, `zoom`,
 `click`, `type_text`, `key`, `scroll`, `drag`, `wait`, `point`, and for the
 Vault `vault_logins` and `vault_fill`.
+
+## Pindot's own loop (local models and APIs)
+
+When Settings > Brain is a local model or an API key, the voice loop and
+Chat talk to `LoopBrain` instead of `claude`, through the same `Brain`
+trait (`crates/pindot-core/src/brain/mod.rs`). Its parts, in
+`crates/pindot-core/src/brain/native/`:
+
+| File | Does |
+|---|---|
+| `mod.rs` | `LoopBrain`: worker thread, sessions, retries when the server is down. |
+| `providers.rs` | The presets (Ollama, LM Studio, llama.cpp, OpenAI, OpenRouter, DeepSeek, Groq, Custom). |
+| `settings.rs` | The `brain` block of settings.json. |
+| `secrets.rs` | API keys in the OS credential store ("Pindot AI keys"). |
+| `openai.rs` | Chat Completions: messages, the streamed reply, errors in plain words. |
+| `mcp_client.rs` | The loop's MCP client of Pindot's own server (`X-Pindot-Session`). |
+| `run.rs` | One turn: model, tool calls, results, repeat (25 calls at most). |
+| `context.rs` | Trimming the conversation to fit the model's context. |
+| `log.rs` | `<data dir>/conversations/<id>.jsonl`, in the line format Chat reads. |
+| `probe.rs` | Finding local servers, their models and what each can do. |
+| `test_model.rs` | The two-turn model test. |
+
+`crates/pindot-core/tests/native_loop.rs` runs the loop against Pindot's
+real server (mock platform parts) and a fake Chat Completions server.
+
+To try it with a real model: install [Ollama](https://ollama.com), pull a
+model that uses tools (for example `ollama pull qwen3:8b`), start it with
+`OLLAMA_CONTEXT_LENGTH=32768 ollama serve`, then Settings > Brain > A model
+on this computer, and Test this model.
 
 ## Data folder, settings and environment variables
 

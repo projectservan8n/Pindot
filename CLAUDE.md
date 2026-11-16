@@ -2,7 +2,9 @@
 
 Open-source (MIT) desktop app for macOS and Windows. Pindot gives the user's
 own Claude Code CLI eyes and hands on the desktop through MCP tools, and the
-user drives it by voice. The product name must never contain "Claude".
+user drives it by voice. Since 16 Nov 2026 the brain can also be Pindot's
+own loop, for a local model or an OpenAI-compatible API (see "Pindot's own
+loop" below). The product name must never contain "Claude".
 
 The spec is the build brief, kept outside this repo. This file records the
 decisions and conventions that came out of building it. Phases 0 to 3 are
@@ -22,9 +24,13 @@ recorded; everything else was renamed (crates, bundle id `dev.pindot.app`,
 
 ## Hard rules
 
-- **Brain = the user's interactive `claude` CLI in a PTY.** Never `claude -p`
-  or `--print`, never the Agent SDK, never an API key. If interactive mode is
-  blocked, stop and ask; do not fall back.
+- **The Claude Code brain = the user's interactive `claude` CLI in a PTY.**
+  Never `claude -p` or `--print`, never the Agent SDK, never an API key for
+  Claude Code. If interactive mode is blocked, stop and ask; do not fall
+  back. Pindot's own loop (`brain/native/`) is a separate brain for local
+  models and other providers (Tony, 16 Nov 2026); their keys live only in
+  the OS credential store (`native/secrets.rs`), never in a file, a log, an
+  error or a conversation file.
 - The child process gets `ANTHROPIC_API_KEY=""`, `TERM=xterm-256color` and
   `COLORTERM=truecolor`. We remove `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` and
   the other parent-session variables so a nested `claude` does not think it is
@@ -869,6 +875,71 @@ claude 2.1.325; what was seen is in `docs/windows-test-checklist.md` (h).
   typing that follows (a human's click), dictation and a chosen
   microphone with a real voice (the list of inputs was read: four here),
   and a drop of files onto the window.
+
+### Pindot's own loop (16 Nov 2026)
+
+Tony asked for local models and APIs "like Tarsee". Spec
+`docs/superpowers/specs/2026-11-16-pindot-own-loop-design.md`, plan
+`docs/superpowers/plans/2026-11-16-pindot-own-loop.md`. Tarsee runs its
+non-Claude models inside OpenAI's Codex CLI; Pindot runs its own loop
+instead (Tony's choice): the tools are Pindot's own, a small prompt matters
+for local models, nothing extra to install. Tarsee's code was read for
+ideas only.
+
+- **`Brain` trait** (`brain/mod.rs`): send, interrupt, new session. Both
+  `PersistentBrain` (Claude Code, unchanged) and `native::LoopBrain`
+  report with the same `machine::Input`s; the runner holds a
+  `Box<dyn Brain>`; `app/src-tauri/src/voice.rs` builds the one
+  `settings.brain` names. One brain at a time; a change restarts the voice
+  loop with a fresh conversation (`BrainSettings::same_brain` ignores test
+  results).
+- **Settings**: the `brain` block (`native/settings.rs`); a file without it
+  means Claude Code, so no migration. `kind` claude_code or loop,
+  `provider` (a `providers::PROVIDERS` id), `base_url`, `model`, `vision`
+  (auto, on, off), `context_tokens`, `tested` (one result per base URL and
+  model, 20 kept). Presets: Ollama :11434, LM Studio :1234, llama.cpp
+  :8080 (Tarsee also used 9931 for newer llama.cpp builds: not checked),
+  OpenAI, OpenRouter, DeepSeek, Groq, Custom.
+- **Desktop tools only** (Tony's choice): the loop is an MCP client of
+  Pindot's own server (`native/mcp_client.rs`) with the bearer token and
+  `X-Pindot-Session: <its session id>`, so approvals, the input lock, Esc,
+  the overlay, the activity log and the Vault rules apply unchanged. It
+  opens a real MCP session (`initialize`; rmcp keeps sessions here) and
+  re-initializes on a 404. No shell, files, web or brain folder.
+- **The wire format** is OpenAI Chat Completions (`native/openai.rs`),
+  streamed on a helper thread so Esc stops it at once; no first or next
+  chunk for 120 s is a timeout. `ureq`'s `send_json` needs a feature we do
+  not enable, so bodies are sent as text with a Content-Type header.
+  Tool pictures go in a user message after the tool results (many servers
+  take text only in `tool` messages); a model that cannot see gets no
+  `screenshot` or `zoom` tools. `<think>` blocks and `reasoning_content`
+  become thinking, never spoken. Errors are said plainly (`describe`); a
+  key is never sent over plain http to another computer.
+- **A turn** (`native/run.rs`): at most 25 tool calls, the 15-minute cap,
+  every tool call answered even when skipped by Esc (or the next request
+  is refused). Context (`native/context.rs`): 85% of the model's context,
+  trimmed in order: old pictures, long old tool results, oldest turns; a
+  context error trims harder once, then starts a fresh conversation.
+  Ollama's context is taken as 8192 unless set (it runs short by default;
+  the picker suggests `OLLAMA_CONTEXT_LENGTH=32768`).
+- **Conversations** are written to `<data dir>/conversations/<id>.jsonl`
+  in the subset of Claude Code's transcript lines `chat::transcript`
+  reads (tool names with the `mcp__desktop__` prefix, no pictures), and
+  `find_transcript` looks there first, so Chat and History work unchanged.
+- **The model test** (`native/test_model.rs`): "reply ready", then "call
+  desktop_context", in a session of its own; a failure is explained and the
+  user may keep the model (Tony's choice). `brain_test` saves the result.
+- **Keys**: `keyring-core`, service "Pindot AI keys", account = provider
+  id. Seen on macOS with `real_secret_store` (`--ignored`). Through the UI a
+  key is saved, replaced or deleted, never shown; `key_warning` catches a
+  key pasted for another provider.
+- **Start-up**: `voice::plan::Facts` gains `loop_brain` and
+  `brain_problems`; with a loop brain Claude Code is not checked at all.
+  The server being down is reported once (`BrainUnavailable`) and retried
+  20 s to 5 min.
+- Tests: unit tests per module, and `crates/pindot-core/tests/native_loop.rs`
+  (Pindot's real server on mock platform parts plus a fake Chat
+  Completions server in axum).
 
 ## Known risks (open)
 

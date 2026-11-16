@@ -6,9 +6,12 @@ rules are mostly about safety.
 ## Before you start
 
 - Read `CLAUDE.md`: it holds the decisions and the reasons behind them.
-- The brain is the user's interactive `claude` CLI in a PTY. Pull requests
-  that add `claude -p`, the Agent SDK, an API key or
-  `--dangerously-skip-permissions` will not be merged.
+- Claude Code stays the user's interactive `claude` CLI in a PTY. Pull
+  requests that add `claude -p`, the Agent SDK, an API key for Claude Code
+  or `--dangerously-skip-permissions` will not be merged. Pindot's own loop
+  (`crates/pindot-core/src/brain/native/`) is for local models and other
+  providers; their keys go through `brain/native/secrets.rs` only, never
+  into a file, a log or an error.
 - The product name never contains "Claude". Say "works with Claude Code".
 
 ## Build and test

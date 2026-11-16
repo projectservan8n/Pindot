@@ -10,8 +10,9 @@
 Hold a key, say what you want, and your assistant does it on your computer
 and answers out loud. Or type it in the chat window.
 
-Pindot gives the Claude Code you already use eyes, hands and a voice. It can
-see your screen, open apps, click, type and scroll, and it shows you every
+Pindot gives an AI eyes, hands and a voice: the Claude Code you already use,
+a model running on your own computer, or a service you have an API key for.
+It can see your screen, open apps, click, type and scroll, and it shows you every
 move with its own on-screen cursor, Rusty. Ask it to do something and it
 does it; ask "show me how" and it points the way instead.
 
@@ -55,12 +56,17 @@ Anthropic's names for their products.
 ## What you need
 
 - A Mac with macOS 13 or later (Apple silicon tested), or Windows 11.
-- [Claude Code](https://github.com/anthropics/claude-code), installed and
-  signed in. Run `claude login` once in a terminal. On Windows, install the
-  native app (`claude.exe`), not the npm package.
-- A Claude plan that includes Claude Code. Pindot uses Claude Code just like
-  you do in a terminal, so it counts against the same usage limits. It never
-  asks for an API key.
+- A brain, one of:
+  - **Claude Code** ([installed](https://github.com/anthropics/claude-code)
+    and signed in with `claude login`), with a Claude plan that includes it.
+    Pindot uses it just like you do in a terminal, so it counts against the
+    same usage limits, and never asks for an API key for it. On Windows,
+    install the native app (`claude.exe`), not the npm package.
+  - **A model on your computer**, served by [Ollama](https://ollama.com),
+    LM Studio or llama.cpp. Free and private, but it has to be good at
+    using tools: small models often aren't.
+  - **An API key** for OpenAI, OpenRouter, DeepSeek, Groq or another
+    service that speaks OpenAI's format. You pay that provider per use.
 - About 231 MB of disk for the voice models, downloaded once during setup.
   Chat works without them.
 
@@ -103,8 +109,9 @@ your user only and needs no administrator rights.
 Pindot lives in the menu bar (the taskbar's hidden icons on Windows); there
 is no Dock icon. The first time, it opens **Setup**, which walks you through:
 
-1. **Claude Code**: found and signed in. If not, run `claude login` in a
-   terminal and press Check again.
+1. **Choose a brain**: Claude Code (found and signed in; if not, run
+   `claude login` in a terminal and press Check again), a model on this
+   computer, or an API key. See [Choosing a brain](#choosing-a-brain).
 2. **Permissions** (macOS, below).
 3. **Voice models**: about 231 MB. You see each license before anything
    downloads. A stopped download picks up where it left off.
@@ -142,6 +149,27 @@ and Speaking.
 - Holding Fn never triggers the Globe key's own action.
 - You can change the key in Settings: one to four modifier keys, such as
   Right Option or Ctrl+Cmd.
+
+### Choosing a brain
+
+Setup's first step, or Settings > Brain:
+
+- **Claude Code** works as it always has.
+- **A model on this computer**: start Ollama, LM Studio's server or
+  llama.cpp, and Pindot finds it and lists its models. Ollama gives models a
+  short memory by default; for longer requests start it with
+  `OLLAMA_CONTEXT_LENGTH=32768`.
+- **An API key**: pick the provider, paste the key, pick a model. The key is
+  kept in your system keychain (the macOS Keychain or Windows Credential
+  Manager), never in a file, and is never shown again; you can replace or
+  delete it.
+
+When you pick a model, Pindot tests it with two short requests: a plain
+answer, and one use of a desktop tool. If it fails, you see why ("this model
+may not support tools") and can keep it anyway. Pictures: Pindot asks the
+server whether the model can see; one that can't works from the window's
+text instead of screenshots. Local and API brains get the desktop tools
+only: no shell, no file editing and no brain folder.
 
 ### Chat
 
@@ -246,17 +274,20 @@ Open Settings from the menu-bar icon.
 
 - **Your voice stays on your computer.** Speech is turned into text on your
   machine and never saved. The spoken replies are made on your machine too.
-- **What Claude sees goes to Anthropic.** When Rusty reads a window, takes a
-  screenshot, or opens a file you attached or a note in your brain folder,
-  that goes to Claude through your own Claude Code, exactly as if you used
-  Claude Code yourself. Screenshots grey out every app you haven't approved.
+- **What the brain sees goes to whoever runs it.** When Rusty reads a
+  window, takes a screenshot, or opens a file you attached or a note in your
+  brain folder, that goes to the brain: to Anthropic through your own Claude
+  Code, exactly as if you used Claude Code yourself; to the provider of your
+  API key; or nowhere at all with a model on your computer. Screenshots grey
+  out every app you haven't approved.
 - **Pindot has no server, no account and no telemetry.** Its only other
   network traffic is downloading the voice models, from Hugging Face (with
   a mirror as a fallback), when you ask for them.
 - **Everything Pindot keeps is on your computer**, readable by you only:
   settings, the activity log, the voice models and the encrypted Vault.
   Claude Code keeps its own transcripts of the conversations under
-  `~/.claude/projects/`.
+  `~/.claude/projects/`; conversations with a local or API brain are kept in
+  Pindot's own folder. API keys are in your system keychain.
 - **Activity** (in the Pindot window) lists every action Rusty took. You can
   filter it or clear it.
 
