@@ -30,6 +30,7 @@
 //! are ignored with a warning.
 
 mod approval;
+mod brain;
 mod chat;
 mod dictation;
 mod overlay;
@@ -210,6 +211,13 @@ pub fn run() {
             dictation::dictation_stop,
             dictation::dictation_cancel,
             dictation::dictation_focus,
+            brain::brain_providers,
+            brain::brain_find_local,
+            brain::brain_models,
+            brain::brain_key_set,
+            brain::brain_key_delete,
+            brain::brain_test,
+            brain::brain_choose,
             ui::app_info,
             ui::settings_get,
             ui::settings_save,

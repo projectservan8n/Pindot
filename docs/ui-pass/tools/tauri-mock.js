@@ -17,6 +17,10 @@
       tap_to_talk: true, companion: true, captions: true, assistant_name: 'Rusty', talk_style: 'friendly',
       talk_notes: '', brain_folder: scenario === 'nobrain' ? null : '/Users/sam/Notes', input_device: null,
     },
+    brain: scenario === 'loop'
+      ? { kind: 'loop', provider: 'ollama', base_url: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b', vision: 'auto', context_tokens: null,
+          tested: [{ base_url: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b', ok: true, note: '', at: 1794840000 }] }
+      : { kind: 'claude_code', provider: 'ollama', base_url: 'http://127.0.0.1:11434/v1', model: '', vision: 'auto', context_tokens: null, tested: [] },
   };
   const info = {
     version: '0.4.0', os: 'macos', data_dir: '/Users/sam/Library/Application Support/Pindot',
@@ -55,6 +59,14 @@
     hotkey_check: () => ({ ok: true, normalized: 'ctrl+alt+space', label: 'Ctrl+Option+Space', caution: null, error: null }),
     voice_check: () => [],
     settings_save: () => ({ notes: [] }),
+    brain_providers: () => [
+      ['ollama', 'Ollama', 'http://127.0.0.1:11434/v1', true], ['lmstudio', 'LM Studio', 'http://127.0.0.1:1234/v1', true],
+      ['llamacpp', 'llama.cpp', 'http://127.0.0.1:8080/v1', true], ['openai', 'OpenAI', 'https://api.openai.com/v1', false],
+      ['openrouter', 'OpenRouter', 'https://openrouter.ai/api/v1', false], ['custom', 'Other (OpenAI-compatible)', '', false],
+    ].map(([id, name, base_url, local]) => ({ id, name, base_url, local, needs_key: !local && id !== 'custom', has_key: id === 'openai' })),
+    brain_find_local: () => [{ provider: 'ollama', name: 'Ollama', base_url: 'http://127.0.0.1:11434/v1', models: [
+      { id: 'qwen3:8b', vision: false, tools: true, context: 40960 }, { id: 'gemma3:12b', vision: true, tools: false, context: 131072 }] }],
+    brain_models: () => [{ id: 'qwen3:8b', vision: false, tools: true, context: 40960 }, { id: 'gemma3:12b', vision: true, tools: false, context: 131072 }],
   };
   Object.assign(routes, window.__MOCK_ROUTES || {});
   window.__MOCK_EMIT = (event, payload) => (listeners[event] || []).forEach((id) => callbacks[id] && callbacks[id]({ event, id, payload }));

@@ -284,7 +284,7 @@ fn short(s: &str, max: usize) -> String {
     activity::truncate(first, max)
 }
 
-fn changed(app: &AppHandle) {
+pub(crate) fn changed(app: &AppHandle) {
     refresh_tray(app);
     let _ = app.emit_to(MAIN, STATE_EVENT, ());
 }

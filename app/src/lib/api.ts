@@ -50,7 +50,57 @@ export interface Settings {
   /** Streaming mode: OBS and screen shares see the AI cursor. */
   streaming_mode: boolean;
   voice: VoiceSettings;
+  /** Which brain answers: Claude Code or Pindot's own loop. */
+  brain: BrainSettings;
   [extra: string]: unknown;
+}
+
+/** 'claude_code': the user's Claude Code. 'loop': Pindot's own loop. */
+export type BrainKind = 'claude_code' | 'loop';
+/** Can the model see pictures? 'auto' asks the server. */
+export type Vision = 'auto' | 'on' | 'off';
+
+export interface TestResult {
+  base_url: string;
+  model: string;
+  ok: boolean;
+  /** One sentence on what failed; empty when it passed. */
+  note: string;
+  at: number;
+}
+
+export interface BrainSettings {
+  kind: BrainKind;
+  provider: string;
+  base_url: string;
+  model: string;
+  vision: Vision;
+  context_tokens: number | null;
+  tested: TestResult[];
+}
+
+export interface ProviderView {
+  id: string;
+  name: string;
+  base_url: string;
+  local: boolean;
+  needs_key: boolean;
+  /** A key is saved for it (never the key itself). */
+  has_key: boolean;
+}
+
+export interface ModelInfo {
+  id: string;
+  vision: boolean | null;
+  tools: boolean | null;
+  context: number | null;
+}
+
+export interface FoundServer {
+  provider: string;
+  name: string;
+  base_url: string;
+  models: ModelInfo[];
 }
 
 export interface PhononVoice {
@@ -384,6 +434,13 @@ export interface ImportResult {
 }
 
 export const api = {
+  brainProviders: () => invoke<ProviderView[]>('brain_providers'),
+  brainFindLocal: () => invoke<FoundServer[]>('brain_find_local'),
+  brainModels: (provider: string, baseUrl: string) => invoke<ModelInfo[]>('brain_models', { provider, baseUrl }),
+  brainKeySet: (provider: string, key: string) => invoke<string | null>('brain_key_set', { provider, key }),
+  brainKeyDelete: (provider: string) => invoke<void>('brain_key_delete', { provider }),
+  brainTest: (brain: BrainSettings) => invoke<TestResult>('brain_test', { brain }),
+  brainChoose: (brain: BrainSettings) => invoke<void>('brain_choose', { brain }),
   appInfo: () => invoke<AppInfo>('app_info'),
   settingsGet: () => invoke<SettingsView>('settings_get'),
   chooseBrainFolder: () => invoke<string | null>('choose_brain_folder'),
