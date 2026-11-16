@@ -8,7 +8,7 @@
   const at = (ms, fn) => setTimeout(fn, ms);
   const P = (x, y) => ({ x, y });
   const stay = (x, y) => F('pindot:cursor', { from: P(x, y), to: P(x, y), ms: 40, label: '' });
-  if (color) F('pindot:cursor-color', color);
+  if (color) { F('pindot:cursor-color', color); setTimeout(() => window.__logs.push('accent ' + document.documentElement.style.getPropertyValue('--accent')), 200); }
   const mate = (x, y, ms) => { const t = setInterval(() => F('pindot:companion', { x, y, level: 0.35 + 0.3 * Math.abs(Math.sin(Date.now() / 140)) }), 80); at(ms, () => clearInterval(t)); };
   const S = {
     glide: () => F('pindot:cursor', { from: P(40, 220), to: P(380, 90), ms: 900, label: 'Open Mail' }),
