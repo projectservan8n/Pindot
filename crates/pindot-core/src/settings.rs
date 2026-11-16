@@ -49,6 +49,8 @@ pub struct Settings {
     /// caption bubble; Pindot's own screenshots still leave them out.
     pub streaming_mode: bool,
     pub voice: VoiceSettings,
+    /// Which brain answers: Claude Code (the default) or Pindot's own loop.
+    pub brain: crate::brain::native::settings::BrainSettings,
     /// Fields this version doesn't know, kept as they were.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
@@ -65,6 +67,7 @@ impl Default for Settings {
             cursor_color: DEFAULT_CURSOR_COLOR.into(),
             streaming_mode: false,
             voice: VoiceSettings::default(),
+            brain: Default::default(),
             extra: Default::default(),
         }
     }
@@ -245,6 +248,7 @@ impl Settings {
             }
         }
         problems.extend(crate::voice::assistant_problems(&self.voice.assistant_name, &self.voice.talk_notes));
+        problems.extend(self.brain.problems());
         if problems.is_empty() { Ok(()) } else { Err(problems) }
     }
 }
@@ -507,6 +511,21 @@ mod tests {
         // A relative folder from a hand-edit is reported by validate.
         s.voice.brain_folder = Some("notes".into());
         assert!(s.validate().unwrap_err().iter().any(|p| p.starts_with("Brain folder")));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_without_a_brain_block_means_claude_code() {
+        let dir = temp_dir("nobrain");
+        fs::write(Settings::path_in(&dir), r#"{"version":1,"port":47823}"#).unwrap();
+        let (mut s, _) = Settings::load_in(&dir).unwrap();
+        assert!(!s.brain.is_loop());
+        s.brain.kind = crate::brain::native::settings::BrainKind::Loop;
+        s.brain.model = "qwen3:8b".into();
+        s.save_in(&dir).unwrap();
+        assert_eq!(Settings::load_in(&dir).unwrap().0.brain, s.brain);
+        s.brain.model.clear();
+        assert!(s.validate().unwrap_err().iter().any(|p| p.contains("choose a model")));
         fs::remove_dir_all(&dir).unwrap();
     }
 }
