@@ -315,6 +315,17 @@
       <input type="checkbox" bind:checked={view.settings.voice.captions} />
       Show what {assistantName} says in a bubble next to the cursor
     </label>
+    <label class="row">
+      <input type="checkbox" bind:checked={view.settings.streaming_mode} disabled={!view.streaming_supported} />
+      Streaming mode
+    </label>
+    <p class="small muted">
+      {#if view.streaming_supported}
+        Show {assistantName}'s cursor in OBS and screen shares. {assistantName}'s own screenshots still leave it out. The Pindot window, the Vault and approval popups stay hidden. Applies at once.
+      {:else}
+        Needs macOS 14 or newer.
+      {/if}
+    </p>
   </section>
 
   <section>

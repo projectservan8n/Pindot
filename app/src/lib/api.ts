@@ -47,6 +47,8 @@ export interface Settings {
   onboarding_done: boolean;
   /** The AI cursor's colour, `#rrggbb`. */
   cursor_color: string;
+  /** Streaming mode: OBS and screen shares see the AI cursor. */
+  streaming_mode: boolean;
   voice: VoiceSettings;
   [extra: string]: unknown;
 }
@@ -76,6 +78,8 @@ export interface SettingsView {
   default_port: number;
   running_port: number | null;
   os: 'macos' | 'windows';
+  /** False on macOS 13: streaming mode needs macOS 14. */
+  streaming_supported: boolean;
   /** Why the saved brain folder cannot be used now; null = fine or unset. */
   brain_folder_notice: string | null;
 }
