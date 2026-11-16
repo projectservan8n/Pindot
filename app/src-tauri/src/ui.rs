@@ -992,6 +992,23 @@ pub fn voice_set_enabled(app: AppHandle, on: bool) -> Result<(), String> {
     set_voice_enabled(&app, on)
 }
 
+/// What stops Chat and what stops hold-to-talk, separately. Read-only.
+#[derive(Serialize)]
+pub struct SetupCheck {
+    chat: Vec<String>,
+    voice: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn setup_check(app: AppHandle) -> SetupCheck {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = start_plan(&app);
+        SetupCheck { chat: p.chat, voice: p.voice }
+    })
+    .await
+    .unwrap_or(SetupCheck { chat: vec![], voice: vec![] })
+}
+
 /// Why hold-to-talk is off (empty = it can run). Read-only.
 #[tauri::command]
 pub async fn voice_check(app: AppHandle) -> Vec<String> {

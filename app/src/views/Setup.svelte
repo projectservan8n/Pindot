@@ -95,8 +95,10 @@
     finishing = true;
     try {
       await api.onboardingFinish();
-      blockers = await api.voiceCheck();
-      if (blockers.length === 0) onDone();
+      const c = await api.setupCheck();
+      blockers = c.chat;
+      // Chat does not wait for the voice: it opens as soon as the assistant can run.
+      if (c.chat.length === 0) onDone();
     } catch (e) {
       message = errorText(e);
     } finally {
@@ -278,7 +280,7 @@
   <button class="primary" onclick={finish} disabled={finishing}>Finish setup</button>
   {#if blockers && blockers.length > 0}
     <div class="card bad">
-      <p>Saved. Hold-to-talk starts once these are sorted:</p>
+      <p>Saved. Chat starts once these are sorted:</p>
       <ul>
         {#each blockers as b (b)}<li>{b}</li>{/each}
       </ul>

@@ -243,6 +243,7 @@ pub fn run() {
             ui::onboarding_finish,
             ui::voice_set_enabled,
             ui::voice_check,
+            ui::setup_check,
         ])
         .on_window_event(|window, event| {
             // The main window closed: the keyboard goes back to the user's app.

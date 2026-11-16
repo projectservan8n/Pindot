@@ -406,6 +406,7 @@ export const api = {
   activityClear: () => invoke<void>('activity_clear'),
   onboardingFinish: () => invoke<void>('onboarding_finish'),
   voiceSetEnabled: (on: boolean) => invoke<void>('voice_set_enabled', { on }),
+  setupCheck: () => invoke<{ chat: string[]; voice: string[] }>('setup_check'),
   voiceCheck: () => invoke<string[]>('voice_check'),
   chatState: () => invoke<ChatView>('chat_state'),
   chatSend: (text: string, files: string[], speak: boolean) => invoke<void>('chat_send', { text, files, speak }),
