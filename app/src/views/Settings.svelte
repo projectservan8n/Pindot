@@ -3,6 +3,7 @@
   import { api, errorText, type AppInfo, type HotkeyCheck, type InputDevices, type SettingsView, type TalkStyle } from '../lib/api';
   import { chordFromCodes, cursorPresets, eyeInk, formatBytes, hotkeyPresets, hotkeyWords, isCursorColor } from '../lib/format';
   import Connect from './Connect.svelte';
+  import BrainPicker from '../lib/BrainPicker.svelte';
   import { refreshAssistant } from '../lib/assistant.svelte';
 
   let { info }: { info: AppInfo | null } = $props();
@@ -261,6 +262,7 @@
 
   <section>
     <h2>Brain folder</h2>
+    {#if view.settings.brain.kind === 'loop'}<p class="small warn-text">The brain folder works with Claude Code only for now.</p>{/if}
     <div class="row">
       <label for="brain">Brain folder</label>
       <input id="brain" readonly value={view.settings.voice.brain_folder ?? ''} placeholder="None" />
@@ -454,7 +456,14 @@
   </section>
 
   <section>
+    <h2>Brain</h2>
+    <p class="small muted">The AI that understands you and uses the desktop tools. Changing it starts a fresh conversation.</p>
+    <BrainPicker bind:brain={view.settings.brain} />
+  </section>
+
+  <section>
     <h2>Claude</h2>
+    {#if view.settings.brain.kind === 'loop'}<p class="small warn-text">These apply to Claude Code only, not to the brain chosen above.</p>{/if}
     <p class="small muted">For what you ask by voice. A smaller model and lower effort reply sooner and use less of your Claude plan.</p>
     <div class="row">
       <label for="cmodel">Model</label>

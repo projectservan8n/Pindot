@@ -9,13 +9,16 @@
     type ModelInfo,
     type Permission,
     type PermissionStatus,
+    type Settings,
   } from '../lib/api';
+  import BrainPicker from '../lib/BrainPicker.svelte';
   import { formatBytes, percent, permissionText, progressText } from '../lib/format';
   import Connect from './Connect.svelte';
 
   let { info, onDone }: { info: AppInfo | null; onDone: () => void } = $props();
 
   let claude = $state<ClaudeInfo | null>(null);
+  let settings = $state<Settings | null>(null);
   let checkingClaude = $state(false);
   let perms = $state<PermissionStatus[]>([]);
   let models = $state<ModelInfo[]>([]);
@@ -107,6 +110,7 @@
   }
 
   onMount(() => {
+    api.settingsGet().then((v) => (settings = v.settings), (e) => (message = errorText(e)));
     checkClaude();
     loadPerms();
     loadModels();
@@ -144,10 +148,18 @@
 </script>
 
 <section>
-  <h2>1. Claude Code</h2>
+  <h2>1. Choose a brain</h2>
+  <p class="muted">
+    The brain is the AI that understands you and uses the desktop tools: your own Claude Code, a model running on this
+    computer, or a service you have an API key for.
+  </p>
+  {#if settings}
+    <BrainPicker bind:brain={settings.brain} claudeReady={!!claude?.signed_in} own />
+  {/if}
+  {#if !settings || settings.brain.kind === 'claude_code'}
   <p class="muted">
     Pindot drives your own Claude Code (the <code>claude</code> command) on your own sign-in. It never uses an API
-    key.
+    key for it.
   </p>
   {#if !claude}
     <p>Checking for <code>claude</code>…</p>
@@ -175,6 +187,7 @@
     </p>
   {/if}
   <button onclick={checkClaude} disabled={checkingClaude}>Check again</button>
+  {/if}
 </section>
 
 <section>

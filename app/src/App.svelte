@@ -83,7 +83,6 @@
       <Rusty size={30} />
       <div class="brand-text">
         <strong>Pindot</strong>
-        <span>for Claude Code</span>
       </div>
     </div>
     <nav aria-label="Main">

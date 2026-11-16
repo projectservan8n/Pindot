@@ -89,7 +89,8 @@ export interface ProviderView {
   has_key: boolean;
 }
 
-export interface ModelInfo {
+/** A model a brain server offers, and what is known about it. */
+export interface BrainModel {
   id: string;
   vision: boolean | null;
   tools: boolean | null;
@@ -100,7 +101,7 @@ export interface FoundServer {
   provider: string;
   name: string;
   base_url: string;
-  models: ModelInfo[];
+  models: BrainModel[];
 }
 
 export interface PhononVoice {
@@ -436,7 +437,7 @@ export interface ImportResult {
 export const api = {
   brainProviders: () => invoke<ProviderView[]>('brain_providers'),
   brainFindLocal: () => invoke<FoundServer[]>('brain_find_local'),
-  brainModels: (provider: string, baseUrl: string) => invoke<ModelInfo[]>('brain_models', { provider, baseUrl }),
+  brainModels: (provider: string, baseUrl: string) => invoke<BrainModel[]>('brain_models', { provider, baseUrl }),
   brainKeySet: (provider: string, key: string) => invoke<string | null>('brain_key_set', { provider, key }),
   brainKeyDelete: (provider: string) => invoke<void>('brain_key_delete', { provider }),
   brainTest: (brain: BrainSettings) => invoke<TestResult>('brain_test', { brain }),
