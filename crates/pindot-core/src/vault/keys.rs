@@ -59,6 +59,22 @@ impl KeyProvider for MemoryKeys {
     }
 }
 
+/// Stands in when the OS credential store can't be opened at all: every call
+/// says so, and the vault fails closed (nothing is read or written).
+pub struct UnavailableKeys(pub String);
+
+impl KeyProvider for UnavailableKeys {
+    fn load(&self) -> Result<Option<Key>, KeyError> {
+        Err(KeyError::Unavailable(self.0.clone()))
+    }
+    fn store(&self, _key: &Key) -> Result<(), KeyError> {
+        Err(KeyError::Unavailable(self.0.clone()))
+    }
+    fn place(&self) -> String {
+        "unavailable".into()
+    }
+}
+
 /// The OS credential store, through `keyring-core` and one native store per
 /// OS (no Linux Secret Service: Pindot ships for macOS and Windows).
 pub struct SystemKeys {

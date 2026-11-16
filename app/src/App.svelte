@@ -7,18 +7,20 @@
   import Setup from './views/Setup.svelte';
   import Settings from './views/Settings.svelte';
   import Activity from './views/Activity.svelte';
+  import Vault from './views/Vault.svelte';
 
-  type View = 'chat' | 'activity' | 'settings' | 'setup';
+  type View = 'chat' | 'activity' | 'vault' | 'settings' | 'setup';
   const nav: { id: View; label: string }[] = [
     { id: 'chat', label: 'Chat' },
+    { id: 'vault', label: 'Vault' },
     { id: 'activity', label: 'Activity' },
     { id: 'settings', label: 'Settings' },
   ];
-  const titles: Record<View, string> = { chat: 'Chat', activity: 'Activity', settings: 'Settings', setup: 'Setup' };
+  const titles: Record<View, string> = { chat: 'Chat', vault: 'Vault', activity: 'Activity', settings: 'Settings', setup: 'Setup' };
 
   function fromHash(): View | null {
     const h = location.hash.replace('#', '');
-    return h === 'chat' || h === 'settings' || h === 'activity' || h === 'setup' ? h : null;
+    return h === 'chat' || h === 'settings' || h === 'activity' || h === 'vault' || h === 'setup' ? h : null;
   }
 
   // Chat is the home once setup is done; the first run opens Setup.
@@ -29,7 +31,7 @@
   let notice = $state<string | null>(null);
 
   function go(v: string) {
-    const next: View = v === 'chat' || v === 'settings' || v === 'activity' ? v : 'setup';
+    const next: View = v === 'chat' || v === 'settings' || v === 'activity' || v === 'vault' ? v : 'setup';
     view = next;
     ready = true;
     if (location.hash !== `#${next}`) history.replaceState(null, '', `#${next}`);
@@ -124,6 +126,8 @@
         <Setup {info} onDone={() => go('chat')} />
       {:else if view === 'settings'}
         <Settings {info} />
+      {:else if view === 'vault'}
+        <Vault />
       {:else}
         <Activity />
       {/if}

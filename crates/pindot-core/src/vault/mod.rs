@@ -260,6 +260,17 @@ impl Vault {
         Vault { dir, keys, key: Mutex::new(None), io: Mutex::new(()) }
     }
 
+    /// The vault in Pindot's data dir, with its key in the OS credential
+    /// store. Opening touches neither; the key is read on first use.
+    pub fn open_system() -> Vault {
+        let dir = crate::paths::data_dir().unwrap_or_else(|_| std::env::temp_dir().join("pindot-vault-unavailable"));
+        let keys: Arc<dyn KeyProvider> = match keys::SystemKeys::new() {
+            Ok(k) => Arc::new(k),
+            Err(e) => Arc::new(keys::UnavailableKeys(e.to_string())),
+        };
+        Vault::new(dir, keys)
+    }
+
     pub fn place_of_key(&self) -> String {
         self.keys.place()
     }

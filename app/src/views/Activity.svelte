@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api, errorText, events, type ActivityEntry, type ActivityView } from '../lib/api';
+  import { api, errorText, events, type ActivityEntry, type ActivityView, type UseEntry } from '../lib/api';
   import { passes, shortTime } from '../lib/format';
 
   let view = $state<ActivityView | null>(null);
@@ -8,10 +8,12 @@
   let tool = $state('');
   let confirming = $state(false);
   let message = $state('');
+  let vaultUses = $state<UseEntry[]>([]);
 
   async function load() {
     try {
       view = await api.activityAll(session || null, tool || null);
+      vaultUses = await api.vaultUses(null).catch(() => []);
     } catch (e) {
       message = errorText(e);
     }
@@ -94,6 +96,23 @@
             <td>{e.tool}</td>
             <td class="args">{e.args}</td>
             <td>{e.outcome}</td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  {/if}
+  {#if vaultUses.length}
+    <h2 class="small">Vault uses</h2>
+    <table class="actlog">
+      <thead><tr><th class="c-time">Time</th><th class="c-session">Session</th><th>Login</th><th>Field</th><th class="c-result">Result</th></tr></thead>
+      <tbody>
+        {#each [...vaultUses].reverse().slice(0, 100) as u, i (i)}
+          <tr class:fail={!u.ok}>
+            <td class="nowrap">{shortTime(u.ts)}</td>
+            <td><code>{u.session}</code></td>
+            <td>{u.login_name} <span class="muted">{u.site}</span></td>
+            <td>{u.field}</td>
+            <td>{u.result}{u.detail ? `: ${u.detail}` : ''}</td>
           </tr>
         {/each}
       </tbody>

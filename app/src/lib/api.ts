@@ -269,6 +269,104 @@ export interface ApprovalRequest {
   apps: AppRequest[];
   /** Claude's own words: untrusted, shown as plain text only. */
   reason: string;
+  /** A saved login Claude wants to sign in with. Every field comes from the vault. */
+  login: LoginRequest | null;
+}
+
+export interface LoginRequest {
+  name: string;
+  site: string;
+  username: string;
+  /** username | password | code */
+  field: string;
+}
+
+export interface LoginSummary {
+  id: string;
+  name: string;
+  /** Scheme, host and port only. */
+  origin: string;
+  username: string;
+  has_2fa: boolean;
+  created: string;
+  updated: string;
+  last_used: string | null;
+  /** The current key cannot open this login (it can still be deleted). */
+  locked: boolean;
+}
+
+export interface VaultView {
+  logins: LoginSummary[];
+  /** Where the key is kept, e.g. "macOS Keychain". */
+  place: string;
+  problem: string | null;
+}
+
+export interface NewLogin {
+  name: string;
+  site: string;
+  username: string;
+  password: string;
+  authenticator: string | null;
+}
+
+export type AuthChange = 'keep' | 'clear' | { set: string };
+
+export interface EditLogin {
+  name: string;
+  site: string;
+  username: string;
+  /** Empty or null keeps the saved password. */
+  password: string | null;
+  authenticator: AuthChange;
+}
+
+export interface UseEntry {
+  ts: string;
+  login_id: string;
+  login_name: string;
+  site: string;
+  /** username | password | code | - (a change to the vault) */
+  field: string;
+  result: string;
+  detail: string;
+  session: string;
+  ok: boolean;
+}
+
+export interface ImportColumn {
+  field: string;
+  header: string;
+}
+export interface ImportSkip {
+  line: number;
+  reason: string;
+}
+export interface ImportConflict {
+  id: string;
+  name: string;
+  site: string;
+  username: string;
+}
+export interface ImportPreview {
+  format: string;
+  columns: ImportColumn[];
+  total_rows: number;
+  new_logins: number;
+  unchanged: number;
+  conflicts: ImportConflict[];
+  gain_key: number;
+  skipped: ImportSkip[];
+  bad_authenticator: number;
+}
+export interface ImportResult {
+  imported: number;
+  replaced: number;
+  keys_added: number;
+  unchanged: number;
+  kept_existing: number;
+  skipped: number;
+  skipped_reasons: ImportSkip[];
 }
 
 export const api = {
@@ -308,6 +406,14 @@ export const api = {
   chatImage: (path: string) => invoke<string>('chat_image', { path }),
   chatHistory: () => invoke<HistoryEntry[]>('chat_history'),
   chatOpen: (sessionId: string) => invoke<OpenedChat>('chat_open', { sessionId }),
+  vaultState: () => invoke<VaultView>('vault_state'),
+  vaultAdd: (login: NewLogin) => invoke<LoginSummary>('vault_add', { login }),
+  vaultUpdate: (id: string, login: EditLogin) => invoke<LoginSummary>('vault_update', { id, login }),
+  vaultDelete: (id: string) => invoke<void>('vault_delete', { id }),
+  vaultUses: (id: string | null) => invoke<UseEntry[]>('vault_uses', { id }),
+  vaultImportChoose: () => invoke<ImportPreview | null>('vault_import_choose'),
+  vaultImportApply: (replace: string[]) => invoke<ImportResult>('vault_import_apply', { replace }),
+  vaultImportCancel: () => invoke<void>('vault_import_cancel'),
   approvalsPending: () => invoke<ApprovalRequest[]>('approvals_pending'),
   approvalAnswerInline: (id: string, allow: boolean) => invoke<void>('approval_answer_inline', { id, allow }),
 };

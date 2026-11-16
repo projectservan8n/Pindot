@@ -86,12 +86,13 @@ impl Approver for TauriApprover {
         let _ = self.app.emit("pindot:approval", &req);
         self.pending.lock().unwrap().insert(id, Pending { req: req.clone(), reply, restore });
         let script = format!("window.__PINDOT_APPROVAL__ = {json};");
-        let height = 230.0 + 64.0 * req.apps.len().min(6) as f64;
+        let height = if req.login.is_some() { 330.0 } else { 230.0 + 64.0 * req.apps.len().min(6) as f64 };
+        let title = if req.login.is_some() { "Pindot: let Claude sign in?" } else { "Pindot: allow Claude to control an app?" };
         let app = self.app.clone();
         let protect = !self.capturable;
         let _ = self.app.run_on_main_thread(move || {
             let built = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("approval.html".into()))
-                .title("Pindot: allow Claude to control an app?")
+                .title(title)
                 .inner_size(460.0, height)
                 .resizable(false)
                 .minimizable(false)

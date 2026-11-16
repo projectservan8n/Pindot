@@ -24,10 +24,20 @@
 </style>
 </head>
 <body>
-  <h1>Claude wants to control <span id="title"></span></h1>
-  <div id="apps"></div>
-  <div class="label">Claude's reason (written by Claude, not verified):</div>
-  <div class="reason" id="reason"></div>
+  <h1 id="h1">Claude wants to control <span id="title"></span></h1>
+  <div id="appsection">
+    <div id="apps"></div>
+    <div class="label">Claude's reason (written by Claude, not verified):</div>
+    <div class="reason" id="reason"></div>
+  </div>
+  <div id="loginsection" hidden>
+    <div class="app">
+      <div class="name" id="l-name"></div>
+      <div class="meta" id="l-site"></div>
+      <div class="meta">Username: <span id="l-user"></span></div>
+    </div>
+    <p>Pindot will type <strong id="l-field"></strong> into the page you have open, only if it is exactly this website. Claude never sees it.</p>
+  </div>
   <div class="row">
     <button id="deny">Deny</button>
     <button id="allow" class="allow">Allow for this session</button>

@@ -34,6 +34,7 @@ mod chat;
 mod overlay;
 mod test_turn;
 mod ui;
+mod vault;
 mod voice;
 
 use std::sync::Arc;
@@ -224,6 +225,14 @@ pub fn run() {
             ui::connect_claude,
             ui::disconnect_claude,
             ui::token_regenerate,
+            vault::vault_state,
+            vault::vault_add,
+            vault::vault_update,
+            vault::vault_delete,
+            vault::vault_uses,
+            vault::vault_import_choose,
+            vault::vault_import_apply,
+            vault::vault_import_cancel,
             ui::activity_all,
             ui::activity_clear,
             ui::onboarding_finish,
@@ -298,6 +307,8 @@ pub fn run() {
             }
             let ov = Arc::new(TauriOverlay::new(app.handle().clone(), monitors.first().map_or(1.0, |m| m.unit)));
             app.manage(ov.clone());
+            app.manage(Arc::new(pindot_core::vault::Vault::open_system()));
+            app.manage(vault::ImportHold::default());
 
             if args.server {
                 match start_server(app.handle(), &ov, port, args.capturable) {
@@ -388,6 +399,7 @@ fn start_server(
     let approver = Arc::new(TauriApprover::new(app.clone(), ax, capturable));
     let log_path = activity_log_path()?;
     let activity = Arc::new(ActivityLog::open(log_path.clone()));
+    let vault = app.state::<Arc<pindot_core::vault::Vault>>().inner().clone();
     let state = ServerState::new(ServerDeps::native(ov.clone(), approver.clone(), activity, vault));
     let token = load_or_create_token()?;
     let server = match tauri::async_runtime::block_on(start(state.clone(), &token, port)) {

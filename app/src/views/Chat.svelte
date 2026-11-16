@@ -373,6 +373,13 @@
 
   {#each approvals as a (a.id)}
     <div class="approval" role="alertdialog" aria-labelledby={`ap-${a.id}`} aria-describedby={`apd-${a.id}`}>
+      {#if a.login}
+      <strong id={`ap-${a.id}`}>Let Rusty sign in with a saved login?</strong>
+      <div id={`apd-${a.id}`}>
+        <p><span class="appname">{a.login.name}</span> <span class="muted small">{a.login.site}</span></p>
+        <p class="small">Username: {a.login.username || '(none)'}. Pindot types {a.login.field === 'code' ? 'the current authenticator code' : `the ${a.login.field}`} itself, only on exactly this website. Rusty never sees it.</p>
+      </div>
+      {:else}
       <strong id={`ap-${a.id}`}>Allow Rusty to control {a.apps.length === 1 ? 'this app' : 'these apps'}?</strong>
       <ul id={`apd-${a.id}`}>
         {#each a.apps as app, k (k)}
@@ -383,6 +390,7 @@
         {/each}
       </ul>
       {#if a.reason}<p class="reason small"><span class="muted">Its reason, in its own words:</span> <span class="plain">{a.reason}</span></p>{/if}
+      {/if}
       <div class="row">
         <button type="button" class="primary" onclick={() => decide(a, true)}>Allow for this session</button>
         <button type="button" class="danger" onclick={() => decide(a, false)}>Deny</button>
