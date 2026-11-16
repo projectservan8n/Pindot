@@ -10,6 +10,7 @@ pub mod paths;
 pub mod platform;
 pub mod server;
 pub mod settings;
+pub mod vault;
 pub mod voice;
 
 /// Default loopback port for the MCP server and hook receiver.

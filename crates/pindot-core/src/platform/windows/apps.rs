@@ -750,4 +750,8 @@ impl Accessibility for WinAccessibility {
             Ok(class.contains("edit") && style & ES_PASSWORD != 0)
         }
     }
+
+    fn focused_page(&self) -> Result<Option<crate::platform::FocusedPage>> {
+        uia::focused_page()
+    }
 }

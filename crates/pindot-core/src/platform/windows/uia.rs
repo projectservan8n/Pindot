@@ -34,7 +34,7 @@ use windows::Win32::UI::Accessibility::{
     IUIAutomationElement, IUIAutomationElement3, IUIAutomationExpandCollapsePattern, IUIAutomationInvokePattern,
     IUIAutomationLegacyIAccessiblePattern, IUIAutomationSelectionItemPattern, IUIAutomationTogglePattern,
     IUIAutomationValuePattern, TreeScope_Children, UIA_AcceleratorKeyPropertyId, UIA_BoundingRectanglePropertyId,
-    UIA_ControlTypePropertyId, UIA_ExpandCollapsePatternId, UIA_HasKeyboardFocusPropertyId, UIA_InvokePatternId,
+    UIA_ControlTypePropertyId, UIA_DocumentControlTypeId, UIA_EditControlTypeId, UIA_ExpandCollapsePatternId, UIA_HasKeyboardFocusPropertyId, UIA_InvokePatternId,
     UIA_IsEnabledPropertyId, UIA_IsPasswordPropertyId, UIA_LegacyIAccessiblePatternId, UIA_NamePropertyId,
     UIA_SelectionItemPatternId, UIA_TogglePatternId, UIA_ValuePatternId,
 };
@@ -43,7 +43,7 @@ use crate::platform::windows_logic::{
     Patterns, PressAction, UIA_MENU_BAR, click_presses, menu_shows_at, press_action, shows_menu_on_request,
     uia_has_value, uia_role, visible_text, web_tree_pending,
 };
-use crate::platform::{AxNode, AxTree, ElementHandle, PlatformError, Rect, Result, TreeLimits};
+use crate::platform::{AxNode, AxTree, ElementHandle, FocusedPage, PlatformError, Rect, Result, TreeLimits};
 
 /// How long a press may take before it counts as done.
 const PRESS_WAIT: Duration = Duration::from_secs(2);
@@ -422,5 +422,40 @@ pub fn focused_is_password() -> Result<bool> {
     unsafe {
         let focused = ui.GetFocusedElement().map_err(err)?;
         Ok(focused.CurrentIsPassword().map_err(err)?.as_bool())
+    }
+}
+
+/// The focused field and the address of every web document above it.
+/// Browsers expose a page's address as the value of its Document element
+/// (frames are Documents of their own). A document whose address can't be
+/// read is kept as "" so the caller's exact-match check fails on it.
+pub fn focused_page() -> Result<Option<FocusedPage>> {
+    let ui = automation()?;
+    // SAFETY: COM calls on valid interface pointers; an element that vanishes
+    // on the way simply ends the walk.
+    unsafe {
+        let Ok(focused) = ui.GetFocusedElement() else { return Ok(None) };
+        let pid = focused.CurrentProcessId().map_err(err)?;
+        let secure = focused.CurrentIsPassword().map_err(err)?.as_bool();
+        let kind = focused.CurrentControlType().map_err(err)?;
+        let text_input = secure || kind == UIA_EditControlTypeId;
+        let walker = ui.ControlViewWalker().map_err(err)?;
+        let mut urls: Vec<String> = Vec::new();
+        let mut cur = Some(focused);
+        for _ in 0..200 {
+            let Some(el) = cur else { break };
+            if el.CurrentControlType().is_ok_and(|k| k == UIA_DocumentControlTypeId) {
+                let url = el
+                    .GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId)
+                    .ok()
+                    .and_then(|p| p.CurrentValue().ok())
+                    .map(|b| b.to_string())
+                    .unwrap_or_default();
+                urls.push(url);
+            }
+            cur = walker.GetParentElement(&el).ok();
+        }
+        urls.reverse();
+        Ok(Some(FocusedPage { pid: pid as i32, secure, text_input, page_urls: urls }))
     }
 }

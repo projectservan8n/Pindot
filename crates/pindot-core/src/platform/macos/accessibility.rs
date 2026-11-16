@@ -13,7 +13,7 @@ use std::time::Instant;
 use objc2_app_kit::{NSApplicationActivationOptions, NSApplicationActivationPolicy, NSRunningApplication, NSWorkspace};
 use objc2_application_services::{AXCopyMultipleAttributeOptions, AXError, AXUIElement, AXValue, AXValueType};
 use objc2_core_foundation::{
-    CFArray, CFBoolean, CFDictionary, CFNumber, CFRetained, CFString, CFType, CGPoint, CGRect, CGSize, Type,
+    CFArray, CFBoolean, CFDictionary, CFNumber, CFRetained, CFString, CFType, CFURL, CGPoint, CGRect, CGSize, Type,
 };
 use objc2_core_graphics::{
     CGRectMakeWithDictionaryRepresentation, CGWindowListCopyWindowInfo, CGWindowListOption, kCGWindowAlpha,
@@ -21,7 +21,7 @@ use objc2_core_graphics::{
 };
 
 use crate::platform::{
-    Accessibility, ActionTarget, AppInfo, AxNode, AxTree, ElementHandle, HitElement, PRESS_ROLES, PlatformError, Point, Rect,
+    Accessibility, ActionTarget, AppInfo, AxNode, AxTree, ElementHandle, FocusedPage, HitElement, PRESS_ROLES, PlatformError, Point, Rect,
     ResolvedApp,
     Result, TreeLimits, WindowInfo,
 };
@@ -754,6 +754,41 @@ impl Accessibility for MacAccessibility {
         let role = attr_opt(&el, "AXRole").and_then(|v| as_string(&v)).unwrap_or_default();
         let sub = attr_opt(&el, "AXSubrole").and_then(|v| as_string(&v)).unwrap_or_default();
         Ok(role == "AXSecureTextField" || sub == "AXSecureTextField")
+    }
+
+    /// The focused field and the address of every web area above it. Web
+    /// areas are read from the field's own ancestors (not from the address
+    /// bar, which hides the scheme), so a frame inside a page is seen too.
+    fn focused_page(&self) -> Result<Option<FocusedPage>> {
+        set_global_timeout();
+        let sys = unsafe { AXUIElement::new_system_wide() };
+        let Some(el) = attr_opt(&sys, "AXFocusedUIElement").and_then(|v| v.downcast::<AXUIElement>().ok()) else {
+            return Ok(None);
+        };
+        let Some(pid) = element_pid(&el) else { return Ok(None) };
+        let role = attr_opt(&el, "AXRole").and_then(|v| as_string(&v)).unwrap_or_default();
+        let sub = attr_opt(&el, "AXSubrole").and_then(|v| as_string(&v)).unwrap_or_default();
+        let secure = role == "AXSecureTextField" || sub == "AXSecureTextField";
+        let text_input = secure || matches!(role.as_str(), "AXTextField" | "AXTextArea" | "AXComboBox" | "AXSearchField");
+        let mut urls: Vec<String> = Vec::new();
+        let mut cur = Some(el);
+        for _ in 0..200 {
+            let Some(node) = cur else { break };
+            let r = attr_opt(&node, "AXRole").and_then(|v| as_string(&v)).unwrap_or_default();
+            if r == "AXWebArea" {
+                // A web area whose address can't be read is kept as "" so the
+                // caller's exact-match check fails on it.
+                let url = attr_opt(&node, "AXURL")
+                    .and_then(|v| {
+                        v.downcast_ref::<CFURL>().map(|u| u.string().to_string()).or_else(|| as_string(&v))
+                    })
+                    .unwrap_or_default();
+                urls.push(url);
+            }
+            cur = attr_opt(&node, "AXParent").and_then(|v| v.downcast::<AXUIElement>().ok());
+        }
+        urls.reverse();
+        Ok(Some(FocusedPage { pid, secure, text_input, page_urls: urls }))
     }
 }
 

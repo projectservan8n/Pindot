@@ -396,6 +396,23 @@ pub struct HitElement {
     pub name: String,
 }
 
+/// Where keyboard focus is, as far as the vault needs to know: the app, whether
+/// the field is a password field, and the address of every web document the
+/// field sits in. Never any text the user typed.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FocusedPage {
+    pub pid: i32,
+    /// True when the system marks the focused field as a password field
+    /// (`AXSecureTextField` / UI Automation `IsPassword`).
+    pub secure: bool,
+    /// True when the focused element is some kind of text input.
+    pub text_input: bool,
+    /// The address of each web document that contains the focused element,
+    /// outermost first (a page, then any frame inside it). Empty when focus is
+    /// not inside a web page or the address could not be read.
+    pub page_urls: Vec<String>,
+}
+
 /// Windows, apps and accessibility trees (AX on macOS, UI Automation on
 /// Windows).
 pub trait Accessibility: Send + Sync {
@@ -442,6 +459,11 @@ pub trait Accessibility: Send + Sync {
     fn raise_window(&self, window: &WindowInfo) -> Result<()>;
     /// True if keyboard focus is in a password field.
     fn focused_is_secure(&self) -> Result<bool>;
+    /// Where keyboard focus is (see `FocusedPage`). `Ok(None)` when nothing
+    /// is focused or this platform cannot say; callers then refuse.
+    fn focused_page(&self) -> Result<Option<FocusedPage>> {
+        Ok(None)
+    }
 }
 
 /// The on-screen AI cursor overlay.

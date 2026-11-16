@@ -223,6 +223,8 @@ pub struct MockAccessibility {
     pub launched: Mutex<Vec<String>>,
     pub raised: Mutex<Vec<u64>>,
     pub secure_focus: AtomicBool,
+    /// What `focused_page` reports (None: nothing focused).
+    pub page: Mutex<Option<FocusedPage>>,
     pub hit: Mutex<Option<HitElement>>,
     pub targets: Mutex<Vec<MockTarget>>,
     /// AX actions performed, as (element id, action).
@@ -245,6 +247,7 @@ impl Default for MockAccessibility {
             launched: Mutex::new(vec![]),
             raised: Mutex::new(vec![]),
             secure_focus: AtomicBool::new(false),
+            page: Mutex::new(None),
             hit: Mutex::new(None),
             targets: Mutex::new(Vec::new()),
             performed: Mutex::new(Vec::new()),
@@ -379,6 +382,13 @@ impl Accessibility for MockAccessibility {
     }
     fn focused_is_secure(&self) -> Result<bool> {
         Ok(self.secure_focus.load(Ordering::SeqCst))
+    }
+    fn focused_page(&self) -> Result<Option<FocusedPage>> {
+        let mut page = self.page.lock().unwrap().clone();
+        if let Some(p) = page.as_mut() {
+            p.secure |= self.secure_focus.load(Ordering::SeqCst);
+        }
+        Ok(page)
     }
 }
 
