@@ -230,7 +230,7 @@
               {m.license} · {formatBytes(m.size)} · from {host(m.source)}{m.fallback ? ', with a fallback mirror' : ''}
             </div>
             {#if progress[m.id]}
-              <div class="bar"><div style={`width:${progress[m.id].pct}%`}></div></div>
+              <div class="bar"><div style:width="{progress[m.id].pct}%"></div></div>
               <div class="small" class:bad={!!progress[m.id].error}>{progress[m.id].error ?? progress[m.id].text}</div>
             {/if}
           </td>
