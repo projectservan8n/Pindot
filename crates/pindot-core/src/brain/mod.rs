@@ -14,6 +14,7 @@
 
 pub mod config;
 pub mod folder;
+pub mod native;
 pub mod persistent;
 pub mod pty;
 pub mod tailer;
