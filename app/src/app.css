@@ -482,13 +482,75 @@ textarea::placeholder {
   opacity: 1;
 }
 
+/* Our own checkbox and radio: WebKit draws the native ones differently from
+   Chrome (a bare tick, a dot with no ring), so both are drawn here. */
 input[type='checkbox'],
 input[type='radio'] {
-  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  flex: none;
+  display: inline-grid;
+  place-content: center;
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
   min-height: 0;
-  accent-color: var(--brand);
-  width: 16px;
-  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid var(--field-line);
+  background: var(--card);
+  cursor: pointer;
+}
+
+input[type='checkbox'] {
+  border-radius: 5px;
+}
+
+input[type='radio'] {
+  border-radius: 50%;
+}
+
+input[type='checkbox']:checked,
+input[type='radio']:checked {
+  background: var(--brand);
+  border-color: var(--brand);
+}
+
+input[type='checkbox']:checked::after {
+  content: '';
+  width: 5px;
+  height: 9px;
+  margin-top: -2px;
+  border: solid var(--on-brand);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+input[type='radio']:checked::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--on-brand);
+}
+
+input[type='checkbox']:disabled,
+input[type='radio']:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* A checkbox or radio with its sentence: the box stays on the first line,
+   a long sentence wraps beside it, never underneath. */
+label.row:has(> input[type='checkbox']),
+label.row:has(> input[type='radio']) {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+
+label.row > input[type='checkbox'],
+label.row > input[type='radio'] {
+  margin-top: 1px;
 }
 
 :focus-visible {
