@@ -451,7 +451,7 @@
                    { opacity: 1, transform: 'rotate(' + angle + 'deg) translateY(0)', offset: 0.4 },
                    { opacity: 0, transform: 'rotate(' + angle + 'deg) translateY(8px)' }],
         { duration: 520, delay: i * 70, easing: 'ease-out' });
-      if (el) el.innerHTML = '<svg width="16" height="10" viewBox="0 0 16 10"><polyline points="2,2 8,8 14,2" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="2,2 8,8 14,2" fill="none" stroke="#ff2d95" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      if (el) el.innerHTML = '<svg width="16" height="10" viewBox="0 0 16 10"><polyline points="2,2 8,8 14,2" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="2,2 8,8 14,2" fill="none" style="stroke:var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     }
   }
 
@@ -744,7 +744,6 @@
     st.setProperty('--accent-glow', 'rgba(' + rgb.join(', ') + ', 0.5)');
     st.setProperty('--ink', luminance(rgb) < 0.12 ? '#f5f5f7' : '#15151b');
   }
-  window.__pindotSetCursorColor = setCursorColor;
 
   // ------------------------------------------------------------- the eyes
   // Blinks come from a timer; the look follows the cursor's own velocity
