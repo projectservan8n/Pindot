@@ -563,6 +563,9 @@ pub fn settings_save(app: AppHandle, settings: Settings) -> Result<SaveResult, V
     if new.voice.assistant_name != old.voice.assistant_name {
         send_assistant_name(&app);
     }
+    if new.cursor_color != old.cursor_color {
+        send_cursor_color(&app);
+    }
     changed(&app);
     Ok(SaveResult { notes })
 }
@@ -572,6 +575,13 @@ pub fn settings_save(app: AppHandle, settings: Settings) -> Result<SaveResult, V
 pub fn send_assistant_name(app: &AppHandle) {
     if let Some(ui) = app.try_state::<Ui>() {
         let _ = app.emit("pindot:assistant", ui.settings().voice.assistant_name);
+    }
+}
+
+/// Tell the overlays the AI cursor's colour (`#rrggbb`).
+pub fn send_cursor_color(app: &AppHandle) {
+    if let Some(ui) = app.try_state::<Ui>() {
+        let _ = app.emit("pindot:cursor-color", ui.settings().cursor_color);
     }
 }
 

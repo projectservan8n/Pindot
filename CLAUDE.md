@@ -419,6 +419,28 @@ recorded; everything else was renamed (crates, bundle id `dev.pindot.app`,
   folder, so the voice brain answers its folder-trust dialog once more and
   old voice sessions can't be resumed. A `claude mcp add` registration keeps
   working: same server name, port and token.
+- **Cursor colour and Rusty's eyes** (Tony's request, 16 Nov 2026).
+  `cursor_color` is a `#rrggbb` string at the top level of `settings.json`
+  (default `#ff2d95`, today's pink), not in `voice`: there is no appearance
+  group, and a change in `voice` restarts hold-to-talk, which a colour must
+  not. A missing field loads as the default, a value that is not `#rrggbb`
+  falls back on load and is a problem on save. It reaches the overlay like
+  the name: `ui::send_cursor_color` emits `pindot:cursor-color` when it
+  changes and on `pindot:overlay-ready`. `overlay.js` (`setCursorColor`)
+  writes `--accent`, `--accent-lit` (HSL lightness +0.15), `--accent-deep`
+  (lightness -0.15, saturation x0.81), `--accent-glow`, `--accent-rgb` (the
+  halo, rings and beacon use it) and `--ink`; the body and trail gradient
+  stops read those variables, so no pink is hard-coded outside `:root`
+  defaults. Eyes are near-white (`#f5f5f7`) when the colour's relative
+  luminance is under 0.12, else `#15151b`. Settings has swatches, a colour
+  input and a preview; `lib/format.ts` holds the presets and the same
+  luminance rule for the preview. The eyes are animated with CSS only:
+  `#eyes` looks along the velocity `render()` already smooths (at most 7
+  drawing units, about 1.1 px), `#eyes-x` holds the mood
+  (`#arrow[data-eyes]`: listening, thinking, speaking, squint on a tap,
+  sleepy after 20 s resting, closed for 900 ms on Esc) and each eye rect
+  blinks from a 3 to 7 s timer. No extra frame loop. With reduced motion
+  only the blink stays.
 - **Assistant name and talk style** (Tony's request; default name Rusty).
   `voice.assistant_name` (1-24 characters, one line), `voice.talk_style`
   (friendly, brief, professional, playful) and `voice.talk_notes` (the

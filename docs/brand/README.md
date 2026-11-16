@@ -11,7 +11,7 @@ screen, given a face because the assistant has a name.
 - `pindot-win-icon*.svg`: the Windows icon (the tile fills the square).
 - `pindot-tray*.svg`: the menu bar and tray icon (a template image on macOS).
 
-Colours: pink `#FF2D95` (the overlay's accent), ink `#15151B`, paper `#F5F5F7`.
+Colours: pink `#FF2D95` (the logo, and the cursor's default colour), ink `#15151B`, paper `#F5F5F7`.
 
 The wordmark is Poppins SemiBold (SIL Open Font License 1.1) converted to
 outlines, so no font file is needed to show it.
@@ -32,5 +32,12 @@ files in `app/src-tauri/icons/` are renders of these:
 
 The cursor in `app/public/overlay.html` and the mark in the main window's
 header (`app/src/App.svelte`) are the same outline, pasted in as SVG.
+
+The cursor's colour is the user's choice (Settings > Assistant > Cursor
+colour, `cursor_color` in `settings.json`); the overlay derives its lighter
+and darker shades from it and turns the eyes near-white on dark colours. The
+logo, the icons and the header mark stay pink whatever the user picks. The
+eyes in the overlay also blink and move (`overlay.js`); the files here stay
+still.
 
 No trademark search has been done on the name or the mark.

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api, errorText, type AppInfo, type HotkeyCheck, type SettingsView, type TalkStyle } from '../lib/api';
-  import { chordFromCodes, formatBytes, hotkeyPresets } from '../lib/format';
+  import { chordFromCodes, cursorPresets, eyeInk, formatBytes, hotkeyPresets, isCursorColor } from '../lib/format';
   import Connect from './Connect.svelte';
 
   let { info }: { info: AppInfo | null } = $props();
@@ -70,6 +70,11 @@
   // TALK_NOTES_MAX, TalkStyle); Save validates them again.
   const NAME_MAX = 24;
   const NOTES_MAX = 300;
+  // A half-typed or hand-edited colour never reaches the preview or the picker.
+  const cursorColor = $derived(
+    view && isCursorColor(view.settings.cursor_color) ? view.settings.cursor_color.toLowerCase() : cursorPresets[0].value,
+  );
+
   const assistantName = $derived(view?.settings.voice.assistant_name.trim() || 'Rusty');
   const talkStyles: { value: TalkStyle; label: string; hint: string }[] = [
     { value: 'friendly', label: 'Friendly', hint: 'warm and relaxed, like a friend' },
@@ -200,6 +205,31 @@
       <label for="aname">Name</label>
       <input id="aname" bind:value={view.settings.voice.assistant_name} maxlength={NAME_MAX} placeholder="Rusty" />
     </div>
+    <fieldset class="colour">
+      <legend>Cursor colour</legend>
+      <div class="swatches">
+        {#each cursorPresets as p (p.value)}
+          <button
+            type="button"
+            class="swatch"
+            class:selected={cursorColor === p.value}
+            style:background={p.value}
+            aria-label={p.name}
+            aria-pressed={cursorColor === p.value}
+            title={p.name}
+            onclick={() => view && (view.settings.cursor_color = p.value)}
+          ></button>
+        {/each}
+        <label class="custom">
+          <input type="color" aria-label="Any other colour" value={cursorColor} oninput={(e) => view && (view.settings.cursor_color = e.currentTarget.value)} />
+          <span class="small muted">Any colour</span>
+        </label>
+        <svg class="preview" viewBox="40 40 176 176" width="44" height="44" role="img" aria-label="Preview of the cursor in this colour">
+          <path fill={cursorColor} stroke="#fff" stroke-width="6" stroke-linejoin="round" paint-order="stroke" d="M46.12 71.59 A20 20 0 0 1 71.59 46.12 L197.59 90.12 A20 20 0 0 1 200.99 126.32 L153.64 153.64 L126.32 200.99 A20 20 0 0 1 90.12 197.59 Z" />
+          <path fill={eyeInk(cursorColor)} d="M97.0 113.0 a8.0 8.0 0 0 1 16 0 v12 a8.0 8.0 0 0 1 -16 0 Z M127.0 113.0 a8.0 8.0 0 0 1 16 0 v12 a8.0 8.0 0 0 1 -16 0 Z" />
+        </svg>
+      </div>
+    </fieldset>
     <fieldset>
       <legend>How {assistantName} talks to you</legend>
       {#each talkStyles as t (t.value)}
@@ -455,6 +485,44 @@
 {/if}
 
 <style>
+  .swatches {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .swatch {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    cursor: pointer;
+  }
+  .swatch.selected {
+    outline: 2px solid var(--fg);
+    outline-offset: 2px;
+  }
+  .swatch:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .custom {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 6px;
+  }
+  .custom input {
+    width: 34px;
+    height: 28px;
+    padding: 0;
+  }
+  .preview {
+    margin-left: 10px;
+    background: color-mix(in srgb, var(--fg) 6%, var(--card));
+    border-radius: 8px;
+  }
   .notes-label {
     display: block;
     margin: 10px 0 4px;

@@ -20,6 +20,14 @@ pub const SETTINGS_VERSION: u32 = 1;
 pub const SETTINGS_FILE: &str = "settings.json";
 pub const LEGACY_VOICE_FILE: &str = "voice-settings.json";
 pub const MIGRATED_VOICE_FILE: &str = "voice-settings.migrated.json";
+/// The AI cursor's colour unless the user picks one: Rusty's pink.
+pub const DEFAULT_CURSOR_COLOR: &str = "#ff2d95";
+
+/// Is this exactly `#rrggbb` (hex digits, either case)?
+pub fn cursor_color_ok(c: &str) -> bool {
+    let b = c.as_bytes();
+    b.len() == 7 && b[0] == b'#' && b[1..].iter().all(u8::is_ascii_hexdigit)
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -34,6 +42,9 @@ pub struct Settings {
     pub voice_enabled: bool,
     /// The user went through the setup screen once.
     pub onboarding_done: bool,
+    /// The AI cursor's colour as `#rrggbb`. Top level rather than in `voice`
+    /// because changing it must not restart hold-to-talk.
+    pub cursor_color: String,
     pub voice: VoiceSettings,
     /// Fields this version doesn't know, kept as they were.
     #[serde(flatten)]
@@ -48,6 +59,7 @@ impl Default for Settings {
             port: crate::DEFAULT_PORT,
             voice_enabled: true,
             onboarding_done: false,
+            cursor_color: DEFAULT_CURSOR_COLOR.into(),
             voice: VoiceSettings::default(),
             extra: Default::default(),
         }
@@ -151,6 +163,10 @@ impl Settings {
         if self.hotkey.check_for(Os::current()).is_err() {
             self.hotkey = HotkeyBinding::platform_default();
         }
+        self.cursor_color = self.cursor_color.trim().to_ascii_lowercase();
+        if !cursor_color_ok(&self.cursor_color) {
+            self.cursor_color = DEFAULT_CURSOR_COLOR.into();
+        }
         let v = &mut self.voice;
         v.assistant_name = v.assistant_name.trim().to_string();
         if !crate::voice::assistant_problems(&v.assistant_name, "").is_empty() {
@@ -211,6 +227,9 @@ impl Settings {
         }
         if let Some(e) = self.voice.effort.as_deref().filter(|e| !crate::brain::config::effort_ok(e)) {
             problems.push(format!("Thinking effort: unknown level \"{e}\""));
+        }
+        if !cursor_color_ok(self.cursor_color.trim()) {
+            problems.push("Cursor colour: use the form #rrggbb".into());
         }
         problems.extend(crate::voice::assistant_problems(&self.voice.assistant_name, &self.voice.talk_notes));
         if problems.is_empty() { Ok(()) } else { Err(problems) }
@@ -403,6 +422,34 @@ mod tests {
         fs::write(Settings::path_in(&dir), r#"{"voice":{"assistant_name":"  Pip "}}"#).unwrap();
         assert_eq!(Settings::load_in(&dir).unwrap().0.voice.assistant_name, "Pip");
         assert_eq!(Settings::load_in(&dir).unwrap().0.validate(), Ok(()));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn cursor_colour_defaults_falls_back_and_round_trips() {
+        assert_eq!(Settings::default().cursor_color, "#ff2d95");
+        let mut s = Settings::default();
+        s.cursor_color = "pink".into();
+        let problems = s.validate().unwrap_err();
+        assert!(problems.iter().any(|p| p.starts_with("Cursor colour")), "{problems:?}");
+        for bad in ["#fff", "ff2d95", "#gg2d95", "#ff2d95ff", ""] {
+            assert!(!cursor_color_ok(bad), "{bad}");
+        }
+
+        let dir = temp_dir("cursor-colour");
+        // An old file without the field loads with the default.
+        fs::write(Settings::path_in(&dir), r#"{"port":4000}"#).unwrap();
+        assert_eq!(Settings::load_in(&dir).unwrap().0.cursor_color, "#ff2d95");
+        // A bad value falls back on load.
+        fs::write(Settings::path_in(&dir), r##"{"cursor_color":"#12"}"##).unwrap();
+        assert_eq!(Settings::load_in(&dir).unwrap().0.cursor_color, "#ff2d95");
+        // A good one survives a save and a load; case is normalised.
+        let mut s = Settings::default();
+        s.cursor_color = "#3B82F6".into();
+        s.save_in(&dir).unwrap();
+        let (back, _) = Settings::load_in(&dir).unwrap();
+        assert_eq!(back.cursor_color, "#3b82f6");
+        assert_eq!(back.validate(), Ok(()));
         fs::remove_dir_all(&dir).unwrap();
     }
 }

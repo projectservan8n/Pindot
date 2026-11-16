@@ -256,10 +256,14 @@ pub fn run() {
             }
             let port = settings.effective().port;
             app.manage(ui::Ui::new(args.capturable, args.voice, args.model.clone(), settings, load_note));
-            // Each overlay page asks for the assistant's name once it loads
-            // (events sent before that are lost); Settings sends it on save.
+            // Each overlay page asks for the assistant's name and the cursor
+            // colour once it loads (events sent before that are lost);
+            // Settings sends them on save.
             let h = app.handle().clone();
-            app.listen_any("pindot:overlay-ready", move |_| ui::send_assistant_name(&h));
+            app.listen_any("pindot:overlay-ready", move |_| {
+                ui::send_assistant_name(&h);
+                ui::send_cursor_color(&h);
+            });
 
             let monitors: Vec<MonitorRect> = app
                 .available_monitors()?

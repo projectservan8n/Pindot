@@ -4,14 +4,17 @@
 <meta charset="utf-8">
 <title>Pindot overlay</title>
 <style>
-  /* The AI cursor: Pindot's pink "second hand". One accent (the agent's
-     colour), dark glass for everything that carries text, white outlines so
+  /* The AI cursor: Pindot's "second hand", pink unless the user picks another
+     colour (Settings). One accent (the agent's colour; overlay.js rewrites
+     the --accent* variables from it), dark glass for everything that carries text, white outlines so
      every mark reads on light and dark apps alike. */
   :root {
     --accent: #ff2d95;
     --accent-lit: #ff7cb9;
     --accent-deep: #cf1673;
     --accent-glow: rgba(255, 45, 149, 0.5);
+    --accent-rgb: 255, 45, 149;
+    --ink: #15151b; /* the eyes; near-white on a dark cursor colour */
     --glass: rgba(17, 17, 21, 0.88);
     --glass-edge: rgba(255, 255, 255, 0.12);
     --paper: #f5f5f7;
@@ -45,8 +48,8 @@
                 filter: drop-shadow(0 0 1.2px #fff) drop-shadow(0 0 6px var(--accent-glow)); }
   .ring-press { border: 2px solid #fff; box-shadow: 0 0 0 2px var(--accent), 0 0 20px var(--accent-glow); }
   .ring-spot { width: 96px; height: 96px; margin: -48px 0 0 -48px; border: 1.5px solid rgba(255, 255, 255, 0.92);
-               background: radial-gradient(circle, rgba(255, 45, 149, 0.24), rgba(255, 45, 149, 0) 68%);
-               box-shadow: 0 0 0 1px rgba(255, 45, 149, 0.55); }
+               background: radial-gradient(circle, rgba(var(--accent-rgb), 0.24), rgba(var(--accent-rgb), 0) 68%);
+               box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.55); }
   .ring-drop { width: 22px; height: 22px; margin: -11px 0 0 -11px; border: 2px solid #fff;
                box-shadow: 0 0 0 1.5px var(--accent); }
   .tip-dot { width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: #fff;
@@ -63,8 +66,29 @@
   body.resting #pose { opacity: 0.86; transition: opacity 400ms ease; }
   #arrow { position: absolute; left: -2px; top: -1px; display: block; overflow: visible;
            filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.32)) drop-shadow(0 0 1px rgba(0, 0, 0, 0.45)); }
+
+  /* Rusty's eyes. Only transforms and fills, so nothing forces layout.
+     fill-box keeps every squash around the eyes' own centre in WebKit and
+     Chromium alike. */
+  #eyes, #eyes-x, .eye { transform-box: fill-box; transform-origin: center; }
+  .eye { fill: var(--ink); transition: transform 65ms ease-out, fill 200ms ease; }
+  .eye.blink { transform: scaleY(0.08); transition-duration: 55ms; }
+  #eyes { transition: transform 160ms ease-out; }
+  #eyes-x { transition: transform 240ms ease; }
+  #arrow[data-eyes="listening"] #eyes-x { transform: scale(1.14, 1.2); }
+  #arrow[data-eyes="thinking"] #eyes-x { animation: glance 3600ms ease-in-out infinite; }
+  #arrow[data-eyes="speaking"] #eyes-x { animation: chatter 760ms ease-in-out infinite; }
+  #arrow[data-eyes="squint"] #eyes-x { transform: scaleY(0.4); transition-duration: 60ms; }
+  #arrow[data-eyes="sleepy"] #eyes-x { transform: translateY(4px) scaleY(0.42); transition-duration: 900ms; }
+  #arrow[data-eyes="closed"] #eyes-x { transform: scaleY(0.08); transition-duration: 70ms; }
+  @keyframes glance { 0%, 100% { transform: translate(-6px, -5px); } 50% { transform: translate(6px, -5px); } }
+  @keyframes chatter { 50% { transform: scaleY(0.72); } }
+  @media (prefers-reduced-motion: reduce) {
+    #eyes { transform: none !important; }
+    #eyes-x { animation: none !important; transform: none !important; }
+  }
   #halo { position: absolute; left: -14px; top: -12px; width: 46px; height: 46px; border-radius: 50%;
-          background: radial-gradient(circle, rgba(255, 45, 149, 0.5), rgba(255, 45, 149, 0) 68%);
+          background: radial-gradient(circle, rgba(var(--accent-rgb), 0.5), rgba(var(--accent-rgb), 0) 68%);
           opacity: 0.3; transform-origin: 23px 23px; }
   body.acting #halo { animation: breathe 1600ms ease-in-out infinite; }
   @keyframes breathe { 50% { opacity: 0.6; transform: scale(1.18); } }
@@ -149,8 +173,8 @@
   body.acting #banner, body.stopped #banner { opacity: 1; transform: translate(-50%, 0); }
   #banner .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
   body.acting #banner .dot { animation: beacon 1400ms ease-out infinite; }
-  @keyframes beacon { from { box-shadow: 0 0 0 0 rgba(255, 45, 149, 0.7); }
-                      to { box-shadow: 0 0 0 9px rgba(255, 45, 149, 0); } }
+  @keyframes beacon { from { box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.7); }
+                      to { box-shadow: 0 0 0 9px rgba(var(--accent-rgb), 0); } }
   #banner .hint { display: flex; align-items: center; gap: 6px; padding-left: 10px; color: var(--muted);
                   font-weight: 500; border-left: 1px solid var(--glass-edge); }
   #banner .cap { min-width: 0; height: 20px; padding: 0 6px; border-radius: 5px; border-bottom-width: 2px;
@@ -185,10 +209,10 @@
 <body>
   <svg id="paths" aria-hidden="true">
     <defs>
-      <!-- Runs from the trail's oldest point (clear) to the tip (pink). -->
+      <!-- Runs from the trail's oldest point (clear) to the tip (the accent). -->
       <linearGradient id="trail-grad" gradientUnits="userSpaceOnUse">
-        <stop offset="0" stop-color="#ff2d95" stop-opacity="0"/>
-        <stop offset="1" stop-color="#ff2d95" stop-opacity="0.62"/>
+        <stop offset="0" style="stop-color: var(--accent)" stop-opacity="0"/>
+        <stop offset="1" style="stop-color: var(--accent)" stop-opacity="0.62"/>
       </linearGradient>
     </defs>
     <path id="drag-under"/>
@@ -207,16 +231,20 @@
         <svg id="arrow" width="28" height="30" viewBox="0 0 28 30" aria-hidden="true">
           <defs>
             <linearGradient id="body" x1="0" y1="0" x2="0.55" y2="1">
-              <stop offset="0" stop-color="#ff7cb9"/>
-              <stop offset="0.55" stop-color="#ff2d95"/>
-              <stop offset="1" stop-color="#cf1673"/>
+              <stop offset="0" style="stop-color: var(--accent-lit)"/>
+              <stop offset="0.55" style="stop-color: var(--accent)"/>
+              <stop offset="1" style="stop-color: var(--accent-deep)"/>
             </linearGradient>
           </defs>
           <!-- Rusty, the logo (docs/brand): the rounded tip lands on (2,1). -->
           <g transform="translate(-6.14 -7.14) scale(0.16)">
             <path d="M46.12 71.59 A20 20 0 0 1 71.59 46.12 L197.59 90.12 A20 20 0 0 1 200.99 126.32 L153.64 153.64 L126.32 200.99 A20 20 0 0 1 90.12 197.59 Z" fill="url(#body)" stroke="#fff" stroke-width="13.75" stroke-linejoin="round"/>
-            <rect x="97" y="105" width="16" height="28" rx="8" fill="#15151b"/>
-            <rect x="127" y="105" width="16" height="28" rx="8" fill="#15151b"/>
+            <!-- Eyes: #eyes looks where he is going, #eyes-x holds the mood,
+                 each rect blinks (all three move on their own, see overlay.js). -->
+            <g id="eyes"><g id="eyes-x">
+              <rect class="eye" x="97" y="105" width="16" height="28" rx="8"/>
+              <rect class="eye" x="127" y="105" width="16" height="28" rx="8"/>
+            </g></g>
           </g>
         </svg>
       </div>

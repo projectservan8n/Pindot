@@ -34,9 +34,13 @@
   const caption = $('caption');
   const captionText = $('caption-text');
 
+  const arrow = $('arrow');
+  const eyesEl = $('eyes');
+  const eyeRects = arrow.querySelectorAll('.eye');
+
   const motionPref = matchMedia('(prefers-reduced-motion: reduce)');
   let reduced = motionPref.matches;
-  motionPref.addEventListener('change', (e) => { reduced = e.matches; });
+  motionPref.addEventListener('change', (e) => { reduced = e.matches; if (!reduced) return; look(0, 0); });
 
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   // Points arrive as global points. Inside this page everything is in CSS
@@ -185,6 +189,9 @@
     const bank = reduced ? 0 : clamp(vel.x * 11, -18, 18);
     const grow = reduced ? 1 : 1 + Math.min(speed * 0.05, 0.08);
     lean.style.transform = 'rotate(' + bank.toFixed(2) + 'deg) scale(' + grow.toFixed(3) + ')';
+    // The eyes lean into the direction of travel (same smoothed velocity).
+    if (speed > 0.02 && !reduced) look(vel.x / speed * Math.min(speed * 8, 1), vel.y / speed * Math.min(speed * 8, 1));
+    else look(0, 0);
 
     // The tag hangs off the arrow and swings behind the motion.
     const base = tagBase(l);
@@ -409,6 +416,7 @@
 
   function tap() {
     if (reduced) return;
+    squint(220);
     pose.animate([{ transform: 'scale(1)' }, { transform: 'scale(0.8)', offset: 0.3 }, { transform: 'scale(1)' }],
       { duration: 240, easing: SNAP });
   }
@@ -698,6 +706,108 @@
     onAction(a.to ? Object.assign({}, a, { to: px(a.to) }) : a);
   });
 
+  // ------------------------------------------------------- cursor colour
+  // One colour (Settings, #rrggbb) drives every accent: the lighter and
+  // darker body stops are made in HSL; the glow, halo and ring tints use
+  // its RGB. The default pink gives #ff7cb9 / #ff2d95 / #cf1673 within a
+  // few units. Dark colours get light eyes.
+  function hexToRgb(h) { return [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)); }
+  function rgbToHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+    if (!d) return [0, 0, l];
+    const s = d / (1 - Math.abs(2 * l - 1));
+    const h = mx === r ? ((g - b) / d + (g < b ? 6 : 0)) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return [h * 60, s, l];
+  }
+  function hslToHex(h, s, l) {
+    const a = s * Math.min(l, 1 - l);
+    const f = (n) => {
+      const k = (n + h / 30) % 12;
+      return Math.round(255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+    };
+    return '#' + [f(0), f(8), f(4)].map((v) => v.toString(16).padStart(2, '0')).join('');
+  }
+  function luminance(rgb) {
+    const [r, g, b] = rgb.map((v) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+  function setCursorColor(hex) {
+    if (typeof hex !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(hex)) return;
+    const rgb = hexToRgb(hex);
+    const [h, s, l] = rgbToHsl(rgb[0], rgb[1], rgb[2]);
+    const st = document.documentElement.style;
+    st.setProperty('--accent', hex.toLowerCase());
+    st.setProperty('--accent-lit', hslToHex(h, s, Math.min(l + 0.15, 0.9)));
+    st.setProperty('--accent-deep', hslToHex(h, s * 0.81, Math.max(l - 0.15, 0.06)));
+    st.setProperty('--accent-rgb', rgb.join(', '));
+    st.setProperty('--accent-glow', 'rgba(' + rgb.join(', ') + ', 0.5)');
+    st.setProperty('--ink', luminance(rgb) < 0.12 ? '#f5f5f7' : '#15151b');
+  }
+  window.__pindotSetCursorColor = setCursorColor;
+
+  // ------------------------------------------------------------- the eyes
+  // Blinks come from a timer; the look follows the cursor's own velocity
+  // (see render); the mood is one data attribute set from the voice state,
+  // resting, taps and Esc. All of it is CSS transitions: no loop of its own.
+  const LOOK_MAX = 7; // drawing units; the group is scaled 0.16, so ~1.1 px
+  let lookKey = '';
+  function look(x, y) {
+    const k = (Math.round(x * LOOK_MAX * 2) / 2) + ',' + (Math.round(y * LOOK_MAX * 2) / 2);
+    if (k === lookKey) return;
+    lookKey = k;
+    const [px_, py_] = k.split(',');
+    eyesEl.style.transform = k === '0,0' ? '' : 'translate(' + px_ + 'px,' + py_ + 'px)';
+  }
+
+  let blinkTimer = null;
+  function blinkOnce(then) {
+    if (!body.classList.contains('cursor-on') || document.hidden) { if (then) then(); return; }
+    eyeRects.forEach((r) => r.classList.add('blink'));
+    setTimeout(() => {
+      eyeRects.forEach((r) => r.classList.remove('blink'));
+      if (then) setTimeout(then, 90);
+    }, 70);
+  }
+  function scheduleBlink() {
+    blinkTimer = setTimeout(() => {
+      blinkOnce(Math.random() < 0.18 ? () => blinkOnce() : null);
+      scheduleBlink();
+    }, 3000 + Math.random() * 4000);
+  }
+  scheduleBlink();
+
+  let eyeHold = null; // 'squint' | 'closed' for a moment
+  let eyeHoldTimer = null;
+  let sleepy = false;
+  let sleepTimer = null;
+  function renderEyes() {
+    let m = eyeHold;
+    if (!m && sleepy) m = 'sleepy';
+    if (!m && voiceState !== 'idle' && voiceState !== 'acting') m = voiceState;
+    if (m) arrow.dataset.eyes = m; else delete arrow.dataset.eyes;
+  }
+  function holdEyes(mode, ms) {
+    eyeHold = mode;
+    renderEyes();
+    if (eyeHoldTimer) clearTimeout(eyeHoldTimer);
+    eyeHoldTimer = setTimeout(() => { eyeHold = null; renderEyes(); }, ms);
+  }
+  function squint(ms) { if (eyeHold !== 'closed') holdEyes('squint', ms); }
+  function eyesClosed(ms) { holdEyes('closed', ms); }
+  // Resting for a good while: half-closed. Watch the class instead of
+  // touching every place that sets it.
+  new MutationObserver(() => {
+    const r = body.classList.contains('resting');
+    if (r && !sleepTimer) {
+      sleepTimer = setTimeout(() => { sleepy = true; renderEyes(); }, 20000);
+    } else if (!r && sleepTimer) {
+      clearTimeout(sleepTimer);
+      sleepTimer = null;
+      if (sleepy) { sleepy = false; renderEyes(); }
+    }
+  }).observe(body, { attributes: true, attributeFilter: ['class'] });
+
   const bannerText = $('banner-text');
   // The assistant's name (Settings). The page asks for it once it listens;
   // the app sends it again when it changes.
@@ -708,6 +818,7 @@
     assistant = e.payload;
     if (body.classList.contains('acting')) bannerText.textContent = acting();
   }).then(() => ev.emit('pindot:overlay-ready'));
+  ev.listen('pindot:cursor-color', (e) => setCursorColor(e.payload));
   let stoppedTimer = null;
   let restTimer = null;
   ev.listen('pindot:acting', (e) => {
@@ -730,6 +841,7 @@
     body.classList.remove('acting');
     body.classList.add('stopped');
     bannerText.textContent = 'Stopped · ' + assistant + ' no longer controls input';
+    eyesClosed(900);
     hideCursor();
     hideCaption(150);
     stoppedTimer = setTimeout(() => body.classList.remove('stopped'), 2500);
@@ -760,6 +872,7 @@
       notice = null;
     }
     voiceState = state;
+    renderEyes();
     renderVoice();
     updateBuddy();
   });

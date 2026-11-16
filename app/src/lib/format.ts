@@ -143,3 +143,34 @@ export function hotkeyPresets(os: 'macos' | 'windows'): { value: string; label: 
     { value: 'Ctrl+Option', label: 'Ctrl+Option' },
   ];
 }
+
+/** Colours offered as swatches for the AI cursor; the first is the default. */
+export const cursorPresets: { name: string; value: string }[] = [
+  { name: 'Pink', value: '#ff2d95' },
+  { name: 'Rust', value: '#e2571e' },
+  { name: 'Amber', value: '#f5a524' },
+  { name: 'Green', value: '#2ec27e' },
+  { name: 'Blue', value: '#3b82f6' },
+  { name: 'Violet', value: '#8b5cf6' },
+  { name: 'Graphite', value: '#3a3a44' },
+];
+
+/** Exactly `#rrggbb`, as the settings file requires. */
+export function isCursorColor(c: string): boolean {
+  return /^#[0-9a-fA-F]{6}$/.test(c);
+}
+
+/** Relative luminance (WCAG), 0 (black) to 1 (white). */
+export function luminance(hex: string): number {
+  if (!isCursorColor(hex)) return 0;
+  const lin = (i: number) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(1) + 0.7152 * lin(3) + 0.0722 * lin(5);
+}
+
+/** Eye colour that reads on the cursor colour: near-white on dark ones. */
+export function eyeInk(hex: string): string {
+  return luminance(hex) < 0.12 ? '#f5f5f7' : '#15151b';
+}

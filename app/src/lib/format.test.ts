@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   chordFromCodes,
+  cursorPresets,
+  eyeInk,
+  isCursorColor,
   connectText,
   formatBytes,
   hotkeyPresets,
@@ -96,5 +99,24 @@ describe('activity helpers', () => {
     expect(errorText(['Port: bad', 'Shortcut: bad'])).toBe('Port: bad\nShortcut: bad');
     expect(errorText('nope')).toBe('nope');
     expect(errorText(new Error('boom'))).toBe('boom');
+  });
+});
+
+describe('cursor colour helpers', () => {
+  it('accepts only #rrggbb', () => {
+    expect(isCursorColor('#ff2d95')).toBe(true);
+    expect(isCursorColor('#FF2D95')).toBe(true);
+    for (const bad of ['#fff', 'ff2d95', '#gg2d95', '#ff2d95ff', '']) expect(isCursorColor(bad)).toBe(false);
+  });
+  it('keeps the default first and every preset valid', () => {
+    expect(cursorPresets[0].value).toBe('#ff2d95');
+    expect(cursorPresets.every((p) => isCursorColor(p.value))).toBe(true);
+  });
+  it('uses dark eyes on light and mid colours, light eyes on dark ones', () => {
+    for (const p of cursorPresets) {
+      expect(eyeInk(p.value)).toBe(p.name === 'Graphite' ? '#f5f5f7' : '#15151b');
+    }
+    expect(eyeInk('#000000')).toBe('#f5f5f7');
+    expect(eyeInk('#ffffff')).toBe('#15151b');
   });
 });

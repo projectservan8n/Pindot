@@ -124,6 +124,10 @@ Listening, Thinking, Working and Speaking.
   is touched until you press "Allow for this session".
 - Settings > Speak chooses between speaking every message Claude writes as
   it arrives (default) and only the final reply.
+- Settings > Assistant > Cursor colour changes the AI cursor's colour (pink
+  by default): pick a swatch or any colour. Rusty blinks, looks where he is
+  going and shows what he is doing with his eyes; with "Reduce motion" on
+  he only blinks.
 
 Speech to text is Moonshine v2 Small (English, MIT). Text to speech is
 Phonon 31m (English, Apache-2.0). Both run on your Mac.

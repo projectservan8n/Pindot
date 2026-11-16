@@ -41,6 +41,8 @@ export interface Settings {
   port: number;
   voice_enabled: boolean;
   onboarding_done: boolean;
+  /** The AI cursor's colour, `#rrggbb`. */
+  cursor_color: string;
   voice: VoiceSettings;
   [extra: string]: unknown;
 }
