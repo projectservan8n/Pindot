@@ -57,7 +57,17 @@ header {
 
 .brand {
   display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-text {
+  display: flex;
   flex-direction: column;
+}
+
+.brand .mark {
+  flex: none;
 }
 
 nav {
