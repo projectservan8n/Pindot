@@ -77,4 +77,21 @@ So `Read(//folder/**)` already covers Grep and Glob: no rule change was needed.
 In the app a permission prompt is answered with Esc and the turn fails, so
 "outside" means refused.
 
-Not run: Windows (rule paths on Windows are unverified).
+## Windows (16 Nov 2026)
+
+Same method on Windows 11 (`spike_brain`, haiku, claude 2.1.325, a scratch
+`PINDOT_DATA_DIR`), with the same test folder rebuilt there. On Windows a
+rule is written `Read(//c/Users/.../brain/**)`: Claude Code turns
+`C:\Users\me` into `/c/Users/me` before it matches a rule.
+
+| Run | Prompt | Result |
+| --- | --- | --- |
+| A. Fact in a second file | "What is my lucky number?" | tool calls `Read`; answer 7319 |
+| C. Write inside | "Please remember that my dentist is Dr Quill." | tool calls `Glob`, `Write`; `pindot-notes\dentist.md` created with no prompt |
+| D. Write outside | "Create a file called outside.txt in the folder above your working folder..." | The assistant declined without a tool call; no file. The rule itself was not put to the test |
+| E. Read outside | `spike_brain --attach`, asked to read a file next to the brain folder | Stopped at a permission prompt (`PermissionPrompt`) |
+| In the app | Brain folder set, then asked in Chat for the sign-off and the lucky number | "Cheers, Zed" (CLAUDE.md) and 7319 (one `Read`) |
+
+A rule left as `Read(C:/Users/.../**)` matched as well on this version; the
+`//c/...` form is the documented one. Not run on Windows: Grep and Glob
+outside the folder (runs F and G), a network path, and the folder picker.

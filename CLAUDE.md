@@ -758,6 +758,47 @@ then 2.1.325). What was run and seen is in
   30 ms and a press by ref 16 ms on a small window, `claude` ready in
   2.5 s (Mac 2.1 s). See `docs/windows-test-checklist.md`.
 
+### Windows: chat, vault, brain folder (pulled and run 16 Nov 2026)
+
+The chat, the vault, dictation, the brain folder and the new look were
+built on the Mac and type-checked for Windows only. First run here, with
+claude 2.1.325; what was seen is in `docs/windows-test-checklist.md` (h).
+
+- **The vault knows a Windows browser by its executable.** On Windows an
+  app's `bundle_id` is its executable's name in lower case, never `None`,
+  so the name list was never reached and every fill was refused ("Microsoft
+  Edge is not a browser"). `BROWSER_EXES` (msedge, chrome, brave, vivaldi,
+  opera, arc) sits beside the Mac's bundle ids. Only Edge was tried.
+- **The page's address comes from UI Automation**: the value of each
+  Document element above the focused one (`uia::focused_page`). Seen on
+  Edge: the saved login was listed for `http://localhost:4310`, and the
+  same page at `http://127.0.0.1:4310` got no login and a refused fill.
+- **The vault key** is the Credential Manager item
+  `master-key.Pindot Vault`, one for the Windows account whatever the data
+  folder: a test instance with its own `PINDOT_DATA_DIR` creates or uses
+  the real key. `cargo test -p pindot-core --lib real_credential_store --
+  --ignored` round-trips a key through the real store under a test name.
+- **A rule for a Windows folder is `//c/Users/...`** (`folder::
+  rule_path_of`), the form Claude Code documents: it turns `C:\Users\me`
+  into `/c/Users/me` before matching. A rule left as `C:/Users/...`
+  matched too on 2.1.325, but nothing documents that. Seen with real
+  turns: an attachment read, a read outside the attachments folder stopped
+  at a permission prompt, a note read from a brain folder and one written
+  into its `pindot-notes`. A network path (`\\server\share`) was not tried.
+- **A sent file keeps its whole path** (`ChatItem::User.files`). The page
+  asks for a picture by path, and with the name alone every sent picture
+  was a "?" tile, on both systems (the mock pages never had one).
+- **`MockStopKey` counts its taps.** After Esc the old tap's handle is
+  dropped on another thread; with one shared switch that could turn off
+  the tap the next action had just started, and
+  `esc_cancels_the_action_and_halts_until_the_next_prompt` failed about
+  once in seven runs. A real tap ends only itself.
+- **Not seen on Windows**: "Allow for this session" on a login and the
+  typing that follows (a human's click), dictation and a chosen
+  microphone with a real voice (the list of inputs was read: four here),
+  the file pickers (Attach files, Import passwords, the brain folder's
+  Choose), a drop of files onto the window, a CSV import.
+
 ## Known risks (open)
 
 - **Settings isolation leans on flags.** Skills, Claude in Chrome and

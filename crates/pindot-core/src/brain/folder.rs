@@ -68,12 +68,25 @@ impl FolderState {
     }
 }
 
-/// A path as a permission rule wants it: forward slashes, and on Unix a
-/// leading `//` for "from the root of the disk" (a single `/` would mean
-/// "from the project root"). Not tested on Windows.
+/// A path as a permission rule wants it: forward slashes and a leading `//`
+/// for "from the root of the disk" (a single `/` would mean "from the
+/// project root"). On Windows Claude Code turns `C:\Users\me` into
+/// `/c/Users/me` before it matches, so the rule is `//c/Users/me`.
 pub(crate) fn rule_path(p: &Path) -> String {
-    let s = p.display().to_string().replace('\\', "/");
-    if s.starts_with('/') { format!("/{s}") } else { s }
+    rule_path_of(&p.display().to_string())
+}
+
+/// `rule_path` on the path's text, so both systems' forms are tested on
+/// either. A network path (`\\server\share`) was never tried.
+pub(crate) fn rule_path_of(path: &str) -> String {
+    let s = path.replace('\\', "/");
+    let s = s.strip_prefix("//?/").unwrap_or(&s);
+    let b = s.as_bytes();
+    if b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b.len() == 2 || b[2] == b'/') {
+        let drive = (b[0] as char).to_ascii_lowercase();
+        return format!("//{drive}{}", s[2..].trim_end_matches('/'));
+    }
+    if s.starts_with('/') { format!("/{s}") } else { s.to_string() }
 }
 
 /// The permission rules a brain folder adds to the brain's `--settings`:
@@ -162,6 +175,31 @@ mod tests {
         add_permissions(&mut v, Path::new("/x"));
         assert_eq!(v["permissions"]["defaultMode"], "default", "the mode is kept");
         assert!(v["permissions"]["allow"].is_array());
+    }
+
+    /// Claude Code's documentation: on Windows `C:\Users\me` becomes
+    /// `/c/Users/me` before a rule is matched, so a rule for a folder there
+    /// is `//c/Users/me/...`. A rule left as `C:/Users/me/...` was seen to
+    /// match too (claude 2.1.325), but nothing documents that form.
+    #[test]
+    fn a_windows_path_is_written_the_way_claude_code_matches_it() {
+        assert_eq!(
+            rule_path_of(r"C:\Users\me\AppData\Roaming\Pindot\attachments\abc"),
+            "//c/Users/me/AppData/Roaming/Pindot/attachments/abc"
+        );
+        assert_eq!(rule_path_of(r"E:\My Notes\vault"), "//e/My Notes/vault");
+        assert_eq!(rule_path_of("d:/notes"), "//d/notes", "forward slashes and a small letter too");
+        assert_eq!(rule_path_of(r"\\?\C:\Users\me"), "//c/Users/me", "the long-path prefix is dropped");
+        assert_eq!(rule_path_of(r"C:\"), "//c", "a whole drive");
+    }
+
+    #[test]
+    fn a_unix_path_keeps_its_form() {
+        assert_eq!(rule_path_of("/Users/me/vault"), "//Users/me/vault");
+        assert_eq!(
+            rule_path_of("/Users/me/Library/Application Support/Pindot"),
+            "//Users/me/Library/Application Support/Pindot"
+        );
     }
 
     #[test]

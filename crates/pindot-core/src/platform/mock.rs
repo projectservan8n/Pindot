@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use super::*;
@@ -139,7 +139,10 @@ impl Hotkey for MockHotkey {
 #[derive(Default)]
 pub struct MockStopKey {
     on_press: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
-    pub armed: Arc<AtomicBool>,
+    /// Taps listening now. A count, not a switch: after Esc the old tap's
+    /// handle is dropped on another thread, and that must not switch off a
+    /// tap the next action started meanwhile (a real tap ends only itself).
+    live: Arc<AtomicUsize>,
     pub arm_count: Mutex<u32>,
 }
 
@@ -147,7 +150,7 @@ impl MockStopKey {
     /// Simulate the user pressing Esc. Returns false if the tap is not armed
     /// (the key would then reach the app as normal).
     pub fn press(&self) -> bool {
-        if !self.armed.load(Ordering::SeqCst) {
+        if !self.is_armed() {
             return false;
         }
         let cb = self.on_press.lock().unwrap().clone();
@@ -157,7 +160,7 @@ impl MockStopKey {
         true
     }
     pub fn is_armed(&self) -> bool {
-        self.armed.load(Ordering::SeqCst)
+        self.live.load(Ordering::SeqCst) > 0
     }
 }
 
@@ -165,9 +168,11 @@ impl StopKey for MockStopKey {
     fn start(&self, on_press: Arc<dyn Fn() + Send + Sync>) -> Result<ListenerHandle> {
         *self.on_press.lock().unwrap() = Some(on_press);
         *self.arm_count.lock().unwrap() += 1;
-        self.armed.store(true, Ordering::SeqCst);
-        let armed = self.armed.clone();
-        Ok(ListenerHandle::new(move || armed.store(false, Ordering::SeqCst)))
+        self.live.fetch_add(1, Ordering::SeqCst);
+        let live = self.live.clone();
+        Ok(ListenerHandle::new(move || {
+            live.fetch_sub(1, Ordering::SeqCst);
+        }))
     }
 }
 
@@ -410,5 +415,24 @@ impl Overlay for MockOverlay {
     }
     fn action(&self, action: &CursorAction) {
         self.actions.lock().unwrap().push(action.clone());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// After Esc the old tap's handle is dropped on another thread, which
+    /// can run after the next action has armed a new tap.
+    #[test]
+    fn a_tap_that_ends_late_does_not_switch_off_the_one_started_after_it() {
+        let key = MockStopKey::default();
+        let first = key.start(Arc::new(|| {})).unwrap();
+        let second = key.start(Arc::new(|| {})).unwrap();
+        drop(first);
+        assert!(key.is_armed(), "the second tap is still listening");
+        assert!(key.press(), "and it takes the key");
+        drop(second);
+        assert!(!key.is_armed(), "no tap left");
     }
 }

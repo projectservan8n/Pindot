@@ -137,3 +137,31 @@ impl KeyProvider for SystemKeys {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_SERVICE: &str = "Pindot Vault TEST (safe to delete)";
+
+    /// The real store of this system (Keychain, Credential Manager), with an
+    /// item of its own that is removed again. Not run by default: it writes
+    /// to the user's credential store, and macOS may ask for the Keychain.
+    ///   cargo test -p pindot-core --lib real_credential_store -- --ignored
+    #[test]
+    #[ignore = "writes one clearly named item to the real OS credential store and removes it"]
+    fn a_key_comes_back_from_the_real_credential_store() {
+        let keys = SystemKeys::named(TEST_SERVICE, ACCOUNT).expect("the credential store opens");
+        let _ = keys.delete();
+        assert!(keys.load().expect("an empty store is not an error").is_none(), "nothing stored yet");
+
+        let key = Key::generate();
+        keys.store(&key).expect("the key is stored");
+        let again = SystemKeys::named(TEST_SERVICE, ACCOUNT).unwrap();
+        let back = again.load().expect("the store is read").expect("the key is there");
+        assert_eq!(back.as_bytes(), key.as_bytes(), "the same 32 bytes come back");
+
+        keys.delete().expect("the test item is removed");
+        assert!(again.load().unwrap().is_none(), "nothing is left behind");
+    }
+}

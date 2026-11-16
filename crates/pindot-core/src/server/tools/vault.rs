@@ -45,7 +45,12 @@ const BROWSER_BUNDLES: &[&str] = &[
     "com.operasoftware.Opera",
 ];
 
-/// Names (Windows has no bundle ids). Exact, case-insensitive.
+/// The same browsers on Windows, where an app's id is its executable's name
+/// in lower case (`platform::windows::apps`), whatever the Start menu calls
+/// the app. Chrome's channels and Chromium are all `chrome.exe`.
+const BROWSER_EXES: &[&str] = &["msedge.exe", "chrome.exe", "brave.exe", "vivaldi.exe", "opera.exe", "arc.exe"];
+
+/// Names, for an app that has no id at all. Exact, case-insensitive.
 const BROWSER_NAMES: &[&str] = &[
     "safari", "google chrome", "chrome", "chromium", "microsoft edge", "msedge", "edge", "brave browser", "brave",
     "vivaldi", "arc", "opera",
@@ -53,7 +58,7 @@ const BROWSER_NAMES: &[&str] = &[
 
 pub fn is_browser(app: &AppInfo) -> bool {
     match app.bundle_id.as_deref() {
-        Some(b) => BROWSER_BUNDLES.iter().any(|k| k.eq_ignore_ascii_case(b)),
+        Some(b) => BROWSER_BUNDLES.iter().chain(BROWSER_EXES).any(|k| k.eq_ignore_ascii_case(b)),
         None => BROWSER_NAMES.iter().any(|k| k.eq_ignore_ascii_case(app.name.trim().trim_end_matches(".exe"))),
     }
 }
@@ -285,5 +290,46 @@ impl DesktopServer {
         self.session.fill_gate.note_fill(Instant::now());
         self.log_use(Some(l), fname, "typed", "", true);
         text("typed")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app(name: &str, id: Option<&str>) -> AppInfo {
+        AppInfo { pid: 1, name: name.into(), bundle_id: id.map(Into::into) }
+    }
+
+    /// Windows has no bundle ids: there an app's id is its executable's
+    /// name in lower case, whatever the Start menu calls the app.
+    #[test]
+    fn a_windows_browser_is_known_by_its_executable() {
+        for (name, exe) in [
+            ("Microsoft Edge", "msedge.exe"),
+            ("Google Chrome", "chrome.exe"),
+            ("Brave", "brave.exe"),
+            ("Vivaldi", "vivaldi.exe"),
+            ("Opera", "opera.exe"),
+            ("Arc", "arc.exe"),
+        ] {
+            assert!(is_browser(&app(name, Some(exe))), "{exe}");
+        }
+    }
+
+    #[test]
+    fn other_windows_programs_are_not_browsers_whatever_they_call_themselves() {
+        assert!(!is_browser(&app("Notepad", Some("notepad.exe"))));
+        assert!(!is_browser(&app("Firefox", Some("firefox.exe"))), "Firefox does not give the page's address");
+        assert!(!is_browser(&app("Google Chrome", Some("updater.exe"))), "the name alone does not count");
+        assert!(!is_browser(&app("File Explorer", Some("explorer.exe"))));
+    }
+
+    #[test]
+    fn mac_browsers_are_still_known_by_their_bundle_id() {
+        assert!(is_browser(&app("Safari", Some("com.apple.Safari"))));
+        assert!(is_browser(&app("Google Chrome", Some("com.google.Chrome"))));
+        assert!(!is_browser(&app("Safari", Some("com.example.NotSafari"))));
+        assert!(is_browser(&app("Safari", None)), "an app without an id goes by its name");
     }
 }

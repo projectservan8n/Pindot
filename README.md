@@ -196,7 +196,7 @@ Support/Pindot/` on macOS, `%APPDATA%\Pindot\` on Windows), file mode
   or leave "System default". Press Refresh after plugging one in. Save applies
   it from your next request, no restart. If the saved microphone is not
   connected, Pindot says so and uses the default. Listing microphones does not
-  open them. Not tested on Windows.
+  open them. On Windows the list was seen; a chosen microphone was not tried.
 - **Hold-to-talk shortcut**: one to four modifier keys held together, e.g.
   `Fn`, `Right Option`, `Ctrl+Cmd`, `Right Alt`, `Ctrl+Win`. Pick a preset,
   type it, or press Record and hold the keys. Pressing any other key while

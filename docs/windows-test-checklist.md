@@ -7,8 +7,9 @@ was seen on that PC; a note after a box says how far an unticked one got.
 
 On Windows today:
 
-- **Works**: the build (see "Build"), `cargo test --workspace` (198 + 24 + 6
-  tests), the app with Setup, Settings and Activity, the MCP server and its
+- **Works**: the build (see "Build"), `cargo test --workspace` (305 + 35 + 6
+  tests), the app with Setup, Chat, Vault, Settings and Activity (see (h)
+  for what the pull of 16 Nov 2026 brought), the MCP server and its
   guards, the overlay on both monitors, the microphone check, hold-to-talk
   (`Hotkey`, self-healing), the Esc stop key (`StopKey`), speech to text,
   text to speech, the brain in ConPTY, the whole voice loop with a WAV in
@@ -402,6 +403,61 @@ Only click and type in windows you opened for the test.
       their buttons' commands; both ended clean. `/health` with the token
       and a person doing it by hand were not tried.)
 
+## (h) Chat, vault, brain folder (pulled 16 Nov 2026)
+
+Built on the Mac, type-checked for Windows there, first run here on 16 Nov
+2026 (claude 2.1.325, haiku). The app was a private instance with its own
+data folder and port, its pages driven over the WebView2 debugging port;
+the browser was Edge with a profile of its own on `docs/vault/test-page`.
+
+- [x] `cargo test --workspace`: 305 + 35 + 6 pass (two are not run by
+      default: a download, and the real credential store). The frontend's
+      48 tests pass. One server test failed once in seven runs before the
+      fix to `MockStopKey`; eight runs in a row pass after it.
+- [x] The new look: the fonts, Rusty and the sidebar draw as in the Mac's
+      screenshots; Setup, Chat, Vault, Activity and Settings open.
+- [x] Chat without the voice: with hold-to-talk off the assistant started
+      by itself; a typed message was answered on screen in 2.5 s.
+- [x] Attachments: a text file and a picture pasted into the message box
+      were copied to `attachments\<session>\`, and the answer named the
+      word in the file and the picture's colour (two `Read` steps, no
+      permission prompt).
+- [x] A read outside the attachments folder stops at a permission prompt
+      (`spike_brain --attach`, asked for a file next to the brain folder).
+- [x] A sent picture shows as a picture. (It was a "?" tile: the message
+      kept only the file's name. Fixed in shared code, so on the Mac too.)
+- [x] History lists the conversations and opens one.
+- [x] Brain folder, `spike_brain --brain-folder` (the Mac's test folder,
+      rebuilt here): the lucky number came from `notes\favourites.md`
+      (`Read`), "remember my dentist" wrote `pindot-notes\dentist.md` with
+      no prompt (`Glob`, `Write`), and asked to write next to the folder
+      the assistant declined without trying. In the app: the folder set
+      through `settings_save`, a fresh conversation, and the answer used
+      the folder's CLAUDE.md and a note.
+- [ ] The brain folder's "Choose…" (the system's folder picker) and a
+      write outside `pindot-notes` that is really tried and refused.
+- [x] Vault, storage: a login saved through the form is in `vault.json`
+      with every value sealed; the key is the Credential Manager item
+      `master-key.Pindot Vault`. The ignored test `real_credential_store`
+      stores, reads back and removes a key under a test name.
+- [x] Vault, the page checks, on Edge: `vault_logins` lists the login on
+      `http://localhost:4310` and nothing on `http://127.0.0.1:4310`; a
+      password into the username box is refused; a fill on the 127.0.0.1
+      page is refused ("this page is not http://localhost:4310"). (Before
+      the fix every fill was refused: Edge was "not a browser".)
+- [x] Vault, the approval: a username fill opened "Let Claude sign in with
+      a saved login?" with the login, the site and the username; Deny (sent
+      over CDP) gave "the user did not allow this login".
+- [ ] Vault, by hand: "Allow for this session", the text typed into the
+      page, the authenticator code, Esc during a fill. Chrome, Brave,
+      Vivaldi, Opera and Arc (known by their executables, not tried).
+- [ ] Vault: "Import passwords…" (the file picker and a CSV).
+- [x] Settings > Microphone lists the inputs by name without opening them
+      (four here, with the default named).
+- [ ] A chosen microphone, and dictation (the button, and the hold-to-talk
+      key with the message box focused): they need a real voice.
+- [ ] "Attach files" (the file picker) and files dropped onto the window.
+
 ## Compare with the Mac
 
 `scripts/bench_tools.py` times the tools the same way on both systems (its
@@ -443,3 +499,9 @@ showed that it compiles for macOS; none of it has run there.
       key on macOS).
 - [ ] `python3 scripts/bench_tools.py --app test-target`, and the figures
       into the table above.
+- [ ] After the Windows fixes to the pull of 16 Nov 2026: a picture sent
+      in Chat shows as a picture, not a "?" tile (the message now keeps
+      the file's whole path); the vault still knows Safari and Chrome
+      (`is_browser` got the Windows executables); a brain folder and an
+      attachment are still read (`rule_path_of` was split out, the Unix
+      form is unchanged).

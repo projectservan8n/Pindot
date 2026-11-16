@@ -24,6 +24,8 @@ const RESULT_MAX: usize = 800;
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ChatItem {
+    /// `files`: the path of each attached file, inside Pindot's attachments
+    /// folder. The path is left out of `text`.
     User { id: String, text: String, files: Vec<String> },
     Assistant { id: String, text: String },
     Thinking { id: String, text: String },
@@ -128,7 +130,9 @@ pub fn parse_line(line: &str, n: usize) -> (Vec<ChatItem>, Vec<(String, String, 
                     } else if !t.is_empty() && !t.starts_with('<') {
                         let t = t.strip_prefix(super::TYPED_NOTE).unwrap_or(t);
                         let (text, paths) = split_prompt(t);
-                        let files = paths.iter().filter_map(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).collect();
+                        // Whole paths: the page shows the name and asks for a
+                        // picture by its path (`chat_image` checks the folder).
+                        let files = paths.iter().map(|p| p.display().to_string()).collect();
                         items.push(ChatItem::User { id: base, text, files });
                     }
                 }
@@ -286,7 +290,19 @@ mod tests {
     fn the_typed_note_and_attachment_paths_are_hidden_from_the_user_bubble() {
         let p = format!("{}Look [Attached files, read each with the Read tool: \"/d/attachments/s/a b.txt\"]", super::super::TYPED_NOTE);
         let (it, _) = parse_line(&user("u", json!(p)), 0);
-        assert_eq!(it, [ChatItem::User { id: "u".into(), text: "Look".into(), files: vec!["a b.txt".into()] }]);
+        assert_eq!(it, [ChatItem::User { id: "u".into(), text: "Look".into(), files: vec!["/d/attachments/s/a b.txt".into()] }]);
+    }
+
+    /// The page shows a sent picture by asking for it by its path, so the
+    /// whole path has to come through: with the name alone every sent
+    /// picture was a "?" tile.
+    #[test]
+    fn the_whole_path_of_a_sent_file_reaches_the_page_on_windows_too() {
+        let pic = r"C:\Users\me\AppData\Roaming\Pindot\attachments\s\pic one.png";
+        let txt = r"C:\d\b.txt";
+        let p = format!("Look [Attached files, read each with the Read tool: \"{pic}\" \"{txt}\"]");
+        let (it, _) = parse_line(&user("u", json!(p)), 0);
+        assert_eq!(it, [ChatItem::User { id: "u".into(), text: "Look".into(), files: vec![pic.into(), txt.into()] }]);
     }
 
     #[test]
