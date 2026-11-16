@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api, errorText, type AppInfo, type HotkeyCheck, type InputDevices, type SettingsView, type TalkStyle } from '../lib/api';
-  import { chordFromCodes, cursorPresets, eyeInk, formatBytes, hotkeyPresets, isCursorColor } from '../lib/format';
+  import { chordFromCodes, cursorPresets, eyeInk, formatBytes, hotkeyPresets, hotkeyWords, isCursorColor } from '../lib/format';
   import Connect from './Connect.svelte';
   import { refreshAssistant } from '../lib/assistant.svelte';
 
@@ -103,6 +103,8 @@
   ];
 
   const presets = $derived(hotkeyPresets(view?.os ?? 'macos'));
+  // The shortcut as it is saved (macOS words), whatever words the box shows.
+  const savedHotkey = $derived(check?.ok && check.normalized ? check.normalized : hotkeyText);
 
   // Microphones present now. Listing opens no stream.
   let mics = $state<InputDevices | null>(null);
@@ -133,7 +135,7 @@
     try {
       view = await api.settingsGet();
       refreshMics();
-      hotkeyText = view.settings.hotkey;
+      hotkeyText = hotkeyWords(view.settings.hotkey, view.os);
       await runCheck();
     } catch (e) {
       problems = [errorText(e)];
@@ -166,7 +168,7 @@
         stop();
         const chord = chordFromCodes(seen);
         if (chord) {
-          hotkeyText = chord;
+          hotkeyText = hotkeyWords(chord, view?.os ?? 'macos');
           runCheck();
         } else {
           check = {
@@ -328,11 +330,11 @@
       <select
         id="hk-preset"
         aria-label="Shortcut presets"
-        value={presets.some((p) => p.value === hotkeyText) ? hotkeyText : ''}
+        value={presets.some((p) => p.value === savedHotkey) ? savedHotkey : ''}
         onchange={(e) => {
           const v = (e.currentTarget as HTMLSelectElement).value;
           if (v) {
-            hotkeyText = v;
+            hotkeyText = hotkeyWords(v, view?.os ?? 'macos');
             runCheck();
           }
         }}
@@ -340,7 +342,12 @@
         <option value="">Custom…</option>
         {#each presets as p (p.value)}<option value={p.value}>{p.label}</option>{/each}
       </select>
-      <input id="hk" bind:value={hotkeyText} oninput={runCheck} placeholder="e.g. Right Option or Ctrl+Cmd" />
+      <input
+        id="hk"
+        bind:value={hotkeyText}
+        oninput={runCheck}
+        placeholder={view.os === 'windows' ? 'e.g. Right Alt or Ctrl+Win' : 'e.g. Right Option or Ctrl+Cmd'}
+      />
       <button onclick={record} disabled={recording}>{recording ? 'Hold the keys, then let go…' : 'Record'}</button>
     </div>
     {#if check}

@@ -7,6 +7,7 @@ import {
   connectText,
   formatBytes,
   hotkeyPresets,
+  hotkeyWords,
   passes,
   percent,
   permissionText,
@@ -133,5 +134,27 @@ describe('stepLabel', () => {
     expect(stepLabel('Read')).toBe('Read');
     expect(stepLabel('Glob')).toBe('Glob');
     expect(stepLabel('mcp__other__do_thing')).toBe('Do thing');
+  });
+});
+
+describe('hotkeyWords (a shortcut in the words of this OS)', () => {
+  // The settings keep macOS words; a Windows PC has no Cmd or Option key.
+  it('says Win and Alt on Windows', () => {
+    expect(hotkeyWords('Ctrl+Cmd', 'windows')).toBe('Ctrl+Win');
+    expect(hotkeyWords('Right Option', 'windows')).toBe('Right Alt');
+    expect(hotkeyWords('Ctrl+Option', 'windows')).toBe('Ctrl+Alt');
+    expect(hotkeyWords('Left Cmd+Shift', 'windows')).toBe('Left Win+Shift');
+    expect(hotkeyWords('Right Ctrl', 'windows')).toBe('Right Ctrl');
+  });
+  it('covers every Windows preset, so the box and the list say the same', () => {
+    for (const p of hotkeyPresets('windows')) {
+      expect(p.label.startsWith(hotkeyWords(p.value, 'windows')), `${p.value} -> ${p.label}`).toBe(true);
+    }
+  });
+  it('leaves the text alone on macOS, and what the user is still typing', () => {
+    expect(hotkeyWords('Ctrl+Cmd', 'macos')).toBe('Ctrl+Cmd');
+    expect(hotkeyWords('Right Option', 'macos')).toBe('Right Option');
+    expect(hotkeyWords('Ctrl+Wi', 'windows')).toBe('Ctrl+Wi');
+    expect(hotkeyWords('', 'windows')).toBe('');
   });
 });

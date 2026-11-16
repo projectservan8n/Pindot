@@ -823,11 +823,19 @@ claude 2.1.325; what was seen is in `docs/windows-test-checklist.md` (h).
   old build's gradient stops all computed to black). With the Mac's fix
   the release build draws a pink Rusty, and a colour saved in Settings
   reaches both overlays at once.
+- **The shortcut box shows this system's words.** A binding is saved in
+  macOS words ("Ctrl+Cmd", "Right Option") on both systems, and the
+  Settings box showed that text on Windows too. `format.ts::hotkeyWords`
+  turns it into "Ctrl+Win" and "Right Alt" for the box; the parser takes
+  either, and `hotkey_check`'s `normalized` is what gets saved.
+- **`cargo test --workspace` does not rebuild `target\debug\pindot.exe`**
+  (the app has no integration tests), so a test copy started from it can
+  carry an old frontend: run `cargo build -p pindot` after the frontend
+  build before looking at the interface.
 - **Not seen on Windows**: "Allow for this session" on a login and the
   typing that follows (a human's click), dictation and a chosen
   microphone with a real voice (the list of inputs was read: four here),
-  a drop of files onto the window, a CSV import applied (its file dialog
-  and its preview were seen).
+  and a drop of files onto the window.
 
 ## Known risks (open)
 

@@ -475,8 +475,24 @@ the browser was Edge with a profile of its own on `docs/vault/test-page`.
       Vivaldi, Opera and Arc (known by their executables, not tried).
 - [x] Vault: "Import passwords…": the file dialog ("Choose a password
       export (CSV)") was given a two-row CSV in Chrome's format and the
-      preview read "2 rows read ... 2 new, 0 already saved". Cancelled
-      there: the import itself was not applied.
+      preview read "2 rows read ... 2 new, 0 already saved". A second
+      file in Bitwarden's format (one row with an authenticator key) was
+      imported for real: "Import finished, 2 imported", both logins
+      listed, the one with a key tagged 2FA, every value sealed in
+      `vault.json`. The key this made in Credential Manager was removed
+      again (no real vault existed).
+- [x] The look after the Mac's interface fixes (`c87164e`), in WebView2:
+      ticked pink checkboxes with a long sentence beside the box, rings
+      with a dot, the app's own dropdowns with a chevron, round colour
+      swatches, room for the permission names in Setup, the 2FA tag
+      clear of the login's name.
+- [x] Settings > Hold-to-talk > Shortcut speaks Windows: the box read
+      "Ctrl+Cmd" beside a list and a hint that said "Ctrl+Win". It now
+      shows "Ctrl+Win" and "Right Alt" (and says so in its example), and
+      still saves the macOS words (`format.ts`, `hotkeyWords`).
+- [x] `npm run check` passes again: `no-style-attributes.test.ts` used
+      Node's `fs` without Node types (5 errors, on both systems). It reads
+      the files through Vite now and still fails on a planted `style=`.
 - [x] Settings > Microphone lists the inputs by name without opening them
       (four here, with the default named).
 - [ ] A chosen microphone, and dictation (the button, and the hold-to-talk

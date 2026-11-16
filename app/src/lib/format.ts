@@ -125,6 +125,16 @@ export function chordFromCodes(codes: Iterable<string>): string | null {
   return names.join('+');
 }
 
+/**
+ * A shortcut in the words of this OS, for the text box. The settings keep
+ * macOS words ("Ctrl+Cmd", "Right Option"); a Windows PC has no such keys,
+ * and Pindot reads "Win" and "Alt" just as well when the box is saved.
+ */
+export function hotkeyWords(text: string, os: 'macos' | 'windows'): string {
+  if (os !== 'windows') return text;
+  return text.replace(/\b(cmd|command)\b/gi, 'Win').replace(/\b(option|opt)\b/gi, 'Alt');
+}
+
 /** Ready-made choices for the shortcut list, per OS (saved in macOS words). */
 export function hotkeyPresets(os: 'macos' | 'windows'): { value: string; label: string }[] {
   if (os === 'windows') {
