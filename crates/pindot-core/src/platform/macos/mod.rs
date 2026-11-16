@@ -2,6 +2,7 @@
 
 mod accessibility;
 mod capture;
+pub mod sck;
 pub mod hotkey;
 mod input;
 pub mod permissions;

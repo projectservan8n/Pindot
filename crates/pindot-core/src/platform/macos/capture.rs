@@ -40,7 +40,15 @@ impl Capture for MacCapture {
             .find(|m| m.id().ok() == Some(display_id))
             .ok_or_else(|| PlatformError::Other(format!("display {display_id} not found")))?;
         let display = info(m)?;
-        let image = m.capture_image().map_err(err)?;
+        // Streaming mode: the overlay is visible to other capturers, so our
+        // own screenshot must leave our windows out another way. Off (the
+        // default): the xcap path, exactly as before.
+        let image = if crate::platform::streaming_capture() {
+            let (w, h) = (m.width().map_err(err)? as f64 * display.scale_factor, m.height().map_err(err)? as f64 * display.scale_factor);
+            super::sck::capture(display_id, w.round() as u32, h.round() as u32, std::process::id() as i32)?
+        } else {
+            m.capture_image().map_err(err)?
+        };
         Ok(CapturedFrame { display, image })
     }
 }
