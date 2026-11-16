@@ -4,3 +4,4 @@ pub mod providers;
 pub mod settings;
 pub mod secrets;
 pub mod openai;
+pub mod context;
