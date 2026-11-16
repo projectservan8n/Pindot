@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Pindot vault test page</title></head>
+<body style="font:16px system-ui;max-width:24rem;margin:3rem auto">
+<h1>Test sign-in</h1>
+<p>Fake page for trying the Vault. Serve it on a loopback origin, for example
+<code>python3 -m http.server 4310 --bind 127.0.0.1</code> in this folder, and save a login for
+<code>http://localhost:4310</code>.</p>
+<form onsubmit="event.preventDefault();document.getElementById('out').textContent='Submitted: '+document.getElementById('u').value+' / '+document.getElementById('p').value.length+' password characters / code '+document.getElementById('c').value.length+' digits'">
+<p><label>Username<br><input id="u" name="username" autocomplete="off"></label></p>
+<p><label>Password<br><input id="p" name="password" type="password" autocomplete="off"></label></p>
+<p><label>Code<br><input id="c" name="code" inputmode="numeric" autocomplete="off"></label></p>
+<button>Sign in</button></form>
+<p id="out" role="status"></p>
+</body></html>

@@ -261,7 +261,72 @@ at a time; not right for several at once.
 - Stored locally, readable by you only: the bearer token (`mcp-token`), the
   config files that contain it, `settings.json`, `activity.jsonl` (rotated at
   5 MB) and the models. Claude Code keeps its own transcripts of the
-  sessions under `~/.claude/projects/`.
+  sessions under `~/.claude/projects/`. Saved logins (see Vault) are stored
+  encrypted in `vault.json` in the same folder; the key is in your OS
+  credential store, not in a file.
+
+## Vault (saved logins)
+
+The Vault lets Rusty sign in to a website without ever seeing the password.
+Save a login under **Vault** (name, website, username, password and an optional
+authenticator key), or import a CSV exported from Chrome, 1Password or
+Bitwarden. Rusty can then call `vault_logins` (names and sites only) and
+`vault_fill(login, field)`. Pindot types the value itself with its own
+keyboard input; the tool result is only `typed` or the reason it refused.
+There is no "reveal" button on purpose: it would send the password through the
+app's webview, and your password manager already has it. Leave the password
+blank when editing to keep the saved one.
+
+**Storage.** Every value is encrypted with AES-256-GCM and bound (as
+authenticated data) to its record, its purpose and its website, so a copied
+value will not open anywhere else. The 256-bit key is kept in the OS
+credential store: the macOS Keychain (service "Pindot Vault") or the Windows
+Credential Manager. It is created the first time you save or import a login.
+A missing or wrong key stops the Vault and nothing is overwritten; a login the
+key cannot open is shown as "Can't be opened" and can still be deleted.
+Nothing secret is written to the logs, the activity log, error messages or
+tool results.
+
+**Five checks, enforced in code before anything is typed**
+
+1. The app in front is approved, and you approved this login for this session
+   in Pindot's own window. Each login asks separately and is never
+   auto-approved.
+2. The frontmost window is a supported browser (Safari, Chrome, Edge, Brave,
+   Chromium, Vivaldi, Arc, Opera) and the page address, read through
+   accessibility, is exactly the saved scheme, host and port. If it cannot be
+   read, Pindot refuses. There is no suffix or "contains" matching; `http`
+   is accepted only for localhost. Firefox does not expose the address, so it
+   is not supported.
+3. A password goes only into a secure (password) field. A username or code may
+   go into a normal text field once check 2 passes.
+4. The secret is not in the tool result, the activity log, or what
+   `read_window` and `find` return (a password box's value is never listed or
+   searchable). A screenshot shows what the OS draws for a secure field:
+   bullets, not the text.
+5. At most 5 fills a minute, and three refusals lock fills for a while. Esc
+   stops a fill that is in progress.
+
+Every fill and every refusal is recorded (time, login, site, field, result,
+session; no secrets), shown per login in the Vault and in Activity.
+
+**What this does not protect against**
+
+- A malicious page served from the correct address (for example a hacked
+  site, or script injected into the real one) can read what Pindot types.
+- A keylogger or screen recorder on the machine sees the typed text.
+- Anyone using your unlocked account can use the Keychain key and the Vault,
+  and can approve a login in the Pindot window.
+- If you paste a password into the chat, it is in the conversation and
+  Claude's transcript. Pindot does nothing clever about that; use the Vault.
+- Cards and payments are out of scope. So are native app logins: they would
+  need per-app field identification and an app identity check that Pindot
+  does not have.
+- Importing reads the CSV in Pindot's Rust side only; the file is not
+  encrypted, so delete it afterwards.
+
+To try it safely, serve `docs/vault/test-page/` on loopback and save a login
+for `http://localhost:4310`.
 
 ## Troubleshooting
 

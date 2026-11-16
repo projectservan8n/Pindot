@@ -9,3 +9,7 @@ S="$here/shots.sh"
   "chat-not-ready=?c=nosession#chat" "chat-steps-expanded=?c=steps#chat" \
   "settings=#settings" "settings-no-brain=?s=nobrain#settings" "setup=#setup" "setup-first-run=?s=setup#setup"
 H=2300 "$S" "$out" "settings-full=#settings" "setup-first-run-full=?s=setup#setup"
+# Vault screens (fake data from tools/mock-vault.js)
+"$S" "$out" "vault-empty=?v=empty#vault" "vault-list=?v=list#vault" "vault-add=?v=add#vault" \
+  "vault-import=?v=import#vault" "vault-import-result=?v=result#vault" "vault-history=?v=history#vault" \
+  "vault-login-approval=?v=approval#chat"

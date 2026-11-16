@@ -290,16 +290,15 @@
   {:else if logins.length > 0}
     <table class="vault">
       <thead>
-        <tr><th>Name</th><th>Website</th><th>Username</th><th class="c-2fa">2FA</th><th class="c-act"></th></tr>
+        <tr><th>Name and username</th><th>Website</th><th class="c-act"></th></tr>
       </thead>
       <tbody>
         {#each logins as l (l.id)}
           <tr class:sel={selected === l.id}>
-            <td><button class="link" onclick={() => pick(l.id)} aria-expanded={selected === l.id}>{l.name}</button></td>
+            <td><button class="link" onclick={() => pick(l.id)} aria-expanded={selected === l.id}>{l.name}</button>{#if l.has_2fa} <span class="pill" title="Has an authenticator key">2FA</span>{/if}
+              <div class="small muted">{#if l.locked}Can't be opened{:else}{l.username}{/if}</div></td>
             <td><code>{l.origin}</code></td>
-            <td>{#if l.locked}<span class="muted">Can't be opened</span>{:else}{l.username}{/if}</td>
-            <td>{#if l.has_2fa}<span class="pill">2FA</span>{/if}</td>
-            <td class="nowrap">
+                        <td class="nowrap">
               {#if confirmDelete === l.id}
                 <button class="danger small" onclick={() => remove(l.id)}>Delete {l.name}</button>
                 <button class="small" onclick={() => (confirmDelete = null)}>Keep</button>
@@ -311,13 +310,13 @@
           </tr>
           {#if selected === l.id}
             <tr class="hist">
-              <td colspan="5">
+              <td colspan="3">
                 <strong class="small">Use history</strong>
                 {#if uses.length === 0}
                   <p class="small muted">Nothing yet. Each time Claude asks to sign in with this login, it is listed here.</p>
                 {:else}
                   <table class="actlog inner">
-                    <thead><tr><th class="c-time">Time</th><th>Field</th><th>Result</th><th class="c-session">Session</th></tr></thead>
+                    <thead><tr><th>Time</th><th>Field</th><th>Result</th><th>Session</th></tr></thead>
                     <tbody>
                       {#each uses as u, i (i)}
                         <tr class:fail={!u.ok}>
@@ -350,7 +349,7 @@
     margin: var(--s3) 0;
   }
   .grow {
-    flex: 1 1 24rem;
+    flex: 1 1 14rem;
     margin: 0;
   }
   .check {
@@ -385,13 +384,18 @@
     padding: var(--s2) var(--s3) var(--s3);
   }
   table.inner {
+    table-layout: auto;
     width: 100%;
     margin-top: var(--s2);
   }
   .err {
     color: var(--bad);
   }
-  .c-2fa {
-    width: 4rem;
+  table.vault td code {
+    white-space: nowrap;
+    font-size: 0.85em;
+  }
+  table.vault td:first-child {
+    white-space: nowrap;
   }
 </style>
