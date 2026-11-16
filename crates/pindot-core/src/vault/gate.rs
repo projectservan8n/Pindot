@@ -2,8 +2,7 @@
 //!
 //! * At most `MAX_FILLS` typed fills per `WINDOW`.
 //! * `LOCK_AFTER` safety refusals (wrong site, not a browser, wrong kind of
-//!   field) within `WINDOW` lock the vault for the rest of the session's
-//!   `LOCK_FOR`: something is steering Rusty at the wrong page.
+//!   field) within `WINDOW` lock the vault for `LOCK_FOR`: something is steering Rusty at the wrong page.
 //!
 //! Time is passed in, so tests need no sleeping.
 

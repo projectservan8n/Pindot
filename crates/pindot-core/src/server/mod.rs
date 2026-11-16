@@ -79,6 +79,8 @@ pub struct ServerDeps {
     /// Who answers `request_access` (the app's approval window).
     pub approver: Arc<dyn Approver>,
     pub activity: Arc<ActivityLog>,
+    /// Saved logins. The model only ever gets names; Pindot types the secrets.
+    pub vault: Arc<crate::vault::Vault>,
     /// TEST-ONLY apps approved without asking (`PINDOT_TEST_AUTO_APPROVE`).
     /// Empty in normal use.
     pub test_auto_approve: Vec<String>,
@@ -91,7 +93,12 @@ pub struct ServerDeps {
 impl ServerDeps {
     /// The real platform for this OS. Reads `PINDOT_TEST_AUTO_APPROVE`
     /// (and logs loudly if it is set).
-    pub fn native(overlay: Arc<dyn Overlay>, approver: Arc<dyn Approver>, activity: Arc<ActivityLog>) -> Self {
+    pub fn native(
+        overlay: Arc<dyn Overlay>,
+        approver: Arc<dyn Approver>,
+        activity: Arc<ActivityLog>,
+        vault: Arc<crate::vault::Vault>,
+    ) -> Self {
         let p = crate::platform::native();
         Self {
             capture: p.capture,
@@ -101,6 +108,7 @@ impl ServerDeps {
             overlay,
             approver,
             activity,
+            vault,
             test_auto_approve: approval::auto_approve_from_env(),
             own_pid: std::process::id() as i32,
             idle: control::DEFAULT_IDLE,
@@ -115,6 +123,7 @@ pub struct ServerState {
     pub overlay: Arc<dyn Overlay>,
     pub approver: Arc<dyn Approver>,
     pub activity: Arc<ActivityLog>,
+    pub vault: Arc<crate::vault::Vault>,
     pub control: Arc<Control>,
     pub auto_approve: Vec<String>,
     pub own_pid: i32,
@@ -136,6 +145,7 @@ impl ServerState {
             overlay: deps.overlay,
             approver: deps.approver,
             activity: deps.activity,
+            vault: deps.vault,
             control,
             auto_approve: deps.test_auto_approve,
             own_pid: deps.own_pid,

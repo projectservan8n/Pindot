@@ -23,6 +23,12 @@ pub enum Filter {
     All,
 }
 
+/// A password box. Its value is never shown, listed or searched, so a typed
+/// secret cannot come back to the model through a tree read.
+pub fn is_secure(node: &AxNode) -> bool {
+    node.role == "AXSecureTextField" || node.subrole.as_deref() == Some("AXSecureTextField")
+}
+
 /// Short role name: "AXPopUpButton" -> "popupbutton", with a few friendlier
 /// names. Subroles that change meaning (password and search fields) win.
 pub fn short_role(node: &AxNode) -> String {
@@ -158,7 +164,7 @@ pub fn format_line(ref_id: &str, node: &AxNode, geom: Option<&ShotGeometry>, win
         s.push(' ');
         s.push_str(&quote(&label, 80));
     }
-    if let Some(v) = node.value.as_deref().filter(|v| !v.is_empty() && *v != node.name) {
+    if let Some(v) = node.value.as_deref().filter(|v| !v.is_empty() && *v != node.name && !is_secure(node)) {
         s.push_str(&format!(" value={}", quote(v, 60)));
     }
     if let Some(b) = node.bounds {
@@ -209,7 +215,7 @@ pub fn score(node: &AxNode, query: &str) -> Option<i32> {
     let hay = format!(
         "{} {} {} {}",
         name,
-        node.value.as_deref().unwrap_or("").to_lowercase(),
+        if is_secure(node) { String::new() } else { node.value.as_deref().unwrap_or("").to_lowercase() },
         short_role(node),
         node.menu_path.as_deref().unwrap_or("").to_lowercase()
     );
@@ -277,6 +283,17 @@ mod tests {
         let n = node("AXButton", "New Document", Some(Rect::new(720.0, 450.0, 90.0, 18.0)));
         let l = format_line("e3", &n, Some(&geom()), None, false);
         assert_eq!(l, "[e3] button \"New Document\" (640,400 80x16)");
+    }
+
+    #[test]
+    fn a_password_boxs_value_is_never_listed_or_searchable() {
+        let mut n = node("AXTextField", "Password", None);
+        n.subrole = Some("AXSecureTextField".into());
+        n.value = Some("hunter2-secret".into());
+        let l = format_line("e1", &n, None, None, false);
+        assert!(!l.contains("hunter2"), "{l}");
+        assert!(score(&n, "hunter2").is_none());
+        assert!(score(&n, "password").is_some());
     }
 
     #[test]

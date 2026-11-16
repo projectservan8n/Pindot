@@ -21,6 +21,18 @@ pub struct AppRequest {
     pub warning: Option<String>,
 }
 
+/// A vault login the user is asked to allow. Every field comes from the
+/// vault, never from the model.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct LoginRequest {
+    pub name: String,
+    /// The saved origin, e.g. `https://example.com`.
+    pub site: String,
+    pub username: String,
+    /// What Rusty wants to type: "username", "password" or "code".
+    pub field: String,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct ApprovalRequest {
     pub id: String,
@@ -29,6 +41,8 @@ pub struct ApprovalRequest {
     pub apps: Vec<AppRequest>,
     /// Claude's stated reason, shown to the user as-is (untrusted text).
     pub reason: String,
+    /// Set for a vault login approval (then `apps` is empty).
+    pub login: Option<LoginRequest>,
 }
 
 /// Shows approval requests to the user. `ask` must not block: it shows the

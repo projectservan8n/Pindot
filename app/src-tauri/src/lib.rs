@@ -388,7 +388,7 @@ fn start_server(
     let approver = Arc::new(TauriApprover::new(app.clone(), ax, capturable));
     let log_path = activity_log_path()?;
     let activity = Arc::new(ActivityLog::open(log_path.clone()));
-    let state = ServerState::new(ServerDeps::native(ov.clone(), approver.clone(), activity));
+    let state = ServerState::new(ServerDeps::native(ov.clone(), approver.clone(), activity, vault));
     let token = load_or_create_token()?;
     let server = match tauri::async_runtime::block_on(start(state.clone(), &token, port)) {
         Ok(s) => s,

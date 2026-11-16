@@ -77,6 +77,11 @@ fn main() -> anyhow::Result<()> {
         Arc::new(LogOverlay),
         Arc::new(NoApprover),
         Arc::new(ActivityLog::memory()),
+        // Spikes never touch the real Keychain: an empty in-memory vault.
+        Arc::new(pindot_core::vault::Vault::new(
+            std::env::temp_dir().join(format!("pindot-spike-vault-{}", std::process::id())),
+            Arc::new(pindot_core::vault::keys::MemoryKeys::default()),
+        )),
     ));
     let token = load_or_create_token()?;
     let server = rt.block_on(start(state.clone(), &token, 0))?;

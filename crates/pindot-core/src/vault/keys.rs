@@ -85,9 +85,9 @@ impl SystemKeys {
         return Err(KeyError::Unavailable("this operating system has no supported credential store".into()));
         #[cfg(any(target_os = "macos", windows))]
         {
-        let store = store.map_err(|e| KeyError::Unavailable(e.to_string()))?;
-        let entry = store.build(service, account, None).map_err(|e| KeyError::Unavailable(e.to_string()))?;
-        Ok(Self { entry })
+            let store = store.map_err(|e| KeyError::Unavailable(e.to_string()))?;
+            let entry = store.build(service, account, None).map_err(|e| KeyError::Unavailable(e.to_string()))?;
+            Ok(Self { entry })
         }
     }
 

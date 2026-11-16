@@ -30,11 +30,16 @@ const CHROME: i32 = 20;
 struct ScriptedApprover {
     answer: Mutex<bool>,
     asked: Mutex<Vec<ApprovalRequest>>,
+    /// Press Esc while the prompt is open (tests the stop during a fill).
+    esc: Mutex<Option<Arc<MockStopKey>>>,
 }
 
 impl Approver for ScriptedApprover {
     fn ask(&self, req: ApprovalRequest, reply: oneshot::Sender<bool>) {
         self.asked.lock().unwrap().push(req);
+        if let Some(k) = self.esc.lock().unwrap().as_ref() {
+            k.press();
+        }
         let _ = reply.send(*self.answer.lock().unwrap());
     }
     fn cancel(&self, _id: &str) {}
@@ -93,6 +98,10 @@ fn harness_with(ax: MockAccessibility, auto: &[&str]) -> Harness {
     let stop = Arc::new(MockStopKey::default());
     let approver = Arc::new(ScriptedApprover::default());
     let activity = Arc::new(ActivityLog::memory());
+    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let vault_dir = std::env::temp_dir()
+        .join(format!("pindot-server-test-{}-{}", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
+    let vault = Arc::new(pindot_core::vault::Vault::new(vault_dir, Arc::new(pindot_core::vault::keys::MemoryKeys::default())));
     let state = ServerState::new(ServerDeps {
         capture: Arc::new(MockCapture::default()),
         input: input.clone(),
@@ -101,6 +110,7 @@ fn harness_with(ax: MockAccessibility, auto: &[&str]) -> Harness {
         overlay: overlay.clone(),
         approver: approver.clone(),
         activity: activity.clone(),
+        vault: vault.clone(),
         test_auto_approve: auto.iter().map(|s| s.to_string()).collect(),
         own_pid: OWN_PID,
         idle: Duration::from_millis(50),
@@ -330,7 +340,7 @@ async fn stop_hook_is_broadcast() {
 }
 
 #[tokio::test]
-async fn lists_all_fifteen_tools_with_safety_instructions() {
+async fn lists_all_seventeen_tools_with_safety_instructions() {
     let h = harness();
     let (sid, init) = open(&h.app).await;
     assert_eq!(init.pointer("/result/serverInfo/name").and_then(Value::as_str), Some("pindot"));
@@ -345,7 +355,7 @@ async fn lists_all_fifteen_tools_with_safety_instructions() {
         names,
         vec![
             "click", "desktop_context", "drag", "find", "focus_window", "key", "open_app", "point", "read_window",
-            "request_access", "screenshot", "scroll", "type_text", "wait", "zoom"
+            "request_access", "screenshot", "scroll", "type_text", "vault_fill", "vault_logins", "wait", "zoom"
         ]
     );
     let desc = |n: &str| {
@@ -902,4 +912,288 @@ async fn screenshot_then_click_maps_pixels_to_points() {
     fails(&h.app, &sid, "screenshot", json!({"window_id": 200})).await;
     let z = ok(&h.app, &sid, "zoom", json!({"x": 0, "y": 0, "width": 320, "height": 240})).await;
     assert!(z.contains("400x300"), "{z}");
+}
+
+// ---- Vault: saved logins, typed by Pindot, never seen by the model ----
+
+const PASSWORD: &str = "Zq9-correct-horse-battery-STAPLE-77!";
+const USERNAME: &str = "tony@example.com";
+const TOTP_KEY: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+
+struct V {
+    h: Harness,
+    sid: String,
+    id: String,
+}
+
+fn chrome_page(urls: &[&str], secure: bool) -> pindot_core::platform::FocusedPage {
+    pindot_core::platform::FocusedPage {
+        pid: CHROME,
+        secure,
+        text_input: true,
+        page_urls: urls.iter().map(|u| u.to_string()).collect(),
+    }
+}
+
+async fn vault_ready(approve: bool) -> V {
+    let ax = fixture();
+    ax.apps.lock().unwrap().iter_mut().find(|a| a.pid == CHROME).unwrap().bundle_id = Some("com.google.Chrome".into());
+    let mut field = MockNode::new(7, 1, "AXSecureTextField", "Password", Some(Rect::new(820.0, 200.0, 200.0, 24.0)));
+    field.value = Some(PASSWORD.into());
+    ax.trees.lock().unwrap().insert(200, vec![MockNode::new(6, 0, "AXWindow", "Sign in", Some(Rect::new(800.0, 100.0, 500.0, 400.0))), field]);
+    let h = harness_with(ax, &["Google Chrome"]);
+    *h.approver.answer.lock().unwrap() = approve;
+    *h.ax.frontmost.lock().unwrap() = Some(CHROME);
+    *h.ax.page.lock().unwrap() = Some(chrome_page(&["https://example.com"], true));
+    let id = h
+        .state
+        .vault
+        .add(pindot_core::vault::NewLogin {
+            name: "Work".into(),
+            site: "https://example.com/login".into(),
+            username: USERNAME.into(),
+            password: PASSWORD.into(),
+            authenticator: Some(TOTP_KEY.into()),
+        })
+        .unwrap()
+        .id;
+    let (sid, _) = open(&h.app).await;
+    ok(&h.app, &sid, "request_access", json!({"apps": ["Google Chrome"], "reason": "sign in"})).await;
+    V { h, sid, id }
+}
+
+fn typed(h: &Harness) -> Vec<String> {
+    h.input
+        .actions
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|a| if let InputAction::Type(s) = a { Some(s.clone()) } else { None })
+        .collect()
+}
+
+/// End an MCP session so the input lock is free for the next one.
+async fn close(h: &Harness, sid: &str) {
+    let r = h
+        .app
+        .clone()
+        .oneshot(
+            req("DELETE", "/mcp")
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .header("mcp-session-id", sid)
+                .header("mcp-protocol-version", "2025-06-18")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(r.status().is_success());
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while h.state.control.lock_holder().is_some() && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+fn set_page(h: &Harness, urls: &[&str], secure: bool) {
+    *h.ax.page.lock().unwrap() = Some(chrome_page(urls, secure));
+}
+
+/// Everything the model, the activity view and the use log could show.
+fn everything_visible(h: &Harness, results: &[String]) -> String {
+    let mut all = results.join("\n");
+    all.push_str(&serde_json::to_string(&h.activity.all(10_000)).unwrap());
+    all.push_str(&serde_json::to_string(&h.state.vault.all_uses(10_000)).unwrap());
+    all.push_str(&serde_json::to_string(&h.state.vault.list().unwrap()).unwrap());
+    all.push_str(&format!("{:?}", h.approver.asked.lock().unwrap()));
+    all
+}
+
+#[tokio::test]
+async fn vault_logins_lists_names_for_the_page_in_front_and_no_secrets() {
+    let v = vault_ready(true).await;
+    let t = ok(&v.h.app, &v.sid, "vault_logins", json!({})).await;
+    assert!(t.contains("Work") && t.contains(USERNAME) && t.contains("authenticator"), "{t}");
+    assert!(!t.contains(PASSWORD) && !t.contains(TOTP_KEY));
+    // A different site: nothing listed.
+    set_page(&v.h, &["https://example.com.evil.test"], false);
+    let t = ok(&v.h.app, &v.sid, "vault_logins", json!({})).await;
+    assert!(t.contains("No saved login") && !t.contains("Work"), "{t}");
+    // Unreadable page: nothing listed.
+    *v.h.ax.page.lock().unwrap() = None;
+    let t = ok(&v.h.app, &v.sid, "vault_logins", json!({})).await;
+    assert!(!t.contains("Work"), "{t}");
+}
+
+#[tokio::test]
+async fn a_fill_needs_the_user_to_allow_the_login_and_types_it_once_allowed() {
+    let v = vault_ready(true).await;
+    let mut results = vec![];
+    results.push(ok(&v.h.app, &v.sid, "vault_fill", json!({"login": "Work", "field": "password"})).await);
+    assert_eq!(results[0], "typed");
+    assert_eq!(typed(&v.h).concat(), PASSWORD);
+    let asked = v.h.approver.asked.lock().unwrap().clone();
+    let l = asked.last().unwrap().login.clone().expect("a login card");
+    assert_eq!((l.name.as_str(), l.site.as_str(), l.field.as_str()), ("Work", "https://example.com", "password"));
+    // The login stays allowed for the session: no second prompt.
+    let n = v.h.approver.asked.lock().unwrap().len();
+    set_page(&v.h, &["https://example.com"], false);
+    results.push(ok(&v.h.app, &v.sid, "vault_fill", json!({"login": v.id, "field": "username"})).await);
+    assert_eq!(v.h.approver.asked.lock().unwrap().len(), n);
+    assert_eq!(typed(&v.h).last().unwrap(), USERNAME);
+    // And an authenticator code (6 digits, never the key).
+    results.push(ok(&v.h.app, &v.sid, "vault_fill", json!({"login": "Work", "field": "code"})).await);
+    let code = typed(&v.h).last().unwrap().clone();
+    assert!(code.len() == 6 && code.chars().all(|c| c.is_ascii_digit()), "{code}");
+    results.push(code.clone());
+    // Nothing the model or the user-facing logs can see holds a secret.
+    let seen = everything_visible(&v.h, &results[..2]);
+    assert!(!seen.contains(PASSWORD) && !seen.contains(TOTP_KEY));
+    assert!(!seen.contains(&format!("\"{code}\"")) || code == "typed");
+    let uses = v.h.state.vault.uses_for(&v.id, 10);
+    assert_eq!(uses.iter().filter(|u| u.ok && u.result == "typed").count(), 3, "{uses:?}");
+}
+
+#[tokio::test]
+async fn a_denied_login_types_nothing_and_is_recorded() {
+    let v = vault_ready(false).await;
+    let t = fails(&v.h.app, &v.sid, "vault_fill", json!({"login": "Work", "field": "password"})).await;
+    assert!(t.contains("did not allow"), "{t}");
+    assert!(typed(&v.h).is_empty());
+    let u = v.h.state.vault.uses_for(&v.id, 10);
+    assert!(u.iter().any(|u| u.result == "refused" && !u.ok), "{u:?}");
+}
+
+#[tokio::test]
+async fn lookalike_sites_never_get_a_secret() {
+    let v = vault_ready(true).await;
+    let bad = [
+        "https://example.com.evil.test/login",
+        "https://evil-example.com",
+        "http://example.com",
+        "https://example.com:8443",
+        "https://example.com@evil.test",
+        "https://www.example.com",
+        "https://sub.example.com",
+        "https://example.com.",
+        "about:blank",
+        "",
+    ];
+    for u in bad {
+        // A fresh session each time, so the lock cannot be what refuses.
+        let (sid, _) = open(&v.h.app).await;
+        ok(&v.h.app, &sid, "request_access", json!({"apps": ["Google Chrome"], "reason": "t"})).await;
+        set_page(&v.h, &[u], true);
+        let t = fails(&v.h.app, &sid, "vault_fill", json!({"login": "Work", "field": "password"})).await;
+        assert!(t.contains("not https://example.com"), "{u}: {t}");
+        close(&v.h, &sid).await;
+    }
+    assert!(typed(&v.h).is_empty(), "nothing typed on any lookalike: {:?}", typed(&v.h));
+}
+
+#[tokio::test]
+async fn a_foreign_frame_inside_the_right_page_is_refused() {
+    let v = vault_ready(true).await;
+    set_page(&v.h, &["https://example.com", "https://evil.test/frame"], true);
+    let t = fails(&v.h.app, &v.sid, "vault_fill", json!({"login": "Work", "field": "password"})).await;
+    assert!(t.contains("not https://example.com"), "{t}");
+    assert!(typed(&v.h).is_empty());
+    // Address not readable at all.
+    set_page(&v.h, &[], true);
+    fails(&v.h.app, &v.sid, "vault_fill", json!({"login": "Work", "field": "password"})).await;
+    assert!(typed(&v.h).is_empty());
+}
+
+#[tokio::test]
+async fn a_password_goes_only_into_a_secure_field_and_a_username_not_into_one() {
+    let v = vault_ready(true).await;
+    set_page(&v.h, &["https://example.com"], false);
+    let t = fails(&v.h.app, &v.sid, "vault_fill", json!({"login": "Work", "field": "password"})).await;
+    assert!(t.contains("not a password field"), "{t}");
+    set_page(&v.h, &["https://example.com"], true);
+    let t = fails(&v.h.app, &v.sid, "vault_fill", json!({"login": "Work", "field": "username"})).await;
+    assert!(t.contains("password field"), "{t}");
+    assert!(typed(&v.h).is_empty());
+    // The right boxes work.
+    ok(&v.h.app, &v.sid, "vault_fill", json!({"login": "Work", "field": "password"})).await;
+    set_page(&v.h, &["https://example.com"], false);
+    ok(&v.h.app, &v.sid, "vault_fill", json!({"login": "Work", "field": "username"})).await;
+}
+
+#[tokio::test]
+async fn only_a_browser_the_user_approved_gets_a_fill() {
+    // A non-browser app that is approved and shows a page-like focus.
+    let ax = fixture();
+    let h = harness_with(ax, &["TextEdit"]);
+    *h.approver.answer.lock().unwrap() = true;
+    h.state
+        .vault
+        .add(pindot_core::vault::NewLogin { name: "Work".into(), site: "example.com".into(), username: "u".into(), password: PASSWORD.into(), authenticator: None })
+        .unwrap();
+    let (sid, _) = open(&h.app).await;
+    ok(&h.app, &sid, "request_access", json!({"apps": ["TextEdit"], "reason": "t"})).await;
+    *h.ax.page.lock().unwrap() =
+        Some(pindot_core::platform::FocusedPage { pid: TEXTEDIT, secure: true, text_input: true, page_urls: vec!["https://example.com".into()] });
+    let t = fails(&h.app, &sid, "vault_fill", json!({"login": "Work", "field": "password"})).await;
+    assert!(t.contains("not a browser"), "{t}");
+    // The browser itself is not approved: refused before anything else.
+    *h.ax.frontmost.lock().unwrap() = Some(CHROME);
+    set_page(&h, &["https://example.com"], true);
+    let t = fails(&h.app, &sid, "vault_fill", json!({"login": "Work", "field": "password"})).await;
+    assert!(t.contains("not approved"), "{t}");
+    assert!(typed(&h).is_empty());
+}
+
+#[tokio::test]
+async fn fills_are_rate_limited_and_repeated_refusals_lock_the_vault() {
+    let v = vault_ready(true).await;
+    for _ in 0..5 {
+        ok(&v.h.app, &v.sid, "vault_fill", json!({"login": "Work", "field": "password"})).await;
+    }
+    let t = fails(&v.h.app, &v.sid, "vault_fill", json!({"login": "Work", "field": "password"})).await;
+    assert!(t.contains("too many"), "{t}");
+    assert_eq!(typed(&v.h).concat().len(), 5 * PASSWORD.len());
+    close(&v.h, &v.sid).await;
+
+    // A fresh session: three wrong-site attempts lock it.
+    let (sid2, _) = open(&v.h.app).await;
+    ok(&v.h.app, &sid2, "request_access", json!({"apps": ["Google Chrome"], "reason": "t"})).await;
+    set_page(&v.h, &["https://evil.test"], true);
+    for _ in 0..3 {
+        fails(&v.h.app, &sid2, "vault_fill", json!({"login": "Work", "field": "password"})).await;
+    }
+    set_page(&v.h, &["https://example.com"], true);
+    let t = fails(&v.h.app, &sid2, "vault_fill", json!({"login": "Work", "field": "password"})).await;
+    assert!(t.contains("locked"), "{t}");
+    assert_eq!(typed(&v.h).concat().len(), 5 * PASSWORD.len());
+}
+
+#[tokio::test]
+async fn esc_during_a_fill_stops_it() {
+    let v = vault_ready(true).await;
+    *v.h.approver.esc.lock().unwrap() = Some(v.h.stop.clone());
+    let t = fails(&v.h.app, &v.sid, "vault_fill", json!({"login": "Work", "field": "password"})).await;
+    assert!(t.contains("pressed Esc"), "{t}");
+    assert!(typed(&v.h).is_empty(), "Esc before the first character types nothing");
+}
+
+#[tokio::test]
+async fn read_window_never_shows_a_password_boxs_value() {
+    let v = vault_ready(true).await;
+    ok(&v.h.app, &v.sid, "vault_fill", json!({"login": "Work", "field": "password"})).await;
+    let listing = ok(&v.h.app, &v.sid, "read_window", json!({"window_id": 200})).await;
+    assert!(listing.contains("securetextfield") && !listing.contains(PASSWORD), "{listing}");
+    let found = ok(&v.h.app, &v.sid, "find", json!({"query": "Zq9-correct"})).await;
+    assert!(!found.contains(PASSWORD), "{found}");
+}
+
+#[tokio::test]
+async fn unknown_logins_and_missing_fields_are_refused_in_plain_words() {
+    let v = vault_ready(true).await;
+    let t = fails(&v.h.app, &v.sid, "vault_fill", json!({"login": "Nope", "field": "password"})).await;
+    assert!(t.contains("no saved login"), "{t}");
+    let t = fails(&v.h.app, &v.sid, "vault_fill", json!({"login": "Work", "field": "cvv"})).await;
+    assert!(t.contains("username"), "{t}");
+    v.h.state.vault.add(pindot_core::vault::NewLogin { name: "Plain".into(), site: "example.com".into(), username: "u".into(), password: "pw-pw-pw-pw".into(), authenticator: None }).unwrap();
+    let t = fails(&v.h.app, &v.sid, "vault_fill", json!({"login": "Plain", "field": "code"})).await;
+    assert!(t.contains("no saved code"), "{t}");
 }

@@ -2,7 +2,7 @@
 //! element refs and cached tree snapshots. One `claude` process = one MCP
 //! session = one `Session`. Dropping the session releases the input lock.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -99,6 +99,10 @@ pub struct Session {
     pub id: String,
     control: Arc<Control>,
     approved: Mutex<Vec<ApprovedApp>>,
+    /// Vault logins the user allowed for this session (by login id).
+    approved_logins: Mutex<HashSet<String>>,
+    /// Rate limit and lock for `vault_fill`.
+    pub fill_gate: crate::vault::gate::FillGate,
     pub geometry: Mutex<Option<ShotGeometry>>,
     pub refs: Mutex<RefTable>,
     pub snapshots: Mutex<HashMap<u64, Snapshot>>,
@@ -115,6 +119,8 @@ impl Session {
             id,
             control,
             approved: Mutex::new(vec![]),
+            approved_logins: Mutex::new(HashSet::new()),
+            fill_gate: Default::default(),
             geometry: Mutex::new(None),
             refs: Mutex::new(RefTable::default()),
             snapshots: Mutex::new(HashMap::new()),
@@ -127,6 +133,14 @@ impl Session {
         if !a.iter().any(|x| x.matches(&app.name, app.bundle_id.as_deref())) {
             a.push(app);
         }
+    }
+
+    pub fn approve_login(&self, id: &str) {
+        self.approved_logins.lock().unwrap().insert(id.to_string());
+    }
+
+    pub fn is_login_approved(&self, id: &str) -> bool {
+        self.approved_logins.lock().unwrap().contains(id)
     }
 
     pub fn approved(&self) -> Vec<ApprovedApp> {
