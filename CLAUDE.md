@@ -150,8 +150,10 @@ recorded; everything else was renamed (crates, bundle id `dev.pindot.app`,
   meanwhile (seen on Windows on 16 Nov 2026 by reading the windows'
   display affinity: `WDA_NONE` idle, excluded during each screenshot, back
   afterwards, no cost that shows in a release build; tao's own invisible
-  untitled window matches the same test and is switched with them. Not
-  seen: a recorder's picture, the switch flipped while running). It never changes the main window or the
+  untitled window matches the same test and is switched with them. An
+  outside capture of a marker drawn in the overlay saw it only with the
+  mode on, and lost it once per screenshot of our own. Not seen: OBS
+  itself, the switch flipped while running). It never changes the main window or the
   approval popup, so a restore can never expose them. If ScreenCaptureKit fails, the screenshot fails
   rather than falling back to xcap, which would show the cursor. Order of a
   live flip: the capture flag first on the way in, the overlay first on the

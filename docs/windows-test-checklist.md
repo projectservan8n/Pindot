@@ -105,9 +105,20 @@ unticked. The physical-keyboard pass was done by the PC's owner on 16 Nov
       screenshots in the release build: median 110 ms with the mode on,
       120 ms with it off (two monitors, timed to 10 ms), so no cost that
       shows.
-- [ ] Streaming mode, with a recorder (Settings, "Streaming mode" on; not
-      tried: no cursor was drawn and no OBS was run, and the switch was
-      not flipped in Settings while running): the AI cursor and its
+- [x] Streaming mode, what an outside capture gets (a stand-in for a
+      recorder: an 8-pixel marker drawn in the overlay's corner, and
+      another process copying that patch of the screen about 300 times a
+      second). With the mode on the marker was in 440 of 440 captures
+      while idle; while Pindot took three screenshots of its own it was
+      missing in 17 of 2661 and went and came back exactly three times,
+      and it was there at the end. With the mode off it was in none of
+      442, and none of 2664 during the screenshots. So a recorder sees the
+      overlay only in streaming mode, and it blinks out for each of
+      Pindot's own screenshots, as designed.
+- [ ] Streaming mode, with OBS itself (Settings, "Streaming mode" on; not
+      tried: OBS was not run, the real cursor and its bubble were not
+      drawn, no popup was opened during a capture, and the switch was not
+      flipped in Settings while running): the AI cursor and its
       caption bubble show up in OBS (window or
       display capture); Rusty's own `screenshot` leaves the cursor out (the
       overlay is switched to `WDA_EXCLUDEFROMCAPTURE` for the length of one
