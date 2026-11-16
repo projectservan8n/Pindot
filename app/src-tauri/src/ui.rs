@@ -517,6 +517,8 @@ pub struct SettingsView {
     default_port: u16,
     running_port: Option<u16>,
     os: &'static str,
+    /// Can this OS do streaming mode (macOS 14 or newer, or Windows)?
+    streaming_supported: bool,
     /// Why the saved brain folder cannot be used right now (`None` = fine
     /// or not set).
     brain_folder_notice: Option<String>,
@@ -551,6 +553,7 @@ pub fn settings_get(app: AppHandle) -> SettingsView {
         default_port: pindot_core::DEFAULT_PORT,
         running_port: app.try_state::<RunningServer>().map(|s| s.addr.port()),
         os: if cfg!(target_os = "macos") { "macos" } else { "windows" },
+        streaming_supported: platform::streaming_supported(),
         brain_folder_notice: FolderState::of(app.state::<Ui>().settings().voice.brain_folder.as_deref()).notice(),
     }
 }
@@ -616,8 +619,29 @@ pub fn settings_save(app: AppHandle, settings: Settings) -> Result<SaveResult, V
     if new.cursor_color != old.cursor_color {
         send_cursor_color(&app);
     }
+    if new.streaming_mode != old.streaming_mode {
+        apply_streaming(&app);
+    }
     changed(&app);
     Ok(SaveResult { notes })
+}
+
+/// Put streaming mode in force (or out of it) from the saved setting, live.
+/// Only the overlay windows change; the main window and the approval popup
+/// keep their protection. The order matters: on the way in our own
+/// screenshots start leaving the overlay out before it becomes visible to
+/// capture, and on the way out it is hidden before they stop.
+pub fn apply_streaming(app: &AppHandle) {
+    let ui = app.state::<Ui>();
+    let on = crate::overlay::streaming_in_force(ui.settings().streaming_mode, platform::streaming_supported(), ui.capturable);
+    if on {
+        platform::set_streaming_capture(true);
+        crate::overlay::set_visible_to_capture(app, true);
+    } else {
+        crate::overlay::set_visible_to_capture(app, ui.capturable);
+        platform::set_streaming_capture(false);
+    }
+    println!("streaming mode: {}", if on { "on (the overlay is visible to screen capture)" } else { "off" });
 }
 
 /// Tell the overlays what the assistant is called (the banner says
