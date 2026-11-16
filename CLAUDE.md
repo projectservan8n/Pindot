@@ -977,8 +977,12 @@ ideas only.
   Esc kills the `codex` process. Sign-in is `codex login status` (exit 0);
   Pindot never runs `codex login`. Tested for real with Ollama's qwen3:4b
   as Codex's model provider (`real_codex_local`, --ignored): a tool call
-  through Pindot's server, then a resumed second turn. On a ChatGPT plan:
-  not yet (needs Tony's `codex login`).
+  through Pindot's server, then a resumed second turn. On Tony's ChatGPT
+  plan (17 Nov 2026, Codex's default model): `real_codex_chatgpt`
+  (--ignored) made the tool call in 13.4 s and the resumed turn in 5.8 s;
+  through the whole app (`--test-voice`, "How many displays do I have?")
+  Codex called `desktop_context` on the real Mac and the answer was spoken
+  6.7 s after the key was released (RESULT PASS).
 
 ## Known risks (open)
 

@@ -553,3 +553,67 @@ fn real_codex_local() {
     drop(brain);
     std::fs::remove_dir_all(&scratch).ok();
 }
+
+/// The Codex brain on the user's ChatGPT plan: the real `codex`, signed in
+/// with `codex login` (the user's own CODEX_HOME), Codex's default model,
+/// two turns against the mock desktop. Uses the plan. Not run by default.
+///   cargo test -p pindot-core --test native_loop real_codex_chatgpt -- --ignored --nocapture
+#[test]
+#[ignore]
+fn real_codex_chatgpt() {
+    use pindot_core::brain::Brain;
+    use pindot_core::brain::codex::{CodexBrain, CodexConfig};
+    use pindot_core::voice::machine::Input;
+
+    let scratch = std::env::temp_dir().join(format!("pindot-codex-gpt-{}", uuid::Uuid::new_v4()));
+    let (cwd, data) = (scratch.join("cwd"), scratch.join("data"));
+    for d in [&cwd, &data] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let p = pindot();
+    let (tx, rx) = std::sync::mpsc::channel::<Input>();
+    let tx = Mutex::new(tx);
+    let brain = CodexBrain::start(
+        CodexConfig {
+            bin: None,
+            model: None,
+            mcp_url: p.server.mcp_url(),
+            token: TOKEN.into(),
+            system_prompt: pindot_core::voice::VOICE_SYSTEM_PROMPT.into(),
+            cwd,
+            data_dir: data.clone(),
+            extra_config: vec![],
+            require_sign_in: true,
+        },
+        p.state.clone(),
+        Arc::new(move |i| {
+            let _ = tx.lock().unwrap().send(i);
+        }),
+    )
+    .unwrap();
+    let next = || rx.recv_timeout(Duration::from_secs(300)).expect("an input from the brain");
+    let first = next();
+    let Input::SessionReady { .. } = first else { panic!("not ready: {first:?}") };
+    let turn = |prompt: &str| {
+        let t = std::time::Instant::now();
+        brain.send(prompt);
+        let mut tools = vec![];
+        let end = loop {
+            match next() {
+                Input::TranscriptToolUse { name, .. } => tools.push(name),
+                Input::TranscriptText { text, .. } => println!("  said: {text}"),
+                i @ (Input::Stop { .. } | Input::TurnFailed { .. }) => break i,
+                _ => {}
+            }
+        };
+        println!("{prompt:?}: {:.1}s, tools {tools:?}, end {end:?}", t.elapsed().as_secs_f64());
+        (tools, end)
+    };
+    let (tools, end) = turn("How many displays do I have? Use the desktop tools to find out.");
+    assert!(tools.iter().any(|t| t.ends_with("desktop_context")), "{tools:?}");
+    assert!(matches!(end, Input::Stop { .. }), "{end:?}");
+    let (_, end) = turn("And what did you just tell me?");
+    assert!(matches!(end, Input::Stop { .. }), "the resumed turn: {end:?}");
+    drop(brain);
+    std::fs::remove_dir_all(&scratch).ok();
+}
