@@ -56,6 +56,7 @@
              box-shadow: 0 0 0 2px var(--accent), 0 0 12px var(--accent-glow); }
   .chev { width: 16px; height: 10px; margin: -5px 0 0 -8px; }
   .chev svg { display: block; overflow: visible; }
+  .chev-stroke { stroke: var(--accent); }
 
   /* ---- the cursor. #cursor sits on the tip; #pose takes taps and grabs;
      #lean banks into the motion. All three pivot on the tip. */
@@ -68,7 +69,7 @@
            filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.32)) drop-shadow(0 0 1px rgba(0, 0, 0, 0.45)); }
 
   /* The cursor's colours. These live here, in the style sheet, and never in
-     a style="..." attribute: the app's content security policy drops every
+     a style attribute: the app's content security policy drops every
      style attribute in the markup (Tauri adds a nonce, which switches
      'unsafe-inline' off), and a stop with no colour is black. The
      stop-color attributes are the pink fallback. */
