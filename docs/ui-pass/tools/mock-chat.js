@@ -1,4 +1,5 @@
 // Chat screens for the screenshot tool: ?c=empty|nosession|convo|steps|approval|attach|error|history
+//   dictation: dict-listening|dict-transcribing|dict-error|dict-done ; chatonly (voice off, Chat works)
 (function () {
   const c = new URLSearchParams(location.search).get('c') || 'convo';
   const D = '/Users/sam/Library/Application Support/Pindot/attachments/2f1c9a52-aaaa-4bbb-8ccc-0123456789ab/';
@@ -26,11 +27,12 @@
     u('u1', 'What is wrong with this chart?', [D + 'chart.png']),
     a('a1', 'The y-axis starts at 40 rather than 0, which makes the change between the two bars look much bigger than it is.'),
   ];
-  const sets = { empty: [], nosession: [], convo, steps, approval, attach, error: convo.slice(0, 1), history: convo };
+  const sets = { empty: [], nosession: [], convo, steps, approval, attach, error: convo.slice(0, 1), history: convo, chatonly: [], 'dict-listening': convo.slice(0, 1), 'dict-transcribing': convo.slice(0, 1), 'dict-error': convo.slice(0, 1), 'dict-done': convo.slice(0, 1) };
   let can = c !== 'nosession';
   const req = { id: 'r1', session: 'f73c7cb0', apps: [{ name: 'Notes', bundle_id: 'com.apple.Notes', running: true, warning: null }], reason: 'To add a reminder about calling the dentist.' };
   window.__MOCK_ROUTES = {
-    chat_state: () => ({ session_id: can ? '2f1c9a52-aaaa-4bbb-8ccc-0123456789ab' : null, items: sets[c] || convo, display: c === 'approval' || c === 'steps' ? 'acting' : 'idle', can_send: can }),
+    chat_state: () => ({ session_id: can ? '2f1c9a52-aaaa-4bbb-8ccc-0123456789ab' : null, items: sets[c] || convo, display: c === 'approval' || c === 'steps' ? 'acting' : 'idle', can_send: can, can_speak: c !== 'chatonly' }),
+    dictation_start: () => 7, dictation_stop: () => null, dictation_cancel: () => null, dictation_focus: () => null,
     chat_image: () => svg('#ff9ac8', '#6b9cff'),
     approvals_pending: () => (c === 'approval' ? [req] : []),
     chat_history: () => [
@@ -42,6 +44,7 @@
       ? { attached: [], rejected: [{ name: 'holiday-video.mov', reason: 'That file is 84 MB and the limit is 10 MB. Trim it or send a smaller copy.' }] }
       : { attached: [{ name: 'chart.png', path: D + 'chart.png', size: 184320, kind: 'image' }, { name: 'budget.pdf', path: D + 'budget.pdf', size: 912000, kind: 'pdf' }], rejected: [] },
   };
+  const dict = (kind, extra) => window.__MOCK_EMIT('pindot:dictation', Object.assign({ kind, id: 7, source: 'button' }, extra));
   if (c === 'info-blocked') { /* handled by the base mock's s=setup */ }
   addEventListener('load', () => {
     const click = (sel, t) => setTimeout(() => document.querySelector(sel)?.click(), t);
@@ -55,6 +58,18 @@
     if (c === 'error') setTimeout(() => window.__MOCK_EMIT('pindot:voice', { state: 'idle', notice: "I couldn't reach Claude Code. Open Setup and check that you are signed in, then try again." }), 600);
     if (c === 'steps' || c === 'approval') setTimeout(() => window.__MOCK_EMIT('pindot:voice', { state: 'acting', notice: null }), 300);
     if (c === 'steps') setTimeout(() => document.querySelectorAll('details.steps, details.step').forEach((d) => (d.open = true)), 600);
+    if (c.startsWith('dict-')) {
+      click('.mic', 400);
+      if (c === 'dict-listening') setTimeout(() => { dict('state', { state: 'listening' }); window.__MOCK_EMIT('pindot:dictation', { kind: 'level', level: 0.18 }); }, 700);
+      if (c === 'dict-transcribing') setTimeout(() => dict('state', { state: 'transcribing' }), 700);
+      if (c === 'dict-error') setTimeout(() => dict('error', { problem: 'no_mic', message: 'The microphone would not start (no input device). Check the microphone in Settings.' }), 700);
+      if (c === 'dict-done') setTimeout(() => {
+        const ta = document.querySelector('textarea');
+        ta.value = 'Remind me to call the dentist '; ta.dispatchEvent(new Event('input', { bubbles: true }));
+        dict('state', { state: 'idle' }); dict('text', { text: 'on Thursday morning' });
+      }, 700);
+    }
+    if (c === 'chatonly') setTimeout(() => window.__MOCK_EMIT('pindot:voice', { state: 'idle', notice: null }), 300);
     if (c === 'history') click('.chat-bar button', 500);
   });
 })();

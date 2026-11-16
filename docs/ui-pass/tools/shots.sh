@@ -10,7 +10,7 @@ out="$1"; shift
 work="$(mktemp -d)"
 (cd "$repo/app" && npx vite build --outDir "$work/dist" --emptyOutDir >/dev/null 2>&1)
 # LIGHT=1: the light theme (headless Chrome is dark), by switching off the dark media query.
-[ -n "$LIGHT" ] && sed -i '' 's/prefers-color-scheme:dark/prefers-color-scheme:none/g; s/prefers-color-scheme: dark/prefers-color-scheme: none/g' "$work"/dist/assets/*.css
+[ -n "$LIGHT" ] && sed -i '' 's/prefers-color-scheme:dark/prefers-color-scheme:none/g; s/prefers-color-scheme: dark/prefers-color-scheme: none/g; s/color-scheme:light dark/color-scheme:light/g' "$work"/dist/assets/*.css
 cp "$here/tauri-mock.js" "$work/dist/"
 cp "$here"/mock-*.js "$work/dist/" 2>/dev/null || true
 extra=""

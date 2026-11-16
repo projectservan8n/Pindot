@@ -25,6 +25,7 @@
     hotkey_label: 'Ctrl+Option+Space', capturable: true, test_switches: false,
   };
   if (scenario === 'setup') info.voice = 'off';
+  if (scenario === 'chatonly') { info.voice = 'chat_only'; info.voice_note = 'Voice needs its models. Chat works.'; }
   const perms = [
     ['Accessibility', 'Accessibility', 'Lets Pindot click and type for you.', 'granted'],
     ['InputMonitoring', 'Input Monitoring', 'Lets Pindot hear the hold-to-talk key.', 'granted'],

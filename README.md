@@ -496,3 +496,7 @@ with a printed warning, and the settings window has no way to reach them.
 
 MIT, see `LICENSE`. Third-party models and their licenses are listed in
 `NOTICE`. Contributions: see `CONTRIBUTING.md`.
+
+The interface fonts, Schibsted Grotesk and Poppins SemiBold (wordmark only), are
+bundled in `app/src/fonts/` under the SIL Open Font License 1.1 (`OFL.txt`
+there). The design notes are in `docs/ui-pass/design-brief.md`.
