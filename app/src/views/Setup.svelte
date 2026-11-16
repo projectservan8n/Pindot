@@ -151,7 +151,7 @@
   <h2>1. Choose a brain</h2>
   <p class="muted">
     The brain is the AI that understands you and uses the desktop tools: your own Claude Code, a model running on this
-    computer, or a service you have an API key for.
+    computer, your ChatGPT plan, or a service you have an API key for.
   </p>
   {#if settings}
     <BrainPicker bind:brain={settings.brain} claudeReady={!!claude?.signed_in} own />

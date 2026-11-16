@@ -55,8 +55,16 @@ export interface Settings {
   [extra: string]: unknown;
 }
 
-/** 'claude_code': the user's Claude Code. 'loop': Pindot's own loop. */
-export type BrainKind = 'claude_code' | 'loop';
+/** 'claude_code': the user's Claude Code. 'loop': Pindot's own loop.
+ *  'codex': the ChatGPT plan through OpenAI's Codex CLI. */
+export type BrainKind = 'claude_code' | 'loop' | 'codex';
+
+export interface CodexStatus {
+  /** Where Codex is; null = not installed. */
+  path: string | null;
+  signed_in: boolean;
+  problem: string | null;
+}
 /** Can the model see pictures? 'auto' asks the server. */
 export type Vision = 'auto' | 'on' | 'off';
 
@@ -442,6 +450,7 @@ export const api = {
   brainKeyDelete: (provider: string) => invoke<void>('brain_key_delete', { provider }),
   brainTest: (brain: BrainSettings) => invoke<TestResult>('brain_test', { brain }),
   brainChoose: (brain: BrainSettings) => invoke<void>('brain_choose', { brain }),
+  brainCodexStatus: () => invoke<CodexStatus>('brain_codex_status'),
   appInfo: () => invoke<AppInfo>('app_info'),
   settingsGet: () => invoke<SettingsView>('settings_get'),
   chooseBrainFolder: () => invoke<string | null>('choose_brain_folder'),

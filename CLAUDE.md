@@ -955,6 +955,30 @@ ideas only.
   same user message. Models from `GET /v1/models` (`max_input_tokens`,
   `capabilities.image_input.supported`). This key is only ever the loop's:
   Claude Code still never gets an API key.
+- **The ChatGPT plan through Codex** (17 Nov 2026, `brain/codex.rs`):
+  `CodexBrain`, one `codex exec --json` per turn (`exec resume <thread>`
+  after the first), the prompt on stdin. Seen with Codex CLI 0.169.0. It
+  runs the native binary inside the npm package (`native_in_package`: the
+  npm `codex` is a Node script and an app started from the Finder may not
+  find `node`). `--ignore-user-config` (the user's Codex settings don't
+  apply; the sign-in in `~/.codex` still does), `forced_login_method =
+  "chatgpt"`, `OPENAI_API_KEY` and `CODEX_API_KEY` removed from the child,
+  `sandbox_mode = "read-only"` and `--disable shell_tool unified_exec
+  browser_use browser_use_external in_app_browser apps view_image`: Pindot's
+  desktop tools only. The desktop server goes in with `-c
+  mcp_servers.desktop.url/bearer_token_env_var/http_headers` (the
+  `X-Pindot-Session` header was seen in the activity log) and
+  `default_tools_approval_mode = "approve"` (Pindot's own approval window
+  still asks). `exec resume` takes neither `-s` nor `-C`, so the sandbox is
+  a `-c` value and the working folder is the process's own (Pindot's
+  session folder). Events: `thread.started`, `item.started`/`completed`
+  (`mcp_tool_call`, `agent_message`, `reasoning`, `error` as a warning),
+  `turn.completed`, `turn.failed`; written to Pindot's conversation file.
+  Esc kills the `codex` process. Sign-in is `codex login status` (exit 0);
+  Pindot never runs `codex login`. Tested for real with Ollama's qwen3:4b
+  as Codex's model provider (`real_codex_local`, --ignored): a tool call
+  through Pindot's server, then a resumed second turn. On a ChatGPT plan:
+  not yet (needs Tony's `codex login`).
 
 ## Known risks (open)
 

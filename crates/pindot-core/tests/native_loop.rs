@@ -484,3 +484,72 @@ fn real_ollama() {
     assert!(matches!(end, Input::Stop { .. }), "{end:?}");
     assert!(tools.iter().any(|t| t.ends_with("request_access")), "{tools:?}");
 }
+
+// ------------------------------------------------------- Codex for real
+
+/// The Codex brain with the real `codex` CLI, using Ollama's `qwen3:4b` as
+/// its model provider (no ChatGPT sign-in needed), a scratch CODEX_HOME,
+/// and two turns (the second resumes the thread). Not run by default.
+///   cargo test -p pindot-core --test native_loop real_codex_local -- --ignored --nocapture
+#[test]
+#[ignore]
+fn real_codex_local() {
+    use pindot_core::brain::Brain;
+    use pindot_core::brain::codex::{CodexBrain, CodexConfig};
+    use pindot_core::voice::machine::Input;
+
+    let scratch = std::env::temp_dir().join(format!("pindot-codex-{}", uuid::Uuid::new_v4()));
+    let (home, cwd, data) = (scratch.join("home"), scratch.join("cwd"), scratch.join("data"));
+    for d in [&home, &cwd, &data] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    // SAFETY: set before any thread of this test reads the environment.
+    unsafe { std::env::set_var("CODEX_HOME", &home) };
+    let p = pindot();
+    let (tx, rx) = std::sync::mpsc::channel::<Input>();
+    let tx = Mutex::new(tx);
+    let brain = CodexBrain::start(
+        CodexConfig {
+            bin: None,
+            model: Some("qwen3:4b".into()),
+            mcp_url: p.server.mcp_url(),
+            token: TOKEN.into(),
+            system_prompt: "Answer in one short sentence.".into(),
+            cwd,
+            data_dir: data.clone(),
+            extra_config: vec!["model_provider=\"ollama\"".into()],
+            require_sign_in: false,
+        },
+        p.state.clone(),
+        Arc::new(move |i| {
+            let _ = tx.lock().unwrap().send(i);
+        }),
+    )
+    .unwrap();
+    let next = || rx.recv_timeout(Duration::from_secs(400)).expect("an input from the brain");
+    let Input::SessionReady { session_id } = next() else { panic!("not ready") };
+    let turn = |prompt: &str| {
+        let t = std::time::Instant::now();
+        brain.send(prompt);
+        let mut tools = vec![];
+        let end = loop {
+            match next() {
+                Input::TranscriptToolUse { name, .. } => tools.push(name),
+                i @ (Input::Stop { .. } | Input::TurnFailed { .. }) => break i,
+                _ => {}
+            }
+        };
+        println!("{prompt:?}: {:.1}s, tools {tools:?}, end {end:?}", t.elapsed().as_secs_f64());
+        (tools, end)
+    };
+    let (tools, end) = turn("Call the desktop_context tool, then say how many displays there are.");
+    assert!(tools.contains(&"mcp__desktop__desktop_context".to_string()), "{tools:?}");
+    assert!(matches!(end, Input::Stop { .. }), "{end:?}");
+    let (_, end) = turn("What did you just tell me?");
+    assert!(matches!(end, Input::Stop { .. }), "the resumed turn: {end:?}");
+    let items = pindot_core::chat::transcript::read_all(&pindot_core::brain::transcript::conversations_dir(&data).join(format!("{session_id}.jsonl")));
+    println!("conversation file: {} items", items.len());
+    assert!(items.len() >= 5, "{items:?}");
+    drop(brain);
+    std::fs::remove_dir_all(&scratch).ok();
+}

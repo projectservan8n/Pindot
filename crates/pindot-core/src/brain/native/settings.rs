@@ -13,6 +13,8 @@ pub enum BrainKind {
     ClaudeCode,
     /// Pindot's own loop against an OpenAI-compatible endpoint.
     Loop,
+    /// The user's ChatGPT plan through OpenAI's Codex CLI (`brain::codex`).
+    Codex,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -74,6 +76,10 @@ impl BrainSettings {
         self.kind == BrainKind::Loop
     }
 
+    pub fn uses_claude_code(&self) -> bool {
+        self.kind == BrainKind::ClaudeCode
+    }
+
     /// The same brain (test results aside): anything else restarts the
     /// voice loop with a fresh conversation.
     pub fn same_brain(&self, o: &BrainSettings) -> bool {
@@ -133,6 +139,17 @@ mod tests {
     fn claude_code_needs_no_loop_fields() {
         assert!(BrainSettings::default().problems().is_empty());
         assert!(!BrainSettings::default().is_loop());
+        assert!(BrainSettings::default().uses_claude_code());
+    }
+
+    #[test]
+    fn codex_needs_no_model_and_reads_back() {
+        let b = BrainSettings { kind: BrainKind::Codex, model: String::new(), ..BrainSettings::default() };
+        assert!(b.problems().is_empty());
+        assert!(!b.uses_claude_code() && !b.is_loop());
+        let text = serde_json::to_string(&b).unwrap();
+        assert!(text.contains("\"kind\":\"codex\""), "{text}");
+        assert_eq!(serde_json::from_str::<BrainSettings>(&text).unwrap(), b);
     }
 
     #[test]

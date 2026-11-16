@@ -62,6 +62,10 @@ Anthropic's names for their products.
     Pindot uses it just like you do in a terminal, so it counts against the
     same usage limits, and never asks for an API key for it. On Windows,
     install the native app (`claude.exe`), not the npm package.
+  - **Your ChatGPT plan**, through OpenAI's
+    [Codex CLI](https://github.com/openai/codex) (`npm install -g
+    @openai/codex`, then `codex login`). It counts against your plan's
+    Codex limits.
   - **A model on your computer**, served by [Ollama](https://ollama.com),
     LM Studio or llama.cpp. Free and private, but it has to be good at
     using tools: small models often aren't.
@@ -156,6 +160,10 @@ and Speaking.
 Setup's first step, or Settings > Brain:
 
 - **Claude Code** works as it always has.
+- **Your ChatGPT plan**: install Codex (`npm install -g @openai/codex`), run
+  `codex login` once in a terminal, and pick it. Pindot never sees your
+  sign-in, and Codex gets only Pindot's desktop tools: its own shell and
+  browser are switched off.
 - **A model on this computer**: start Ollama, LM Studio's server or
   llama.cpp, and Pindot finds it and lists its models. Ollama gives models a
   short memory by default; for longer requests start it with
@@ -278,9 +286,9 @@ Open Settings from the menu-bar icon.
 - **What the brain sees goes to whoever runs it.** When Rusty reads a
   window, takes a screenshot, or opens a file you attached or a note in your
   brain folder, that goes to the brain: to Anthropic through your own Claude
-  Code, exactly as if you used Claude Code yourself; to the provider of your
-  API key; or nowhere at all with a model on your computer. Screenshots grey
-  out every app you haven't approved.
+  Code, exactly as if you used Claude Code yourself; to OpenAI through your
+  own Codex; to the provider of your API key; or nowhere at all with a model
+  on your computer. Screenshots grey out every app you haven't approved.
 - **Pindot has no server, no account and no telemetry.** Its only other
   network traffic is downloading the voice models, from Hugging Face (with
   a mirror as a fallback), when you ask for them.

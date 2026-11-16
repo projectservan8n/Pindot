@@ -3,7 +3,7 @@
   // In Setup (`own`) it saves itself with "Use this brain"; in Settings the
   // page's Save saves `brain`. Keys and the model test act at once.
   import { onMount } from 'svelte';
-  import { api, errorText, type BrainModel, type BrainSettings, type FoundServer, type ProviderView } from './api';
+  import { api, errorText, type BrainModel, type BrainSettings, type CodexStatus, type FoundServer, type ProviderView } from './api';
 
   let {
     brain = $bindable(),
@@ -20,23 +20,43 @@
   let testing = $state(false);
   let saved = $state('');
   let problems = $state<string[]>([]);
+  let codex = $state<CodexStatus | null>(null);
+  let checkingCodex = $state(false);
 
   const provider = $derived(providers.find((p) => p.id === brain.provider));
   const tested = $derived(brain.tested.find((t) => t.base_url === brain.base_url && t.model === brain.model));
-  const choice = $derived(brain.kind === 'claude_code' ? 'claude' : provider?.local ? 'local' : 'api');
+  const choice = $derived(
+    brain.kind === 'claude_code' ? 'claude' : brain.kind === 'codex' ? 'codex' : provider?.local ? 'local' : 'api',
+  );
 
   onMount(async () => {
     providers = await api.brainProviders();
+    if (brain.kind === 'codex') await checkCodex();
     if (brain.kind === 'loop') {
       if (provider?.local) local = await api.brainFindLocal();
       await loadModels();
     }
   });
 
-  async function pick(c: 'claude' | 'local' | 'api') {
+  async function checkCodex() {
+    checkingCodex = true;
+    try {
+      codex = await api.brainCodexStatus();
+    } finally {
+      checkingCodex = false;
+    }
+  }
+
+  async function pick(c: 'claude' | 'local' | 'api' | 'codex') {
     saved = '';
     if (c === 'claude') {
       brain.kind = 'claude_code';
+      return;
+    }
+    if (c === 'codex') {
+      if (brain.kind !== 'codex') brain.model = '';
+      brain.kind = 'codex';
+      await checkCodex();
       return;
     }
     brain.kind = 'loop';
@@ -153,6 +173,13 @@
       </span>
     </label>
     <label class="choice">
+      <input type="radio" name="brain-kind" checked={choice === 'codex'} onchange={() => pick('codex')} />
+      <span>
+        <strong>Your ChatGPT plan</strong>
+        <span class="small muted">Through OpenAI's Codex CLI, signed in with your ChatGPT account.</span>
+      </span>
+    </label>
+    <label class="choice">
       <input type="radio" name="brain-kind" checked={choice === 'api'} onchange={() => pick('api')} />
       <span>
         <strong>An API key</strong>
@@ -161,7 +188,29 @@
     </label>
   </div>
 
-  {#if choice === 'local'}
+  {#if choice === 'codex'}
+    {#if !codex}
+      <p class="small muted">Checking for Codex…</p>
+    {:else if !codex.path}
+      <p class="small">Codex isn't installed. In a terminal, run <code>npm install -g @openai/codex</code>, then <code>codex login</code>.</p>
+    {:else if !codex.signed_in}
+      <p class="small">Codex is installed but not signed in. In a terminal, run <code>codex login</code> and sign in with your ChatGPT account.</p>
+      {#if codex.problem}<p class="small muted">{codex.problem}</p>{/if}
+    {:else}
+      <p class="small ok">Codex is signed in.</p>
+    {/if}
+    <div class="row">
+      <button class="small" onclick={checkCodex} disabled={checkingCodex}>Check again</button>
+    </div>
+    <div class="row">
+      <label for="codex-model">Model</label>
+      <input id="codex-model" bind:value={brain.model} placeholder="Codex's default" />
+    </div>
+    <p class="small muted">
+      Uses your ChatGPT plan's Codex limits. Codex gets Pindot's desktop tools only: its own shell and browser are
+      switched off.
+    </p>
+  {:else if choice === 'local'}
     {#if local === null}
       <p class="small muted">Looking for Ollama, LM Studio and llama.cpp…</p>
     {:else if local.length === 0}

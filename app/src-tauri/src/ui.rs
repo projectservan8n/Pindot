@@ -298,7 +298,7 @@ fn start_facts(app: &AppHandle) -> Facts {
     let s = ui.settings().effective();
     let root = models::models_dir().ok();
     // A loop brain needs no Claude Code: don't run `claude auth status` for it.
-    let claude = if s.brain.is_loop() { None } else { Some(claude_info()) };
+    let claude = if s.brain.uses_claude_code() { Some(claude_info()) } else { None };
     let permission_problems = platform::permission_report()
         .into_iter()
         .filter(|p| {
@@ -317,7 +317,7 @@ fn start_facts(app: &AppHandle) -> Facts {
         claude_installed: claude.as_ref().is_some_and(|c| c.path.is_some()),
         claude_signed_out: claude.as_ref().is_some_and(|c| c.path.is_some() && !c.signed_in && c.problem.is_none()),
         permission_problems,
-        loop_brain: s.brain.is_loop(),
+        loop_brain: !s.brain.uses_claude_code(),
         brain_problems: s.brain.problems(),
     }
 }

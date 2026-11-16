@@ -391,7 +391,24 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
     });
     // Claude Code, or Pindot's own loop for a local model or an API key.
     let chosen = app.state::<crate::ui::Ui>().settings().brain;
-    let brain: Box<dyn pindot_core::brain::Brain> = if chosen.is_loop() {
+    let brain: Box<dyn pindot_core::brain::Brain> = if chosen.kind == pindot_core::brain::native::settings::BrainKind::Codex {
+        println!("voice: the brain is the ChatGPT plan through Codex (model {})", if chosen.model.is_empty() { "Codex's default" } else { &chosen.model });
+        Box::new(pindot_core::brain::codex::CodexBrain::start(
+            pindot_core::brain::codex::CodexConfig {
+                bin: None,
+                model: Some(chosen.model.clone()).filter(|m| !m.trim().is_empty()),
+                mcp_url: config.mcp_url.clone(),
+                token: config.token.clone(),
+                system_prompt: config.system_prompt.clone(),
+                cwd: config.cwd.clone(),
+                data_dir: pindot_core::paths::data_dir()?,
+                extra_config: vec![],
+                require_sign_in: true,
+            },
+            state.clone(),
+            sink,
+        )?)
+    } else if chosen.is_loop() {
         use pindot_core::brain::native::secrets::{SecretStore, SystemSecrets};
         let key = SystemSecrets::default().get(&chosen.provider).unwrap_or_else(|e| {
             println!("voice: the {} key could not be read: {e}", chosen.provider);

@@ -218,6 +218,7 @@ pub fn run() {
             brain::brain_key_delete,
             brain::brain_test,
             brain::brain_choose,
+            brain::brain_codex_status,
             ui::app_info,
             ui::settings_get,
             ui::settings_save,

@@ -47,6 +47,32 @@ pub async fn brain_providers() -> Vec<ProviderView> {
     .unwrap_or_default()
 }
 
+#[derive(Serialize)]
+pub struct CodexStatus {
+    /// Where the Codex binary is; `None` = not installed.
+    path: Option<String>,
+    signed_in: bool,
+    /// The sign-in check itself failed.
+    problem: Option<String>,
+}
+
+/// The Codex CLI: installed? signed in (`codex login status`)? Read-only.
+#[tauri::command]
+pub async fn brain_codex_status() -> CodexStatus {
+    tauri::async_runtime::spawn_blocking(|| match pindot_core::brain::codex::find_codex() {
+        None => CodexStatus { path: None, signed_in: false, problem: None },
+        Some(bin) => {
+            let (signed_in, problem) = match pindot_core::brain::codex::signed_in(&bin) {
+                Ok(s) => (s, None),
+                Err(e) => (false, Some(e)),
+            };
+            CodexStatus { path: Some(bin.display().to_string()), signed_in, problem }
+        }
+    })
+    .await
+    .unwrap_or(CodexStatus { path: None, signed_in: false, problem: Some("the check could not run".into()) })
+}
+
 /// Ollama, LM Studio and llama.cpp running now, with their models.
 #[tauri::command]
 pub async fn brain_find_local() -> Vec<FoundServer> {

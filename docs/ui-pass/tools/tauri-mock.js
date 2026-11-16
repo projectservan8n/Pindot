@@ -17,7 +17,9 @@
       tap_to_talk: true, companion: true, captions: true, assistant_name: 'Rusty', talk_style: 'friendly',
       talk_notes: '', brain_folder: scenario === 'nobrain' ? null : '/Users/sam/Notes', input_device: null,
     },
-    brain: scenario === 'loop'
+    brain: scenario === 'codex'
+      ? { kind: 'codex', provider: 'ollama', base_url: 'http://127.0.0.1:11434/v1', model: '', vision: 'auto', context_tokens: null, tested: [] }
+      : scenario === 'loop'
       ? { kind: 'loop', provider: 'ollama', base_url: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b', vision: 'auto', context_tokens: null,
           tested: [{ base_url: 'http://127.0.0.1:11434/v1', model: 'qwen3:8b', ok: true, note: '', at: 1794840000 }] }
       : { kind: 'claude_code', provider: 'ollama', base_url: 'http://127.0.0.1:11434/v1', model: '', vision: 'auto', context_tokens: null, tested: [] },
@@ -66,6 +68,7 @@
     ].map(([id, name, base_url, local]) => ({ id, name, base_url, local, needs_key: !local && id !== 'custom', has_key: id === 'openai' })),
     brain_find_local: () => [{ provider: 'ollama', name: 'Ollama', base_url: 'http://127.0.0.1:11434/v1', models: [
       { id: 'qwen3:8b', vision: false, tools: true, context: 40960 }, { id: 'gemma3:12b', vision: true, tools: false, context: 131072 }] }],
+    brain_codex_status: () => ({ path: '/Users/sam/.npm-global/bin/codex', signed_in: false, problem: null }),
     brain_models: () => [{ id: 'qwen3:8b', vision: false, tools: true, context: 40960 }, { id: 'gemma3:12b', vision: true, tools: false, context: 131072 }],
   };
   Object.assign(routes, window.__MOCK_ROUTES || {});

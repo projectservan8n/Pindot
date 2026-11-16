@@ -12,6 +12,7 @@
 //! `Stop` HTTP hook, and read the answer from the hook's
 //! `last_assistant_message` (primary) and the session transcript (check).
 
+pub mod codex;
 pub mod config;
 pub mod folder;
 pub mod native;
