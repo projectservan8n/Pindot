@@ -11,11 +11,31 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use serde_json::Value;
 
-/// Find a session's transcript by id when the hook didn't give us the path.
+/// `<data dir>/conversations`: where Pindot's own loop writes each
+/// conversation, in the transcript line format Chat reads.
+pub fn conversations_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join("conversations")
+}
+
+/// Find a session's transcript by id when the hook didn't give us the path:
+/// Pindot's own conversation file, else Claude Code's.
 pub fn find_transcript(session_id: &str) -> Option<PathBuf> {
-    let root = dirs::home_dir()?.join(".claude").join("projects");
+    let data = crate::paths::data_dir().ok();
+    let projects = dirs::home_dir().map(|h| h.join(".claude").join("projects"));
+    find_transcript_in(session_id, data.as_deref(), projects.as_deref())
+}
+
+/// As `find_transcript`, with the folders given: `data_dir/conversations/`
+/// first, then every project folder under `projects`.
+pub fn find_transcript_in(session_id: &str, data_dir: Option<&Path>, projects: Option<&Path>) -> Option<PathBuf> {
     let name = format!("{session_id}.jsonl");
-    for entry in std::fs::read_dir(root).ok()?.flatten() {
+    if let Some(d) = data_dir {
+        let own = conversations_dir(d).join(&name);
+        if own.is_file() {
+            return Some(own);
+        }
+    }
+    for entry in std::fs::read_dir(projects?).ok()?.flatten() {
         let p = entry.path().join(&name);
         if p.is_file() {
             return Some(p);
@@ -155,5 +175,23 @@ mod tests {
         assert_eq!(s.final_text.as_deref(), Some("Done: I see a button."));
         assert_eq!(s.tool_uses, vec!["mcp__desktop__screenshot"]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn own_conversations_are_found_before_claude_codes() {
+        let base = std::env::temp_dir().join(format!("pindot-find-{}", uuid::Uuid::new_v4()));
+        let data = base.join("data");
+        let projects = base.join("projects");
+        let project = projects.join("some-project");
+        std::fs::create_dir_all(conversations_dir(&data)).unwrap();
+        std::fs::create_dir_all(&project).unwrap();
+        let id = "11111111-2222-3333-4444-555555555555";
+        let name = format!("{id}.jsonl");
+        assert_eq!(find_transcript_in(id, Some(&data), Some(&projects)), None);
+        std::fs::write(project.join(&name), "").unwrap();
+        assert_eq!(find_transcript_in(id, Some(&data), Some(&projects)), Some(project.join(&name)));
+        std::fs::write(conversations_dir(&data).join(&name), "").unwrap();
+        assert_eq!(find_transcript_in(id, Some(&data), Some(&projects)), Some(conversations_dir(&data).join(&name)));
+        std::fs::remove_dir_all(&base).unwrap();
     }
 }
