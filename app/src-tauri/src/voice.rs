@@ -377,22 +377,42 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
         brain_folder: brain_folder_for_start(app, &settings),
     };
     let (h, p, chat_app) = (handle.clone(), probe.clone(), app.clone());
-    let brain = PersistentBrain::start(
-        config,
-        state.clone(),
-        Arc::new(move |i: Input| {
-            if let Some(p) = &p {
-                p.input(&i);
-            }
-            // The chat window follows whichever session the brain is on.
-            if let Input::SessionReady { session_id } = &i
-                && let Some(hub) = chat_app.try_state::<Arc<crate::chat::ChatHub>>()
-            {
-                hub.session_ready(session_id);
-            }
-            h.input(i)
-        }),
-    )?;
+    let sink: pindot_core::brain::persistent::InputSink = Arc::new(move |i: Input| {
+        if let Some(p) = &p {
+            p.input(&i);
+        }
+        // The chat window follows whichever session the brain is on.
+        if let Input::SessionReady { session_id } = &i
+            && let Some(hub) = chat_app.try_state::<Arc<crate::chat::ChatHub>>()
+        {
+            hub.session_ready(session_id);
+        }
+        h.input(i)
+    });
+    // Claude Code, or Pindot's own loop for a local model or an API key.
+    let chosen = app.state::<crate::ui::Ui>().settings().brain;
+    let brain: Box<dyn pindot_core::brain::Brain> = if chosen.is_loop() {
+        use pindot_core::brain::native::secrets::{SecretStore, SystemSecrets};
+        let key = SystemSecrets::default().get(&chosen.provider).unwrap_or_else(|e| {
+            println!("voice: the {} key could not be read: {e}", chosen.provider);
+            None
+        });
+        println!("voice: the brain is Pindot's own loop ({} at {}, model {})", chosen.provider, chosen.base_url, chosen.model);
+        Box::new(pindot_core::brain::native::LoopBrain::start(
+            pindot_core::brain::native::LoopConfig {
+                brain: chosen,
+                key,
+                mcp_url: config.mcp_url.clone(),
+                token: config.token.clone(),
+                system_prompt: config.system_prompt.clone(),
+                data_dir: pindot_core::paths::data_dir()?,
+            },
+            state.clone(),
+            sink,
+        )?)
+    } else {
+        Box::new(PersistentBrain::start(config, state.clone(), sink)?)
+    };
 
     // Then, only if wanted, the voice parts. A failure here is kept for the
     // settings screen and leaves Chat running (the test path stays strict).
@@ -430,7 +450,7 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
             let _ = app.emit("pindot:voice", s);
         })
     };
-    let io = LiveIo { recorder, speaker, handle: Some(handle.clone()), brain: Box::new(brain), control: Some(state.control.clone()), status, shown: Display::Idle };
+    let io = LiveIo { recorder, speaker, handle: Some(handle.clone()), brain, control: Some(state.control.clone()), status, shown: Display::Idle };
     let machine = Machine::new(settings.speak_mode, settings.idle_reset(), Instant::now()).with_tap_to_talk(settings.tap_to_talk);
     let runner = VoiceRunner::start(handle.clone(), inbox, machine, Box::new(io))?;
 

@@ -45,7 +45,7 @@ pub struct Ui {
     /// `--model` for voice turns.
     pub model: Option<String>,
     /// The settings as saved (environment overrides not applied).
-    settings: Mutex<Settings>,
+    pub(crate) settings: Mutex<Settings>,
     /// How the settings file loaded (first start, migrated, unreadable);
     /// cleared once a save succeeds.
     load_note: Mutex<String>,
@@ -297,7 +297,8 @@ fn start_facts(app: &AppHandle) -> Facts {
     let ui = app.state::<Ui>();
     let s = ui.settings().effective();
     let root = models::models_dir().ok();
-    let claude = claude_info();
+    // A loop brain needs no Claude Code: don't run `claude auth status` for it.
+    let claude = if s.brain.is_loop() { None } else { Some(claude_info()) };
     let permission_problems = platform::permission_report()
         .into_iter()
         .filter(|p| {
@@ -313,9 +314,11 @@ fn start_facts(app: &AppHandle) -> Facts {
         server_running: app.try_state::<RunningServer>().is_some(),
         stt_ready: model_ready(&s.voice.stt_model, ModelKind::SpeechToText, root.as_deref()),
         tts_ready: model_ready(&s.voice.tts_model, ModelKind::TextToSpeech, root.as_deref()),
-        claude_installed: claude.path.is_some(),
-        claude_signed_out: claude.path.is_some() && !claude.signed_in && claude.problem.is_none(),
+        claude_installed: claude.as_ref().is_some_and(|c| c.path.is_some()),
+        claude_signed_out: claude.as_ref().is_some_and(|c| c.path.is_some() && !c.signed_in && c.problem.is_none()),
         permission_problems,
+        loop_brain: s.brain.is_loop(),
+        brain_problems: s.brain.problems(),
     }
 }
 
@@ -606,9 +609,13 @@ pub fn settings_save(app: AppHandle, settings: Settings) -> Result<SaveResult, V
             new.port
         ));
     }
-    if new.hotkey != old.hotkey || new.voice != old.voice || new.voice_enabled != old.voice_enabled {
+    let new_brain = !new.brain.same_brain(&old.brain);
+    if new.hotkey != old.hotkey || new.voice != old.voice || new.voice_enabled != old.voice_enabled || new_brain {
         restart_voice(&app);
         notes.push("Hold-to-talk restarts with the new settings.".into());
+        if new_brain {
+            notes.push("The assistant restarts with the new brain; the next request starts a fresh conversation.".into());
+        }
         if new.voice.brain_folder != old.voice.brain_folder {
             notes.push("The next request starts a fresh conversation with the new brain folder.".into());
         }
