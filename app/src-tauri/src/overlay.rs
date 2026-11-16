@@ -4,7 +4,7 @@
 //! panels animate.
 
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use pindot_core::platform::{CursorAction, Overlay, Point};
 use serde::Serialize;
@@ -55,16 +55,86 @@ struct CursorMove {
     label: Option<String>,
 }
 
+/// The longest the AI cursor waits on a spot the `point` tool showed.
+pub const PARK_MAX: Duration = Duration::from_secs(120);
+/// The user's pointer this close to the spot (in points) counts as there.
+pub const PARK_NEAR: f64 = 40.0;
+
+/// A spot the `point` tool showed. With the companion on, the AI cursor
+/// stays on it until the user's pointer gets there (the user may take a
+/// while to find it, or be listening to the explanation), instead of
+/// flying back beside their pointer after a few seconds.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Parked {
+    pub at: Point,
+    pub until: Instant,
+}
+
+/// Where the AI cursor is waiting, if anywhere. Set by the `point` tool,
+/// cleared by the next glide, Esc, a new spoken request, the user's pointer
+/// reaching the spot, or `PARK_MAX`.
+#[derive(Default)]
+pub struct Park(Mutex<Option<Parked>>);
+
+impl Park {
+    pub fn set(&self, at: Point, now: Instant) {
+        *self.0.lock().unwrap() = Some(Parked { at, until: now + PARK_MAX });
+    }
+
+    pub fn get(&self) -> Option<Parked> {
+        *self.0.lock().unwrap()
+    }
+
+    /// Ends the wait; true if the cursor was waiting.
+    pub fn clear(&self) -> bool {
+        self.0.lock().unwrap().take().is_some()
+    }
+
+    /// With the user's pointer (if known): true, once, when the wait is
+    /// over because the pointer reached the spot or the time ran out.
+    pub fn check(&self, pointer: Option<Point>, now: Instant) -> bool {
+        let mut g = self.0.lock().unwrap();
+        let Some(p) = *g else { return false };
+        let reached = pointer.is_some_and(|q| q.distance(p.at) <= PARK_NEAR);
+        if reached || now >= p.until {
+            *g = None;
+            return true;
+        }
+        false
+    }
+}
+
 pub struct TauriOverlay {
     app: AppHandle,
     last: Mutex<Option<Point>>,
+    park: Park,
     /// Points per CSS pixel (see `MonitorRect::unit`), of the main monitor.
     unit: f64,
 }
 
 impl TauriOverlay {
     pub fn new(app: AppHandle, unit: f64) -> Self {
-        Self { app, last: Mutex::new(None), unit }
+        Self { app, last: Mutex::new(None), park: Park::default(), unit }
+    }
+
+    /// Where the cursor is waiting after a `point`, if anywhere.
+    pub fn parked(&self) -> Option<Parked> {
+        self.park.get()
+    }
+
+    /// The companion feed calls this with the user's pointer; when the wait
+    /// is over, the overlay is told to let the cursor come back.
+    pub fn check_park(&self, pointer: Option<Point>, now: Instant) {
+        if self.park.check(pointer, now) {
+            let _ = self.app.emit("pindot:unpark", ());
+        }
+    }
+
+    /// Ends a wait at once (Esc, or the user talking again).
+    pub fn unpark(&self) {
+        if self.park.clear() {
+            let _ = self.app.emit("pindot:unpark", ());
+        }
     }
 }
 
@@ -81,6 +151,8 @@ impl Overlay for TauriOverlay {
         let from = *last;
         let ms = from.map(|f| animation_ms(f.distance(to), self.unit)).unwrap_or(300);
         *last = Some(to);
+        // A new target: whatever the cursor was waiting on is done with.
+        self.park.clear();
         if let Err(e) = self.app.emit("pindot:cursor", CursorMove { from, to, ms, label }) {
             tracing::warn!("overlay emit failed: {e}");
         }
@@ -96,6 +168,12 @@ impl Overlay for TauriOverlay {
         // A drag carries the cursor along, so the next glide starts at its end.
         if let CursorAction::Drag { to, .. } = action {
             *self.last.lock().unwrap() = Some(*to);
+        }
+        // `point` glides to the spot first, so `last` is the spot.
+        if let CursorAction::Point = action
+            && let Some(at) = *self.last.lock().unwrap()
+        {
+            self.park.set(at, Instant::now());
         }
         if let Err(e) = self.app.emit("pindot:action", action) {
             tracing::warn!("overlay emit failed: {e}");
@@ -294,6 +372,46 @@ mod tests {
         // At 100% nothing changes.
         let plain = MonitorRect::from_physical((-1920, 0), (1920, 1080), 1.0, true);
         assert_eq!((plain.x, plain.width, plain.unit, plain.page_size()), (-1920.0, 1920.0, 1.0, (1920.0, 1080.0)));
+    }
+
+    fn pt(x: f64, y: f64) -> Point {
+        Point { x, y }
+    }
+
+    #[test]
+    fn a_point_waits_until_the_users_pointer_gets_there() {
+        let park = Park::default();
+        let t0 = Instant::now();
+        park.set(pt(500.0, 300.0), t0);
+        // The user hasn't moved there yet: keep waiting, however long it takes them.
+        assert!(!park.check(Some(pt(100.0, 100.0)), t0 + Duration::from_secs(30)));
+        assert!(park.get().is_some());
+        // Close, but not on it yet.
+        assert!(!park.check(Some(pt(500.0 + PARK_NEAR + 5.0, 300.0)), t0 + Duration::from_secs(31)));
+        // On it: the wait is over, once.
+        assert!(park.check(Some(pt(510.0, 290.0)), t0 + Duration::from_secs(32)));
+        assert!(park.get().is_none());
+        assert!(!park.check(Some(pt(510.0, 290.0)), t0 + Duration::from_secs(33)));
+    }
+
+    #[test]
+    fn a_point_gives_up_after_the_longest_wait() {
+        let park = Park::default();
+        let t0 = Instant::now();
+        park.set(pt(500.0, 300.0), t0);
+        assert!(!park.check(None, t0 + PARK_MAX - Duration::from_millis(1)));
+        assert!(park.check(None, t0 + PARK_MAX));
+        assert!(park.get().is_none());
+    }
+
+    #[test]
+    fn clearing_a_park_says_whether_there_was_one() {
+        let park = Park::default();
+        assert!(!park.clear());
+        park.set(pt(1.0, 2.0), Instant::now());
+        assert_eq!(park.get().map(|p| p.at), Some(pt(1.0, 2.0)));
+        assert!(park.clear());
+        assert!(!park.clear());
     }
 
     #[test]

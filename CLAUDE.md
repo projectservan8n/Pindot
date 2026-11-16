@@ -339,8 +339,17 @@ recorded; everything else was renamed (crates, bundle id `dev.pindot.app`,
     `platform::pointer_location`, mic RMS from `audio::mic_level`) at
     ~60 Hz, changes only, until 2.5 s after idle. The AI cursor springs
     beside the user's pointer, the tag shows a waveform (listening) or
-    dots (thinking), it flies off for an action, holds 1.5 s on the target
-    (4 s after `point`), then flies home on an arc.
+    dots (thinking), it flies off for an action, holds 1.5 s on the target,
+    then flies home on an arc. After `point` it **waits on the spot until
+    the user's pointer gets there** (Tony: going back after a few seconds
+    lost people who hadn't found it yet): `TauriOverlay` keeps a `Park`
+    (set by `CursorAction::Point`, cleared by the next `move_cursor`), the
+    companion thread keeps feeding the pointer while parked, even after
+    the turn, and emits `pindot:unpark` when the pointer is within
+    `PARK_NEAR` (40 pt) or after `PARK_MAX` (120 s). Talking again
+    (Listening) and Esc end the wait too. The overlay only parks when the
+    companion feed is on; `--demo` and the `parked` scene of
+    `docs/ui-pass/tools/overlay-scenes.js` show it.
   - Captions (`voice.captions`): `SpeakerEvent::FirstAudio` carries the
     text and `SpeakerEvent::Generated` the audio's real length (generation
     runs ahead of playback); the overlay reveals whole words in proportion

@@ -20,6 +20,26 @@
     key: () => { stay(200, 120); at(300, () => F('pindot:action', { kind: 'key', to: P(200, 120), keys: ['Cmd', 'S'], repeat: 1 })); },
     type: () => { stay(200, 120); at(300, () => F('pindot:action', { kind: 'type', to: P(200, 120), chars: 24 })); },
     point: () => { stay(200, 120); at(300, () => F('pindot:action', { kind: 'point', to: P(200, 120) })); },
+    // Companion on: point, explain, end the turn; the cursor waits on the
+    // spot until the user's pointer (away at 60,230) gets there at 7 s.
+    parked: () => {
+      let mp = P(60, 230);
+      const t = setInterval(() => F('pindot:companion', { x: mp.x, y: mp.y, level: 0 }), 80);
+      at(9800, () => clearInterval(t));
+      F('pindot:voice', { state: 'acting' });
+      at(300, () => F('pindot:cursor', { from: P(76, 248), to: P(380, 90), ms: 600, label: 'Wi-Fi' }));
+      at(1000, () => F('pindot:action', { kind: 'point', to: P(380, 90) }));
+      at(1100, () => { F('pindot:voice', { state: 'speaking' }); F('pindot:caption', { seq: 1, text: 'Click the Wi-Fi icon, right where I am pointing.' }); });
+      at(3600, () => { F('pindot:caption-end', { seq: 1, interrupted: false }); F('pindot:voice', { state: 'idle' }); });
+      at(7000, () => { mp = P(370, 82); });
+      at(7100, () => F('pindot:unpark', null));
+      // Where the cursor is, for a check without pictures.
+      const where = (ms) => at(ms, () => {
+        const c = document.getElementById('cursor');
+        window.__logs.push('t=' + ms + ' ' + (c && c.style.transform) + ' on=' + document.body.classList.contains('cursor-on'));
+      });
+      [800, 2000, 4000, 5500, 6900, 8500].forEach(where);
+    },
     companion: () => { F('pindot:voice', { state: 'listening' }); mate(120, 90, 3000); },
     thinking: () => { F('pindot:voice', { state: 'thinking' }); mate(120, 90, 3000); },
     caption: () => {

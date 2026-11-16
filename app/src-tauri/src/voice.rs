@@ -98,6 +98,7 @@ impl Companion {
     fn start(app: AppHandle, shown: Arc<Mutex<Display>>) -> std::io::Result<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let s = stop.clone();
+        let overlay = app.try_state::<Arc<crate::overlay::TauriOverlay>>().map(|s| s.inner().clone());
         let thread = std::thread::Builder::new().name("pindot-companion".into()).spawn(move || {
             let mut active_until: Option<Instant> = None;
             let mut sent: Option<(f64, f64, f32)> = None;
@@ -108,12 +109,28 @@ impl Companion {
                 if state != Display::Idle {
                     active_until = Some(now + COMPANION_LINGER);
                 }
+                // After a `point` the cursor waits on the spot, so keep
+                // watching the user's pointer until it gets there, even
+                // after the turn is over. Talking again calls it back.
+                if let Some(ov) = &overlay
+                    && ov.parked().is_some()
+                {
+                    if state == Display::Listening {
+                        ov.unpark();
+                    } else {
+                        active_until = Some(now + COMPANION_LINGER);
+                    }
+                }
                 if !active_until.is_some_and(|t| now < t) {
                     sent = None;
                     std::thread::sleep(Duration::from_millis(100));
                     continue;
                 }
-                if let Some(p) = pindot_core::platform::pointer_location() {
+                let pointer = pindot_core::platform::pointer_location();
+                if let Some(ov) = &overlay {
+                    ov.check_park(pointer, now);
+                }
+                if let Some(p) = pointer {
                     let level = if state == Display::Listening { audio::mic_level() } else { 0.0 };
                     let same = sent.is_some_and(|(x, y, l)| {
                         (x - p.x).abs() < 0.5 && (y - p.y).abs() < 0.5 && (l - level).abs() < 0.002

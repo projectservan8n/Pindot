@@ -580,6 +580,9 @@ fn forward_events(app: &AppHandle, state: &Arc<ServerState>) {
                 Ok(ControlEvent::EmergencyStop) => {
                     println!("EMERGENCY STOP: user pressed Esc (action cancelled, input released)");
                     let _ = h.emit("pindot:stopped", ());
+                    if let Some(ov) = h.try_state::<Arc<TauriOverlay>>() {
+                        ov.unpark();
+                    }
                 }
                 Ok(ControlEvent::Acting { on }) => tracing::info!(on, "controlling-input indicator"),
                 Err(RecvError::Lagged(_)) => continue,
@@ -696,7 +699,8 @@ fn run_demo(app: &tauri::AppHandle, ov: &dyn Overlay, monitors: &[MonitorRect]) 
 
 /// The companion scene of `--demo`: a pretend pointer and voice (nothing
 /// real moves): listening with a waveform, thinking, flying off to press,
-/// coming back, then speaking with a caption.
+/// coming back, speaking with a caption, then pointing at a spot and
+/// waiting there, after the turn is over, until the pointer gets there.
 fn demo_companion(app: &tauri::AppHandle, ov: &dyn Overlay, m: &MonitorRect, stamp: &dyn Fn() -> f64) {
     use tauri::Emitter;
     let at = |fx: f64, fy: f64| Point::new(m.x + m.width * fx, m.y + m.height * fy);
@@ -739,8 +743,40 @@ fn demo_companion(app: &tauri::AppHandle, ov: &dyn Overlay, m: &MonitorRect, sta
     );
     mate(4.2, false);
     let _ = app.emit("pindot:caption-end", serde_json::json!({ "seq": 1, "interrupted": false }));
+    // Teaching: point, explain, and wait on the spot after the turn ends.
+    println!("{:.3} demo: companion pointing", stamp());
+    voice("acting");
+    let spot = at(0.7, 0.62);
+    let d = ov.move_cursor(spot, Some("Wi-Fi".into()));
+    mate(d.as_secs_f64(), false);
+    ov.action(&CursorAction::Point);
+    voice("speaking");
+    let _ = app.emit(
+        "pindot:caption",
+        serde_json::json!({ "seq": 2, "text": "Click the Wi-Fi icon, right where I'm pointing." }),
+    );
+    mate(3.2, false);
+    let _ = app.emit("pindot:caption-end", serde_json::json!({ "seq": 2, "interrupted": false }));
     voice("idle");
+    println!("{:.3} demo: companion waiting on the spot", stamp());
+    mate(3.0, false);
+    // The pretend pointer travels to the spot; the app sees it arrive and
+    // ends the wait (the companion feed does this for real).
+    let from = at(0.36 + 0.05 * (t * 0.7).sin(), 0.48 + 0.03 * (t * 1.1).sin());
+    let near = Point::new(spot.x - 12.0, spot.y - 10.0);
+    let feed = |p: Point| {
+        let _ = app.emit("pindot:companion", serde_json::json!({ "x": p.x, "y": p.y, "level": 0.0 }));
+        std::thread::sleep(Duration::from_millis(16));
+    };
+    for i in 1..=60 {
+        let k = f64::from(i) / 60.0;
+        feed(Point::new(from.x + (near.x - from.x) * k, from.y + (near.y - from.y) * k));
+    }
+    let _ = app.emit("pindot:unpark", ());
+    println!("{:.3} demo: companion pointer arrived", stamp());
+    for _ in 0..150 {
+        feed(near);
+    }
     println!("{:.3} demo: companion idle", stamp());
-    mate(2.5, false);
     std::thread::sleep(Duration::from_millis(1800));
 }

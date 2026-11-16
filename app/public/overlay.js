@@ -77,6 +77,14 @@
   let mateOn = false;
   let mateTimer = null;
   let holdUntil = 0;
+  // After a `point` the cursor waits on the spot until the user's pointer
+  // gets there (the app watches it and sends pindot:unpark), instead of
+  // flying back while the user is still looking. The next glide, Esc or the
+  // user talking again end the wait too; the timer only backs up the app's
+  // two-minute limit.
+  let parked = false;
+  let parkTimer = null;
+  const PARK_FALLBACK_MS = 125000;
   let following = false;
   let level = 0;            // smoothed mic level, 0..1
   let voiceState = 'idle';
@@ -141,7 +149,7 @@
 
     let chasing = false;
     const nowFollowing = !!(mateOn && mate && pos && !glide && !drag && now >= holdUntil
-      && !body.classList.contains('acting'));
+      && !parked && !body.classList.contains('acting'));
     if (nowFollowing !== following) {
       following = nowFollowing;
       if (following) setLabel('');
@@ -375,6 +383,8 @@
     // Stay on the target after the action; a point stays long enough to find.
     holdUntil = Math.max(holdUntil, performance.now() + (a.kind === 'point' ? 4000 : 900));
     setTimeout(kick, a.kind === 'point' ? 4020 : 920);
+    // Beside the user's pointer (the companion), a point waits for them.
+    if (a.kind === 'point' && mateOn) park();
     switch (a.kind) {
       case 'click': return click(a);
       case 'press': return press();
@@ -615,7 +625,27 @@
     mateOn = false;
     following = false;
     updateBuddy();
-    if (!body.classList.contains('acting') && !glide && !drag) hideCursor();
+    // Waiting on a spot it pointed at: stay (unpark hides it if need be).
+    if (!parked && !body.classList.contains('acting') && !glide && !drag) hideCursor();
+  }
+
+  function park() {
+    parked = true;
+    clearTimeout(parkTimer);
+    parkTimer = setTimeout(unpark, PARK_FALLBACK_MS);
+  }
+  // The wait is over: rejoin the user's pointer, or go if nothing follows it.
+  function unpark() {
+    if (!parked) return;
+    dropPark();
+    if (!mateOn && !body.classList.contains('acting') && !glide && !drag) hideCursor();
+    else kick();
+  }
+  // A new target, Esc or a hide: just forget the wait.
+  function dropPark() {
+    parked = false;
+    clearTimeout(parkTimer);
+    parkTimer = null;
   }
 
   // ------------------------------------------------------------- captions
@@ -722,6 +752,7 @@
   if (!ev) return;
   ev.listen('pindot:cursor', (e) => {
     const p = e.payload || {};
+    dropPark();
     onGlide(Object.assign({}, p, { from: px(p.from), to: px(p.to) }));
   });
   ev.listen('pindot:action', (e) => {
@@ -855,13 +886,15 @@
       // Between actions the cursor stays but rests: dimmer, tag tucked away.
       if (restTimer) clearTimeout(restTimer);
       restTimer = setTimeout(() => { if (!glide && !drag && !mateOn) body.classList.add('resting'); }, 1600);
-      // With the companion on: hold on the target a moment, then come back.
-      holdUntil = performance.now() + 900;
+      // With the companion on: hold on the target a moment, then come back
+      // (never cutting short a longer hold, such as a point's).
+      holdUntil = Math.max(holdUntil, performance.now() + 900);
       setTimeout(kick, 920);
     }
     body.classList.toggle('acting', !!e.payload);
   });
   ev.listen('pindot:stopped', () => {
+    dropPark();
     if (stoppedTimer) clearTimeout(stoppedTimer);
     body.classList.remove('acting');
     body.classList.add('stopped');
@@ -871,7 +904,8 @@
     hideCaption(150);
     stoppedTimer = setTimeout(() => body.classList.remove('stopped'), 2500);
   });
-  ev.listen('pindot:hide', hideCursor);
+  ev.listen('pindot:hide', () => { dropPark(); hideCursor(); });
+  ev.listen('pindot:unpark', unpark);
 
   // Voice pill. A notice (e.g. "run `claude login`") stays for a few
   // seconds; pressing the hotkey again replaces it.
