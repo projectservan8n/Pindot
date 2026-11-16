@@ -263,6 +263,8 @@ fn refresh_tray(app: &AppHandle) {
     let label = s.effective().hotkey.label_for(Os::current());
     let text = match (ui.voice_state(), ui.voice_note.lock().unwrap().clone()) {
         (Some(VoiceState::Running), _) => format!("Pindot: hold {label} to talk"),
+        (Some(VoiceState::ChatOnly), Some(note)) => format!("Pindot: chat ready, voice off ({})", short(&note, 60)),
+        (Some(VoiceState::ChatOnly), None) => "Pindot: chat ready, voice off".into(),
         (Some(VoiceState::Starting), _) => "Pindot: hold-to-talk starting…".into(),
         (Some(VoiceState::Failed(e)), _) => format!("Pindot: hold-to-talk failed ({})", short(&e, 60)),
         (_, Some(note)) => format!("Pindot: hold-to-talk off ({})", short(&note, 60)),
@@ -461,7 +463,7 @@ pub struct AppInfo {
     load_note: String,
     server_url: Option<String>,
     server_error: Option<String>,
-    /// "running", "starting", "failed", "off".
+    /// "running", "chat_only" (Chat works, voice does not), "starting", "failed", "off".
     voice: &'static str,
     voice_note: Option<String>,
     hotkey_label: String,
@@ -474,6 +476,7 @@ pub fn app_info(app: AppHandle) -> AppInfo {
     let ui = app.state::<Ui>();
     let (voice, voice_note) = match ui.voice_state() {
         Some(VoiceState::Running) => ("running", None),
+        Some(VoiceState::ChatOnly) => ("chat_only", ui.voice_note.lock().unwrap().clone()),
         Some(VoiceState::Starting) => ("starting", None),
         Some(VoiceState::Failed(e)) => ("failed", Some(e)),
         _ => ("off", ui.voice_note.lock().unwrap().clone()),

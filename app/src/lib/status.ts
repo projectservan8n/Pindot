@@ -48,6 +48,7 @@ export function statusOf(info: AppInfo | null, display: VoiceDisplay | null, not
     const b = blocker(note);
     return s('blocked', b.label, b.detail, true);
   }
+  const chatOnly = info.voice === 'chat_only';
   if (info.voice === 'starting') return s('starting', 'Starting', 'Hold-to-talk is starting.');
   switch (display) {
     case 'listening':
@@ -59,6 +60,10 @@ export function statusOf(info: AppInfo | null, display: VoiceDisplay | null, not
     case 'acting':
       return s('acting', 'Controlling your computer', 'Rusty is using your mouse or keyboard. Press Esc to stop.');
     default:
+      if (chatOnly) {
+        const why = info.voice_note ? ` Voice is off: ${info.voice_note}.` : ' Voice is off.';
+        return s('ready', 'Chat ready', `You can type and dictate in Chat.${why}${notice ? ` ${notice}` : ''}`);
+      }
       return s('ready', 'Ready', `Hold ${info.hotkey_label} to talk, or type in Chat.${notice ? ` ${notice}` : ''}`);
   }
 }

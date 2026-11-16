@@ -94,7 +94,7 @@ export interface AppInfo {
   load_note: string;
   server_url: string | null;
   server_error: string | null;
-  voice: 'running' | 'starting' | 'failed' | 'off';
+  voice: 'running' | 'chat_only' | 'starting' | 'failed' | 'off';
   voice_note: string | null;
   hotkey_label: string;
   capturable: boolean;

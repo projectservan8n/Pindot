@@ -48,4 +48,12 @@ describe('statusOf', () => {
   it('a blocker beats the live display', () => {
     expect(statusOf(info({ voice: 'off', voice_note: 'finish Setup first' }), 'thinking').kind).toBe('blocked');
   });
+  it('chat works with voice models missing: not blocked, and it says why voice is off', () => {
+    const s = statusOf(info({ voice: 'chat_only', voice_note: 'the speech-to-text model is not downloaded' }), 'idle');
+    expect(s.kind).toBe('ready');
+    expect(s.label).toBe('Chat ready');
+    expect(s.blocked).toBe(false);
+    expect(s.detail).toContain('speech-to-text');
+    expect(statusOf(info({ voice: 'chat_only' }), 'thinking').kind).toBe('thinking');
+  });
 });
