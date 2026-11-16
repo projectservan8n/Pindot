@@ -33,6 +33,10 @@ export interface VoiceSettings {
   talk_style: TalkStyle;
   /** The user's own words on how to be talked to. */
   talk_notes: string;
+  /** A folder the assistant starts in so it knows you; null = none. */
+  brain_folder: string | null;
+  /** Name of the microphone; null = the system default. */
+  input_device: string | null;
 }
 
 export interface Settings {
@@ -72,6 +76,14 @@ export interface SettingsView {
   default_port: number;
   running_port: number | null;
   os: 'macos' | 'windows';
+  /** Why the saved brain folder cannot be used now; null = fine or unset. */
+  brain_folder_notice: string | null;
+}
+
+export interface InputDevices {
+  devices: string[];
+  /** What the system default is called. */
+  default: string | null;
 }
 
 export interface AppInfo {
@@ -195,6 +207,8 @@ export interface ActivityView {
 export const api = {
   appInfo: () => invoke<AppInfo>('app_info'),
   settingsGet: () => invoke<SettingsView>('settings_get'),
+  chooseBrainFolder: () => invoke<string | null>('choose_brain_folder'),
+  listInputDevices: () => invoke<InputDevices>('list_input_devices'),
   settingsSave: (settings: Settings) => invoke<{ notes: string[] }>('settings_save', { settings }),
   hotkeyCheck: (text: string) => invoke<HotkeyCheck>('hotkey_check', { text }),
   claudeStatus: () => invoke<ClaudeInfo>('claude_status'),

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api, errorText, type AppInfo, type HotkeyCheck, type SettingsView, type TalkStyle } from '../lib/api';
+  import { api, errorText, type AppInfo, type HotkeyCheck, type InputDevices, type SettingsView, type TalkStyle } from '../lib/api';
   import { chordFromCodes, cursorPresets, eyeInk, formatBytes, hotkeyPresets, isCursorColor } from '../lib/format';
   import Connect from './Connect.svelte';
 
@@ -103,9 +103,35 @@
 
   const presets = $derived(hotkeyPresets(view?.os ?? 'macos'));
 
+  // Microphones present now. Listing opens no stream.
+  let mics = $state<InputDevices | null>(null);
+  let micNote = $state('');
+  const savedMic = $derived(view?.settings.voice.input_device ?? '');
+  const micMissing = $derived(savedMic !== '' && mics !== null && !mics.devices.includes(savedMic));
+
+  async function refreshMics() {
+    micNote = '';
+    try {
+      mics = await api.listInputDevices();
+    } catch (e) {
+      micNote = errorText(e);
+    }
+  }
+
+  async function chooseBrainFolder() {
+    if (!view) return;
+    try {
+      const picked = await api.chooseBrainFolder();
+      if (picked) view.settings.voice.brain_folder = picked;
+    } catch (e) {
+      problems = [errorText(e)];
+    }
+  }
+
   async function load() {
     try {
       view = await api.settingsGet();
+      refreshMics();
       hotkeyText = view.settings.hotkey;
       await runCheck();
     } catch (e) {
@@ -252,6 +278,24 @@
       {view.settings.voice.talk_notes.length}/{NOTES_MAX} · Used from your next request. These change the tone, not the
       safety rules: {assistantName} still asks before anything risky.
     </p>
+    <div class="row">
+      <label for="brain">Brain folder</label>
+      <input id="brain" readonly value={view.settings.voice.brain_folder ?? ''} placeholder="None" />
+      <button onclick={chooseBrainFolder}>Choose…</button>
+      <button onclick={() => view && (view.settings.voice.brain_folder = null)} disabled={!view.settings.voice.brain_folder}>Clear</button>
+    </div>
+    <p class="small muted">
+      A folder of notes or a Claude Code project. {assistantName} starts there, reads its CLAUDE.md, opens only the notes
+      a request needs, and can save things you ask it to remember in a pindot-notes folder inside it. Save to apply: it
+      starts a fresh conversation.
+    </p>
+    {#if view.settings.voice.brain_folder}
+      <p class="small warn-text">
+        The folder's own Claude settings (hooks, permissions) apply to {assistantName}, and what it reads is sent to
+        Anthropic through your Claude Code. Only pick a folder you trust.
+      </p>
+    {/if}
+    {#if view.brain_folder_notice}<p class="small bad">{view.brain_folder_notice}</p>{/if}
   </section>
 
   <section>
@@ -312,6 +356,20 @@
         {/each}
       </select>
     </div>
+    <div class="row">
+      <label for="mic">Microphone</label>
+      <select id="mic" value={savedMic} onchange={(e) => view && (view.settings.voice.input_device = (e.currentTarget as HTMLSelectElement).value || null)}>
+        <option value="">System default{mics?.default ? ` (${mics.default})` : ''}</option>
+        {#if micMissing}<option value={savedMic}>{savedMic} (not connected)</option>{/if}
+        {#each mics?.devices ?? [] as d (d)}<option value={d}>{d}</option>{/each}
+      </select>
+      <button onclick={refreshMics}>Refresh</button>
+    </div>
+    {#if micMissing}
+      <p class="small warn-text">"{savedMic}" isn't connected, so the system default is used until it is.</p>
+    {/if}
+    {#if micNote}<p class="small bad">{micNote}</p>{/if}
+    <p class="small muted">Used from your next request after you Save.</p>
     <div class="row">
       <label for="ttsv">Voice</label>
       <select

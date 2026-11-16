@@ -165,6 +165,19 @@ Support/Pindot/` on macOS, `%APPDATA%\Pindot\` on Windows), file mode
   (friendly, brief, professional or playful) and, optionally, your own words
   on it ("Call me Sam"). Your words shape the tone only; the safety rules in
   its prompt stay. The name also shows on the "controlling input" banner.
+  Also here, **Brain folder** (optional, none by default): a folder of notes
+  or a Claude Code project. The assistant starts there, reads its CLAUDE.md,
+  opens only the notes a request needs, can read only under that folder, and
+  can write only inside a `pindot-notes/` subfolder (for things you ask it to
+  remember). The folder's own Claude settings (hooks, permissions) apply to
+  it, so pick a folder you trust. Changing it starts a fresh conversation. If
+  the folder is gone at start, Pindot says so and runs without it. Details and
+  test evidence: [docs/brain-folder/README.md](docs/brain-folder/README.md).
+- **Microphone** (next to the other voice settings): pick an input by name,
+  or leave "System default". Press Refresh after plugging one in. Save applies
+  it from your next request, no restart. If the saved microphone is not
+  connected, Pindot says so and uses the default. Listing microphones does not
+  open them. Not tested on Windows.
 - **Hold-to-talk shortcut**: one to four modifier keys held together, e.g.
   `Fn`, `Right Option`, `Ctrl+Cmd`, `Right Alt`, `Ctrl+Win`. Pick a preset,
   type it, or press Record and hold the keys. Pressing any other key while
@@ -220,6 +233,10 @@ at a time; not right for several at once.
   text, a screenshot) goes back to `claude`, and `claude` sends it to
   Anthropic as part of your conversation, exactly as if you had used Claude
   Code yourself. Pindot has no server, no account and no telemetry.
+- **A brain folder is read by Claude.** If you set one, the files the
+  assistant opens from it are sent to Anthropic through your own `claude`,
+  like anything else it reads. Nothing is read until a request needs it, and
+  never outside that folder.
 - **Which usage it draws from**: Pindot runs the interactive `claude` CLI,
   the same way you do in a terminal, on the account you signed in with
   `claude login`. With a Claude subscription it counts against your plan's
