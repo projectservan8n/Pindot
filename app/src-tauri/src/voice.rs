@@ -57,6 +57,9 @@ pub struct VoiceOptions {
     pub test_esc: bool,
     /// The hold-to-talk chord (from the settings).
     pub hotkey: HotkeyBinding,
+    /// Load the voice models and watch the hold-to-talk key. When false the
+    /// assistant still runs for Chat: typed messages, answers on screen.
+    pub with_voice: bool,
 }
 
 /// Keeps the voice loop alive. `shutdown` stops the hotkey tap, speech, the
@@ -70,6 +73,8 @@ pub struct VoiceApp {
 }
 
 struct Running {
+    /// Hold-to-talk (models, microphone, speech) is part of this run.
+    voice: bool,
     hotkey: Option<ListenerHandle>,
     runner: VoiceRunner,
     /// Typed chat messages go in here.
@@ -158,10 +163,16 @@ impl VoiceApp {
             return VoiceState::Stopped;
         }
         match self.running.lock().unwrap().as_ref() {
+            Some(r) if !r.voice => VoiceState::ChatOnly,
             Some(r) if r.hotkey.is_some() => VoiceState::Running,
             Some(_) => VoiceState::Failed("the hold-to-talk key could not be watched (see the log)".into()),
             None => VoiceState::Starting,
         }
+    }
+
+    /// Hold-to-talk and speech are part of the running loop (not just Chat).
+    pub fn speech_on(&self) -> bool {
+        self.running.lock().unwrap().as_ref().is_some_and(|r| r.voice)
     }
 
     pub fn handle(&self) -> Option<VoiceHandle> {
@@ -176,7 +187,10 @@ impl VoiceApp {
 #[derive(Debug, Clone, PartialEq)]
 pub enum VoiceState {
     Starting,
+    /// Hold-to-talk and speech are running (and Chat).
     Running,
+    /// Only the assistant for Chat runs; hold-to-talk is off.
+    ChatOnly,
     Failed(String),
     Stopped,
 }
@@ -222,17 +236,17 @@ fn brain_folder_for_start(app: &AppHandle, settings: &VoiceSettings) -> Option<P
     state.ready_path()
 }
 
-fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: ServerLink, opts: VoiceOptions) -> Result<()> {
-    let settings = VoiceSettings::load();
-    if let Some(w) = &opts.test_wav {
-        let banner = format!(
-            "TEST VOICE MODE: the microphone is replaced by {} and the hotkey is pressed synthetically. Never for normal use.",
-            w.display()
-        );
-        println!("*** {banner} ***");
-        tracing::warn!("{banner}");
-    }
+/// The voice parts: models loaded, microphone and speech ready.
+struct VoiceParts {
+    recorder: Recorder,
+    speaker: Speaker,
+    wav_sink: Option<Arc<WavSink>>,
+    stt_dir: PathBuf,
+}
 
+/// Load the models and build the recorder and the speaker. Slow (models);
+/// opens no microphone and no speaker. Any failure here leaves Chat alone.
+fn load_voice_parts(app: &AppHandle, settings: &VoiceSettings, opts: &VoiceOptions, handle: &VoiceHandle) -> Result<VoiceParts> {
     // Models: present and verified. Never downloaded here: the user starts
     // the download on the Setup screen after seeing each license.
     let root = models::models_dir()?;
@@ -249,9 +263,6 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
     let tts: Arc<dyn TextToSpeech> =
         Arc::new(PhononTts::load(&tts_dir, tts_voice.as_ref().map(|(n, p)| (*n, p.as_path())))?);
 
-    let (handle, inbox) = runner::channel();
-    let probe = opts.test_wav.as_ref().map(|_| Arc::new(Probe::default()));
-
     let mic: Box<dyn Microphone> = match &opts.test_wav {
         Some(p) => Box::new(WavMicrophone { path: p.clone() }),
         None => {
@@ -265,7 +276,14 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
             }
             let app_n = app.clone();
             let on_notice: audio::MicNotice = Arc::new(move |msg| show(&app_n, Display::Idle, Some(msg)));
-            Box::new(CpalMicrophone::with_device(settings.input_device.clone(), Some(on_notice)))
+            // One microphone user at a time: dictation into the chat box
+            // takes the same lease, so a spoken turn and a dictation can
+            // never both record.
+            Box::new(audio::ArbitedMic::new(
+                CpalMicrophone::with_device(settings.input_device.clone(), Some(on_notice)),
+                audio::mic_arbiter(),
+                audio::MicOwner::Voice,
+            ))
         }
     };
     let recorder = Recorder::start(mic, stt, handle.clone())?;
@@ -306,7 +324,26 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
             h.speaker_event(e)
         }),
     )?;
+    Ok(VoiceParts { recorder, speaker, wav_sink, stt_dir })
+}
 
+fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: ServerLink, opts: VoiceOptions) -> Result<()> {
+    let settings = VoiceSettings::load();
+    if let Some(w) = &opts.test_wav {
+        let banner = format!(
+            "TEST VOICE MODE: the microphone is replaced by {} and the hotkey is pressed synthetically. Never for normal use.",
+            w.display()
+        );
+        println!("*** {banner} ***");
+        tracing::warn!("{banner}");
+    }
+
+    let (handle, inbox) = runner::channel();
+    let probe = opts.test_wav.as_ref().map(|_| Arc::new(Probe::default()));
+
+    // The assistant (the brain) first and on its own: Chat must not wait
+    // for models, a microphone or a permission. Its events queue in the
+    // runner's inbox until the runner starts.
     let config = BrainConfig {
         claude_bin: None,
         cwd: session_dir()?,
@@ -337,6 +374,28 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
         }),
     )?;
 
+    // Then, only if wanted, the voice parts. A failure here is kept for the
+    // settings screen and leaves Chat running (the test path stays strict).
+    let parts = if opts.with_voice {
+        match load_voice_parts(app, &settings, &opts, &handle) {
+            Ok(p) => Some(p),
+            Err(e) if opts.test_wav.is_some() => return Err(e),
+            Err(e) => {
+                println!("voice: hold-to-talk could not start: {e:#}; chat still runs");
+                *voice.failed.lock().unwrap() = Some(format!("{e:#}"));
+                show(app, Display::Idle, Some(format!("Hold-to-talk is off: {e:#}")));
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let with_voice = parts.is_some();
+    let (recorder, speaker, wav_sink, stt_dir) = match parts {
+        Some(p) => (Some(p.recorder), Some(p.speaker), p.wav_sink, Some(p.stt_dir)),
+        None => (None, None, None, None),
+    };
+
     let shown = Arc::new(Mutex::new(Display::Idle));
     let status: StatusSink = {
         let (app, p, shown) = (app.clone(), probe.clone(), shown.clone());
@@ -351,19 +410,23 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
             let _ = app.emit("pindot:voice", s);
         })
     };
-    let io = LiveIo { recorder, speaker, brain, control: Some(state.control.clone()), status, shown: Display::Idle };
+    let io = LiveIo { recorder, speaker, handle: Some(handle.clone()), brain, control: Some(state.control.clone()), status, shown: Display::Idle };
     let machine = Machine::new(settings.speak_mode, settings.idle_reset(), Instant::now()).with_tap_to_talk(settings.tap_to_talk);
     let runner = VoiceRunner::start(handle.clone(), inbox, machine, Box::new(io))?;
 
     forward_esc(&state, handle.clone(), Arc::downgrade(voice));
     let hotkey_label = opts.hotkey.label_for(pindot_core::platform::Os::current());
-    let hotkey = match start_hotkey(opts.hotkey.clone(), handle.clone()) {
-        Ok(l) => Some(l),
-        Err(e) => {
-            println!("voice: the hold-to-talk hotkey is off: {e}");
-            show(app, Display::Idle, Some(format!("Hold-to-talk is off: {e}")));
-            None
+    let hotkey = if with_voice {
+        match start_hotkey(opts.hotkey.clone(), handle.clone(), app.clone()) {
+            Ok(l) => Some(l),
+            Err(e) => {
+                println!("voice: the hold-to-talk hotkey is off: {e}");
+                show(app, Display::Idle, Some(format!("Hold-to-talk is off: {e}")));
+                None
+            }
         }
+    } else {
+        None
     };
     let tap_ok = hotkey.is_some();
     {
@@ -377,15 +440,19 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
         } else {
             None
         };
-        *running = Some(Running { hotkey, runner, handle: handle.clone(), _companion: companion });
+        *running = Some(Running { voice: with_voice, hotkey, runner, handle: handle.clone(), _companion: companion });
     }
-    println!(
-        "voice: ready (speak mode {:?}, idle reset {} s). Hold {hotkey_label} to talk; Esc stops everything.",
-        settings.speak_mode,
-        settings.idle_reset().as_secs(),
-    );
+    if with_voice {
+        println!(
+            "voice: ready (speak mode {:?}, idle reset {} s). Hold {hotkey_label} to talk; Esc stops everything.",
+            settings.speak_mode,
+            settings.idle_reset().as_secs(),
+        );
+    } else {
+        println!("voice: the assistant is ready for Chat (hold-to-talk is off)");
+    }
 
-    if let (Some(probe), Some(sink)) = (probe, wav_sink) {
+    if let (Some(probe), Some(sink), Some(stt_dir)) = (probe, wav_sink, stt_dir) {
         let test = TestRun {
             app: app.clone(),
             voice: voice.clone(),
@@ -436,7 +503,7 @@ fn forward_esc(state: &Arc<ServerState>, handle: VoiceHandle, voice: std::sync::
     }
 }
 
-fn start_hotkey(binding: HotkeyBinding, handle: VoiceHandle) -> Result<ListenerHandle, String> {
+fn start_hotkey(binding: HotkeyBinding, handle: VoiceHandle, app: AppHandle) -> Result<ListenerHandle, String> {
     let (tx, rx) = std::sync::mpsc::channel();
     let listener = pindot_core::platform::native().hotkey.start(binding, tx).map_err(|e| e.to_string())?;
     std::thread::Builder::new()
@@ -445,6 +512,13 @@ fn start_hotkey(binding: HotkeyBinding, handle: VoiceHandle) -> Result<ListenerH
             for e in rx {
                 // Logged so a quiet hotkey can be told from a quiet voice loop.
                 tracing::info!("voice: hold-to-talk key {e:?}");
+                // With the chat box focused the key dictates into it
+                // instead of sending a spoken turn (see `dictation`).
+                if let Some(hub) = app.try_state::<std::sync::Arc<crate::dictation::DictationHub>>()
+                    && hub.hotkey(e)
+                {
+                    continue;
+                }
                 handle.input(match e {
                     HotkeyEvent::Down => Input::HotkeyDown,
                     HotkeyEvent::Up => Input::HotkeyUp,

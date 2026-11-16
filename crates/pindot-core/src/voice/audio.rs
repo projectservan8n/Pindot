@@ -407,6 +407,118 @@ impl Microphone for WavMicrophone {
     }
 }
 
+// ------------------------------------------------------- one user at a time
+
+/// Who has the microphone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MicOwner {
+    /// A spoken turn for the assistant (hold-to-talk).
+    Voice,
+    /// Dictation into the chat box.
+    Dictation,
+}
+
+/// Hands the microphone to one user at a time. A spoken turn and a dictation
+/// each wrap their microphone in an `ArbitedMic`; whoever is second is told
+/// the microphone is busy instead of recording the same audio.
+#[derive(Default)]
+pub struct MicArbiter {
+    owner: Mutex<Option<MicOwner>>,
+}
+
+/// Proof of having the microphone. Dropping it gives the microphone back.
+pub struct MicLease {
+    arbiter: Arc<MicArbiter>,
+    owner: MicOwner,
+}
+
+impl Drop for MicLease {
+    fn drop(&mut self) {
+        let mut g = self.arbiter.owner.lock().unwrap();
+        if *g == Some(self.owner) {
+            *g = None;
+        }
+    }
+}
+
+impl MicArbiter {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    /// `Ok` with a lease, or `Err` with who has it now.
+    pub fn try_acquire(self: &Arc<Self>, owner: MicOwner) -> Result<MicLease, MicOwner> {
+        let mut g = self.owner.lock().unwrap();
+        match *g {
+            Some(current) => Err(current),
+            None => {
+                *g = Some(owner);
+                Ok(MicLease { arbiter: self.clone(), owner })
+            }
+        }
+    }
+
+    pub fn owner(&self) -> Option<MicOwner> {
+        *self.owner.lock().unwrap()
+    }
+}
+
+/// The one arbiter of this process.
+pub fn mic_arbiter() -> Arc<MicArbiter> {
+    static ARBITER: std::sync::OnceLock<Arc<MicArbiter>> = std::sync::OnceLock::new();
+    ARBITER.get_or_init(MicArbiter::new).clone()
+}
+
+/// What to tell the user when the microphone is taken.
+pub fn busy_message(by: MicOwner) -> &'static str {
+    match by {
+        MicOwner::Voice => "The assistant is listening right now. Try again in a moment.",
+        MicOwner::Dictation => "Dictation is using the microphone. Finish it first.",
+    }
+}
+
+/// A microphone that takes the lease before it opens and gives it back when
+/// it stops. If the microphone is taken, `start` fails with a plain message
+/// and nothing is opened.
+pub struct ArbitedMic<M: Microphone> {
+    inner: M,
+    arbiter: Arc<MicArbiter>,
+    owner: MicOwner,
+    lease: Option<MicLease>,
+}
+
+impl<M: Microphone> ArbitedMic<M> {
+    pub fn new(inner: M, arbiter: Arc<MicArbiter>, owner: MicOwner) -> Self {
+        Self { inner, arbiter, owner, lease: None }
+    }
+}
+
+impl<M: Microphone> Microphone for ArbitedMic<M> {
+    fn start(&mut self) -> Result<()> {
+        // A start while already recording is the caller's mistake: keep the
+        // lease we hold and let the inner microphone decide.
+        if self.lease.is_none() {
+            self.lease = Some(self.arbiter.try_acquire(self.owner).map_err(|by| anyhow!(busy_message(by)))?);
+        }
+        if let Err(e) = self.inner.start() {
+            self.lease = None;
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    fn stop(&mut self) -> Result<Vec<f32>> {
+        let r = self.inner.stop();
+        self.lease = None;
+        r
+    }
+
+    fn cancel(&mut self) {
+        self.inner.cancel();
+        self.lease = None;
+    }
+}
+
 // ---------------------------------------------------------------- speaker
 
 /// The default output device through cpal, at `volume` (0..1).
@@ -616,5 +728,74 @@ mod tests {
         assert_eq!(back.len(), s.len());
         assert!((rms(&back) - rms(&s)).abs() < 0.01);
         let _ = std::fs::remove_file(&p);
+    }
+
+    /// A microphone that opens nothing: it counts starts and stops.
+    struct FakeMic {
+        opened: Arc<std::sync::atomic::AtomicUsize>,
+        fail: bool,
+    }
+    impl Microphone for FakeMic {
+        fn start(&mut self) -> Result<()> {
+            if self.fail {
+                bail!("no microphone");
+            }
+            self.opened.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        fn stop(&mut self) -> Result<Vec<f32>> {
+            Ok(vec![0.1; 16_000])
+        }
+    }
+
+    fn fake(arbiter: &Arc<MicArbiter>, owner: MicOwner, fail: bool) -> (ArbitedMic<FakeMic>, Arc<std::sync::atomic::AtomicUsize>) {
+        let opened = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        (ArbitedMic::new(FakeMic { opened: opened.clone(), fail }, arbiter.clone(), owner), opened)
+    }
+
+    #[test]
+    fn a_dictation_and_a_voice_turn_never_record_at_once() {
+        let arbiter = MicArbiter::new();
+        let (mut voice, voice_opened) = fake(&arbiter, MicOwner::Voice, false);
+        let (mut dictation, dictation_opened) = fake(&arbiter, MicOwner::Dictation, false);
+
+        dictation.start().unwrap();
+        let err = voice.start().unwrap_err().to_string();
+        assert!(err.contains("Dictation is using the microphone"), "{err}");
+        assert_eq!(voice_opened.load(Ordering::SeqCst), 0, "the second user must not open the device");
+        assert_eq!(arbiter.owner(), Some(MicOwner::Dictation));
+
+        // Once the dictation stops, the voice turn can have it, and now the
+        // dictation is the one told to wait.
+        assert_eq!(dictation.stop().unwrap().len(), 16_000);
+        assert_eq!(arbiter.owner(), None);
+        voice.start().unwrap();
+        let err = dictation.start().unwrap_err().to_string();
+        assert!(err.contains("listening"), "{err}");
+        assert_eq!(dictation_opened.load(Ordering::SeqCst), 1);
+        voice.cancel();
+        assert_eq!(arbiter.owner(), None);
+    }
+
+    #[test]
+    fn a_microphone_that_fails_to_open_gives_the_lease_back() {
+        let arbiter = MicArbiter::new();
+        let (mut broken, _) = fake(&arbiter, MicOwner::Dictation, true);
+        assert!(broken.start().is_err());
+        assert_eq!(arbiter.owner(), None);
+        let (mut other, opened) = fake(&arbiter, MicOwner::Voice, false);
+        other.start().unwrap();
+        assert_eq!(opened.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn dropping_a_recording_microphone_frees_it() {
+        let arbiter = MicArbiter::new();
+        {
+            let (mut m, _) = fake(&arbiter, MicOwner::Voice, false);
+            m.start().unwrap();
+            assert_eq!(arbiter.owner(), Some(MicOwner::Voice));
+        }
+        assert_eq!(arbiter.owner(), None);
     }
 }

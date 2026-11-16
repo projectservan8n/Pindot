@@ -22,6 +22,7 @@ use pindot_core::voice::audio::{AudioSink, CpalSpeaker};
 use pindot_core::voice::engines::{PhononTts, TextToSpeech};
 use pindot_core::voice::models::{self, DownloadOptions, ModelKind, Progress};
 use pindot_core::voice::phonon_voices::{self, PhononVoice};
+use pindot_core::voice::plan::{Facts, Plan};
 use serde::Serialize;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -106,6 +107,11 @@ impl Ui {
     /// The running voice loop's input, for the chat window.
     pub fn voice_handle(&self) -> Option<pindot_core::voice::runner::VoiceHandle> {
         self.voice.lock().unwrap().as_ref().and_then(|v| v.handle())
+    }
+
+    /// Replies can be read aloud (the voice parts run, not only Chat).
+    pub fn speech_on(&self) -> bool {
+        self.voice.lock().unwrap().as_ref().is_some_and(|v| v.speech_on())
     }
 
     fn voice_state(&self) -> Option<VoiceState> {
@@ -283,53 +289,47 @@ fn changed(app: &AppHandle) {
 
 // ------------------------------------------------------------- voice
 
-/// What keeps hold-to-talk from starting, in words for the user. Empty =
-/// ready. Read-only: the permission checks never prompt.
-pub fn voice_blockers(app: &AppHandle) -> Vec<String> {
+/// What the app can see right now, as the facts the start plan works from.
+/// Read-only: the permission checks never prompt.
+fn start_facts(app: &AppHandle) -> Facts {
     let ui = app.state::<Ui>();
     let s = ui.settings().effective();
-    let mut out = Vec::new();
-    if !ui.force_voice {
-        if !s.voice_enabled {
-            out.push("hold-to-talk is turned off".to_string());
-            return out;
-        }
-        if !s.onboarding_done {
-            out.push("finish Setup first".into());
-        }
-    }
-    if app.try_state::<RunningServer>().is_none() {
-        out.push("the MCP server is not running".into());
-    }
     let root = models::models_dir().ok();
-    for (id, kind) in [(&s.voice.stt_model, ModelKind::SpeechToText), (&s.voice.tts_model, ModelKind::TextToSpeech)] {
-        if !model_ready(id, kind, root.as_deref()) {
-            out.push(format!("the {} model is not downloaded", kind_word(kind)));
-        }
-    }
     let claude = claude_info();
-    if claude.path.is_none() {
-        out.push("Claude Code (`claude`) is not installed".into());
-    } else if !claude.signed_in && claude.problem.is_none() {
-        out.push("Claude Code is not signed in (run `claude login`)".into());
+    let permission_problems = platform::permission_report()
+        .into_iter()
+        .filter(|p| {
+            matches!(p.permission, Permission::Microphone | Permission::Accessibility | Permission::InputMonitoring)
+                && platform::windows_logic::blocks_voice(p.state, cfg!(windows))
+        })
+        .map(|p| p.note.clone().unwrap_or_else(|| format!("{} permission is missing", p.name)))
+        .collect();
+    Facts {
+        force: ui.force_voice,
+        voice_enabled: s.voice_enabled,
+        onboarding_done: s.onboarding_done,
+        server_running: app.try_state::<RunningServer>().is_some(),
+        stt_ready: model_ready(&s.voice.stt_model, ModelKind::SpeechToText, root.as_deref()),
+        tts_ready: model_ready(&s.voice.tts_model, ModelKind::TextToSpeech, root.as_deref()),
+        claude_installed: claude.path.is_some(),
+        claude_signed_out: claude.path.is_some() && !claude.signed_in && claude.problem.is_none(),
+        permission_problems,
     }
-    for p in platform::permission_report() {
-        let needed = matches!(p.permission, Permission::Microphone | Permission::Accessibility | Permission::InputMonitoring);
-        if needed && platform::windows_logic::blocks_voice(p.state, cfg!(windows)) {
-            out.push(p.note.clone().unwrap_or_else(|| format!("{} permission is missing", p.name)));
-        }
-    }
-    out
 }
 
-fn kind_word(k: ModelKind) -> &'static str {
-    match k {
-        ModelKind::SpeechToText => "speech-to-text",
-        ModelKind::TextToSpeech => "text-to-speech",
-    }
+/// What keeps the assistant (Chat) and hold-to-talk from starting, in words
+/// for the user.
+pub fn start_plan(app: &AppHandle) -> Plan {
+    Plan::of(&start_facts(app))
 }
 
-fn model_ready(setting: &str, kind: ModelKind, root: Option<&Path>) -> bool {
+/// Everything in the way of hold-to-talk, chat blockers included. Empty =
+/// ready.
+pub fn voice_blockers(app: &AppHandle) -> Vec<String> {
+    start_plan(app).all()
+}
+
+pub(crate) fn model_ready(setting: &str, kind: ModelKind, root: Option<&Path>) -> bool {
     let p = Path::new(setting);
     if p.is_absolute() {
         return p.is_dir();
@@ -356,8 +356,10 @@ pub fn restart_voice_now(app: &AppHandle) {
     let ui = app.state::<Ui>();
     let _one_at_a_time = ui.voice_lock.lock().unwrap();
     ui.shutdown_voice();
-    let blockers = voice_blockers(app);
-    if blockers.is_empty() {
+    let plan = start_plan(app);
+    // The assistant (Chat) starts on its own. Hold-to-talk joins it only
+    // when its own needs are met; typed chat never waits for them.
+    if plan.chat_can_run() {
         let (Some(server), Some(state)) = (app.try_state::<RunningServer>(), app.try_state::<Arc<ServerState>>())
         else {
             return;
@@ -374,8 +376,16 @@ pub fn restart_voice_now(app: &AppHandle) {
             exit_when_done: false,
             test_esc: false,
             hotkey: ui.settings().effective().hotkey,
+            with_voice: plan.voice_can_run(),
         };
-        *ui.voice_note.lock().unwrap() = None;
+        *ui.voice_note.lock().unwrap() = if plan.voice.is_empty() { None } else { Some(plan.voice.join("; ")) };
+        if !plan.voice.is_empty() {
+            println!("voice: hold-to-talk is off ({}); chat still runs", plan.voice.join("; "));
+            #[cfg(windows)]
+            if !plan.voice_switched_off {
+                start_off_notice(app, &plan.voice.join("; "));
+            }
+        }
         let v = voice::start(app, state.inner().clone(), link, opts);
         *ui.voice.lock().unwrap() = Some(v.clone());
         // Let the tray show "running" (or the error) once models are loaded.
@@ -390,8 +400,8 @@ pub fn restart_voice_now(app: &AppHandle) {
             changed(&app2);
         });
     } else {
-        let note = blockers.join("; ");
-        println!("voice: hold-to-talk is off ({note})");
+        let note = plan.all().join("; ");
+        println!("voice: the assistant is off ({note})");
         // Not when the user switched hold-to-talk off themselves.
         #[cfg(windows)]
         if ui.force_voice || ui.settings().effective().voice_enabled {

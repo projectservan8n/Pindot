@@ -306,8 +306,13 @@ pub struct VoiceStatus {
 pub type StatusSink = Arc<dyn Fn(&VoiceStatus) + Send + Sync>;
 
 pub struct LiveIo {
-    pub recorder: Recorder,
-    pub speaker: Speaker,
+    /// `None` while the voice parts are off (no models, no hold-to-talk):
+    /// the assistant still answers typed messages, on screen only.
+    pub recorder: Option<Recorder>,
+    pub speaker: Option<Speaker>,
+    /// Answers a `Speak` with "done" when there is no speaker, so the
+    /// machine never waits for speech that cannot happen.
+    pub handle: Option<VoiceHandle>,
     pub brain: PersistentBrain,
     /// `None`: no Esc tap (tests, or a platform without one).
     pub control: Option<Arc<Control>>,
@@ -318,13 +323,19 @@ pub struct LiveIo {
 impl VoiceIo for LiveIo {
     fn start_recording(&mut self, utterance: u64) {
         let _ = utterance;
-        self.recorder.send(RecCmd::Start);
+        if let Some(r) = &self.recorder {
+            r.send(RecCmd::Start);
+        }
     }
     fn finish_recording(&mut self, utterance: u64) {
-        self.recorder.send(RecCmd::Finish(utterance));
+        if let Some(r) = &self.recorder {
+            r.send(RecCmd::Finish(utterance));
+        }
     }
     fn discard_recording(&mut self) {
-        self.recorder.send(RecCmd::Discard);
+        if let Some(r) = &self.recorder {
+            r.send(RecCmd::Discard);
+        }
     }
     fn send_prompt(&mut self, text: &str) {
         self.brain.send(text);
@@ -336,10 +347,16 @@ impl VoiceIo for LiveIo {
         self.brain.new_session();
     }
     fn speak(&mut self, seq: u64, text: &str) {
-        self.speaker.say(seq, text);
+        match (&self.speaker, &self.handle) {
+            (Some(sp), _) => sp.say(seq, text),
+            (None, Some(h)) => h.input(Input::SpeechIdle { seq }),
+            (None, None) => {}
+        }
     }
     fn stop_speech(&mut self) {
-        self.speaker.stop();
+        if let Some(sp) = &self.speaker {
+            sp.stop();
+        }
     }
     fn arm_esc(&mut self) -> Result<(), String> {
         match &self.control {

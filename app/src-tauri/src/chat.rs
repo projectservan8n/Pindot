@@ -1,7 +1,7 @@
-//! The chat window's side of the app: it follows the voice brain's session,
+//! The chat window's side of the app: it follows the assistant's session,
 //! reads that session's transcript (read only) into chat items, and sends
-//! typed messages into the same persistent session. The logic lives in
-//! `pindot_core::chat`; this file is the glue to Tauri.
+//! typed messages into the same persistent session. Chat runs with voice
+//! off. The logic lives in `pindot_core::chat`; this file is the glue to Tauri.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -133,20 +133,24 @@ pub struct ChatView {
     session_id: Option<String>,
     items: Vec<ChatItem>,
     display: Display,
-    /// False when the voice loop is not running (no typed messages then).
+    /// False when the assistant is not running (no typed messages then).
     can_send: bool,
+    /// Replies can be read aloud: hold-to-talk and speech are running.
+    can_speak: bool,
 }
 
 #[tauri::command]
 pub fn chat_state(window: tauri::WebviewWindow, app: AppHandle, hub: tauri::State<'_, Arc<ChatHub>>) -> Result<ChatView, String> {
     main_only(&window)?;
     let can_send = app.state::<Ui>().voice_handle().is_some();
+    let can_speak = app.state::<Ui>().speech_on();
     let g = hub.inner.lock().unwrap();
     Ok(ChatView {
         session_id: g.session.clone(),
         items: g.reader.as_ref().map(|r| r.items().to_vec()).unwrap_or_default(),
         display: g.display,
         can_send,
+        can_speak,
     })
 }
 
@@ -208,7 +212,7 @@ pub fn chat_send(
 ) -> Result<(), String> {
     main_only(&window)?;
     let Some(handle) = app.state::<Ui>().voice_handle() else {
-        return Err("The assistant is not running. Finish Setup (voice models and Claude Code), then chat works.".into());
+        return Err("The assistant is not running. Finish Setup and sign in to Claude Code, then chat works.".into());
     };
     let dir = session_dir(&hub.inner.lock().unwrap())?.1;
     // Only files copied for this very conversation: Read is allowed in that folder alone.
@@ -227,6 +231,8 @@ pub fn chat_send(
         let size = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
         attached.push(Attached { kind: attachments::kind_of(&name), name, path: p, size });
     }
+    // Nothing can be read aloud while the voice parts are off.
+    let speak = speak && app.state::<Ui>().speech_on();
     if text.trim().is_empty() && attached.is_empty() {
         return Err("Type a message first.".into());
     }

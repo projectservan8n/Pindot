@@ -5,14 +5,18 @@
 //! - `engines`: speech to text (Moonshine) and text to speech (Phonon).
 //! - `audio`: microphone and speaker (cpal), plus WAV stand-ins for tests.
 //! - `machine`: the pure state machine (listening, thinking, acting, speaking).
+//! - `dictation`: speech to text for the chat box (nothing is sent or spoken).
+//! - `plan`: what Chat and hold-to-talk each need before they start.
 //! - `speaker`: the speech worker (queue, interrupt, first-audio timing).
 //! - `runner`: the executor that wires the machine to the real parts.
 
 pub mod audio;
+pub mod dictation;
 pub mod engines;
 pub mod machine;
 pub mod models;
 pub mod phonon_voices;
+pub mod plan;
 pub mod runner;
 pub mod speaker;
 

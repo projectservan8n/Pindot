@@ -31,6 +31,7 @@
 
 mod approval;
 mod chat;
+mod dictation;
 mod overlay;
 mod test_turn;
 mod ui;
@@ -205,6 +206,10 @@ pub fn run() {
             chat::chat_history,
             chat::chat_image,
             chat::chat_open,
+            dictation::dictation_start,
+            dictation::dictation_stop,
+            dictation::dictation_cancel,
+            dictation::dictation_focus,
             ui::app_info,
             ui::settings_get,
             ui::settings_save,
@@ -309,6 +314,12 @@ pub fn run() {
             app.manage(ov.clone());
             app.manage(Arc::new(pindot_core::vault::Vault::open_system()));
             app.manage(vault::ImportHold::default());
+            match dictation::DictationHub::new(app.handle()) {
+                Ok(hub) => {
+                    app.manage(hub);
+                }
+                Err(e) => tracing::warn!("dictation is off: {e}"),
+            }
 
             if args.server {
                 match start_server(app.handle(), &ov, port, args.capturable) {
@@ -493,6 +504,7 @@ fn run_test_paths(
             test_timeout: Duration::from_secs(t.turn_timeout),
             exit_when_done: !t.keep_running,
             test_esc: t.test_voice_esc,
+            with_voice: true,
             hotkey: app.state::<ui::Ui>().settings().effective().hotkey,
         };
         app.state::<ui::Ui>().adopt_voice(voice::start(app, state.clone(), link, opts));
