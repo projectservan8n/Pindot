@@ -564,9 +564,14 @@
     flex-wrap: wrap;
     gap: 8px;
   }
+  /* min-height: 0 undoes the app-wide button height, which stretched these
+     26 px circles into 34 px tall ovals. */
   .swatch {
+    flex: none;
+    box-sizing: border-box;
     width: 26px;
     height: 26px;
+    min-height: 0;
     padding: 0;
     border-radius: 50%;
     border: 1px solid var(--line);
