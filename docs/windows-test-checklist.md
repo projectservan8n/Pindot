@@ -401,3 +401,45 @@ Only click and type in windows you opened for the test.
       the installer and of the uninstaller were walked as well, by sending
       their buttons' commands; both ended clean. `/health` with the token
       and a person doing it by hand were not tried.)
+
+## Compare with the Mac
+
+`scripts/bench_tools.py` times the tools the same way on both systems (its
+header has the commands). Release builds, a small test window with one
+button, each call timed around its HTTP request. The Windows column was
+measured on the test PC (Ryzen 5 5600X, two 1920x1080 monitors) on 16 Nov
+2026; the Mac column is to be filled in on a Mac. `docs/phase3` has the
+Mac's screenshot figures from an earlier run: 50.7 ms back to back, 86.1 ms
+spaced.
+
+| Median (p95) | Windows | macOS |
+|---|---|---|
+| `screenshot`, 40 back to back | 66 to 76 ms (89 to 103) | |
+| `screenshot`, 12 two seconds apart | 66 to 69 ms (67 to 91) | |
+| `read_window` | 30 to 37 ms (32 to 57) | |
+| `read_window` with menus | 30 to 34 ms (31 to 73) | |
+| `find` | 30 to 35 ms (36 to 49) | |
+| `desktop_context` | 2 ms (3 to 19) | |
+| `click` by ref, a press | 13 to 16 ms (18 to 34) | |
+| `claude` ready after start | 2.5 s | 2.1 s (`docs/phase2`) |
+| Speech starts after its text | 35 to 70 ms warmed up; 110 to 230 ms in real use | 43 to 124 ms (`docs/phase2`) |
+
+## After pulling on a Mac
+
+The Windows work changed code that macOS runs too. `scripts\check-macos.ps1`
+showed that it compiles for macOS; none of it has run there.
+
+- [ ] `cargo test --workspace`, then `scripts/build-mac.sh`.
+- [ ] Quitting `claude`: Ctrl+C until it goes, not `/exit`. Quit Pindot and
+      look for a `claude` left behind.
+- [ ] The speech model is warmed up when it loads: the log says "Phonon
+      loaded ... (warm-up ...)" and the first reply starts as fast as the
+      later ones.
+- [ ] The AI cursor lands where it did: the overlay's monitor geometry
+      (`MonitorRect::unit`, 1 on macOS) and `overlay.js` were reworked.
+- [ ] A closed menu's item pressed by ref still opens its menu and tries
+      again when the first press fails (`retry_with_menu_open`).
+- [ ] A shortcut with `cmd` works as before (`win` is pressed as the same
+      key on macOS).
+- [ ] `python3 scripts/bench_tools.py --app test-target`, and the figures
+      into the table above.
