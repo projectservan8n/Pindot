@@ -793,6 +793,20 @@ claude 2.1.325; what was seen is in `docs/windows-test-checklist.md` (h).
   the tap the next action had just started, and
   `esc_cancels_the_action_and_halts_until_the_next_prompt` failed about
   once in seven runs. A real tap ends only itself.
+- **Claude Code's write dialogs are permission prompts too** (both
+  systems). A new file asks "Do you want to create X?" and an edit "Do you
+  want to make this edit to X?"; only "...proceed?" and "...allow" were
+  known, so with a brain folder a write outside `pindot-notes` left the
+  turn at the dialog until `TURN_TIMEOUT` (15 minutes), silent.
+  `turn::is_permission_prompt` also takes any "Do you want to ..." that
+  comes with the dialog's footer "Esc to cancel" (the assistant's own
+  questions never have it; a working TUI says "esc to interrupt"). Seen
+  with `spike_brain`: a timeout before, a permission prompt in 12 s after,
+  nothing written. Not seen in the app itself.
+- **A private test copy next to the user's running one** needs its own
+  WebView2 folder as well as its own data folder:
+  `WEBVIEW2_USER_DATA_FOLDER=<scratch>` (WebView2 takes it over the
+  folder the app asks for), or the debugging port's options collide.
 - **The black cursor was on Windows too**: WebView2 drops the markup's
   `style="..."` attributes under the app's policy just as WebKit does (the
   old build's gradient stops all computed to black). With the Mac's fix

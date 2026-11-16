@@ -7,7 +7,7 @@ was seen on that PC; a note after a box says how far an unticked one got.
 
 On Windows today:
 
-- **Works**: the build (see "Build"), `cargo test --workspace` (305 + 35 + 6
+- **Works**: the build (see "Build"), `cargo test --workspace` (308 + 35 + 6
   tests), the app with Setup, Chat, Vault, Settings and Activity (see (h)
   for what the pull of 16 Nov 2026 brought), the MCP server and its
   guards, the overlay on both monitors, the microphone check, hold-to-talk
@@ -410,7 +410,7 @@ Built on the Mac, type-checked for Windows there, first run here on 16 Nov
 data folder and port, its pages driven over the WebView2 debugging port;
 the browser was Edge with a profile of its own on `docs/vault/test-page`.
 
-- [x] `cargo test --workspace`: 305 + 35 + 6 pass (two are not run by
+- [x] `cargo test --workspace`: 308 + 35 + 6 pass (two are not run by
       default: a download, and the real credential store). The frontend's
       48 tests pass. One server test failed once in seven runs before the
       fix to `MockStopKey`; eight runs in a row pass after it.
@@ -440,8 +440,16 @@ the browser was Edge with a profile of its own on `docs/vault/test-page`.
       the assistant declined without trying. In the app: the folder set
       through `settings_save`, a fresh conversation, and the answer used
       the folder's CLAUDE.md and a note.
-- [ ] The brain folder's "Choose…" (the system's folder picker) and a
-      write outside `pindot-notes` that is really tried and refused.
+- [x] A write outside `pindot-notes`, really tried: `Write` to the top of
+      the folder and `Edit` of its CLAUDE.md each stopped at Claude Code's
+      dialog and changed nothing. (Pindot did not know these two dialogs
+      and waited out the time limit, 15 minutes in the app; it now ends
+      the turn at once, 12 s with `spike_brain`. Shared code.) A search
+      and a Glob outside the folder stop at a permission prompt too, and a
+      Grep inside is allowed.
+- [ ] The same refusal seen in the app itself ("Claude wanted a permission
+      I can't grant by voice..."), and the brain folder's "Choose…" (the
+      system's folder picker).
 - [x] Vault, storage: a login saved through the form is in `vault.json`
       with every value sealed; the key is the Credential Manager item
       `master-key.Pindot Vault`. The ignored test `real_credential_store`
@@ -463,6 +471,8 @@ the browser was Edge with a profile of its own on `docs/vault/test-page`.
 - [ ] A chosen microphone, and dictation (the button, and the hold-to-talk
       key with the message box focused): they need a real voice.
 - [ ] "Attach files" (the file picker) and files dropped onto the window.
+      (The button opened the system dialog, titled "Attach files"; no file
+      was chosen in it.)
 
 ## Compare with the Mac
 
@@ -511,3 +521,7 @@ showed that it compiles for macOS; none of it has run there.
       (`is_browser` got the Windows executables); a brain folder and an
       attachment are still read (`rule_path_of` was split out, the Unix
       form is unchanged).
+- [ ] With a brain folder, ask for a file outside `pindot-notes` ("create
+      outside.txt in the top of the folder"): the turn ends at once with
+      "Claude wanted a permission I can't grant by voice", not after 15
+      minutes (`turn::is_permission_prompt`).

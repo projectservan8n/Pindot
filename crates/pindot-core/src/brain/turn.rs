@@ -15,6 +15,19 @@ use crate::server::{ServerState, StopHookEvent};
 /// Squashed lowercase phrases of a tool-permission prompt. We pass
 /// `--allowedTools`, so seeing one means the allow rule did not match.
 pub const PERMISSION_PROMPT_MARKERS: &[&str] = &["doyouwanttoproceed", "doyouwanttoallow"];
+
+/// Is Claude Code asking for a tool permission? `screen` is the screen's
+/// text in lower case without whitespace.
+///
+/// The question differs by tool ("Do you want to create X?" for a new
+/// file, "Do you want to make this edit to X?"), so besides the two known
+/// phrases any "Do you want to ..." counts when the dialog's own footer
+/// ("Esc to cancel") is there too. The footer keeps the assistant's own
+/// questions out: while it works the TUI says "esc to interrupt".
+pub fn is_permission_prompt(screen: &str) -> bool {
+    PERMISSION_PROMPT_MARKERS.iter().any(|m| screen.contains(m))
+        || (screen.contains("doyouwantto") && screen.contains("esctocancel"))
+}
 /// How long after Enter the `UserPromptSubmit` hook must have arrived.
 pub const SUBMIT_CHECK: Duration = Duration::from_secs(6);
 
@@ -88,7 +101,7 @@ pub fn drive_turn(
         }
         let screen: String =
             session.screen_text().chars().filter(|c| !c.is_whitespace()).flat_map(char::to_lowercase).collect();
-        if PERMISSION_PROMPT_MARKERS.iter().any(|m| screen.contains(m)) {
+        if is_permission_prompt(&screen) {
             return Ok(TurnEnd::PermissionPrompt(session.tail(1500)));
         }
         if !session.is_running() {
@@ -98,5 +111,52 @@ pub fn drive_turn(
             return Ok(TurnEnd::Timeout(session.tail(1500)));
         }
         std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn squashed(screen: &str) -> String {
+        screen.chars().filter(|c| !c.is_whitespace()).flat_map(char::to_lowercase).collect()
+    }
+
+    // The dialogs as claude 2.1.325 printed them (captured on 16 Nov 2026,
+    // box-drawing characters left out). The TUI redraws only what changed,
+    // so the option lines can arrive broken, as in EDIT.
+    const READ_OUTSIDE: &str = "Read file
+ Search(pattern: kumquat, path: outside)
+ Do you want to proceed?
+ > 1. Yes
+   2. Yes, allow reading from outside during this session
+   3. No
+ Esc to cancel";
+    const NEW_FILE: &str = " Do you want to create outside.txt? 1. Yes2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)3. NoEsc to cancel - Tab to amend";
+    const EDIT: &str = " Do you want to make this edit to CLAUDE.md? 1 Yes2 Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)3. No
+Esc to cancel";
+
+    #[test]
+    fn the_dialog_for_a_tool_is_a_permission_prompt() {
+        assert!(is_permission_prompt(&squashed(READ_OUTSIDE)));
+        assert!(is_permission_prompt(&squashed("Do you want to allow Claude to fetch this content?")));
+    }
+
+    /// A new file asks "Do you want to create X?" and an edit "Do you want
+    /// to make this edit to X?". Neither was known, so a write the rules do
+    /// not allow left the turn at the dialog until the 15 minute limit.
+    #[test]
+    fn the_dialogs_for_a_new_file_and_for_an_edit_are_permission_prompts() {
+        assert!(is_permission_prompt(&squashed(NEW_FILE)), "a new file");
+        assert!(is_permission_prompt(&squashed(EDIT)), "an edit");
+    }
+
+    /// Only a dialog counts: the assistant asking something in its own
+    /// words must not get the turn stopped.
+    #[test]
+    fn the_assistants_own_question_is_not_a_permission_prompt() {
+        assert!(!is_permission_prompt(&squashed("I found three copies. Do you want to create a folder for them?")));
+        assert!(!is_permission_prompt(&squashed("Do you want to make this edit to the title as well?")));
+        assert!(!is_permission_prompt(&squashed("Thinking... (esc to interrupt)")));
     }
 }

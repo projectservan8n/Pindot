@@ -30,7 +30,7 @@ use uuid::Uuid;
 use super::config::{ALLOWED_TOOLS_RULE, PermissionMode, write_brain_hook_settings_with, write_brain_mcp_config};
 use super::pty::{ClaudeSession, SpawnOptions};
 use super::tailer::{TranscriptEvent, TranscriptTailer};
-use super::turn::{PERMISSION_PROMPT_MARKERS, SUBMIT_CHECK};
+use super::turn::{SUBMIT_CHECK, is_permission_prompt};
 use super::{AuthState, SIGN_IN_HINT, auth_status, find_claude};
 use crate::server::ServerState;
 use crate::voice::machine::Input;
@@ -265,7 +265,7 @@ impl Worker {
         }
         let screen: String =
             session.screen_text().chars().filter(|c| !c.is_whitespace()).flat_map(char::to_lowercase).collect();
-        if PERMISSION_PROMPT_MARKERS.iter().any(|m| screen.contains(m)) {
+        if is_permission_prompt(&screen) {
             tracing::warn!("claude asked for a tool permission; pressing Esc. Screen:\n{}", session.tail(800));
             let _ = session.interrupt();
             session.mark_seen();

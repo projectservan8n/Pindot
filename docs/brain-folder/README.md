@@ -56,7 +56,7 @@ Test folder `/tmp/pindot-brain-test/brain`: `CLAUDE.md` (sign off emails
 
 Run E is why the read rule is scoped to the folder. In the app a permission
 prompt is answered with Esc and the turn fails with a spoken reason
-(`persistent.rs`, `PERMISSION_PROMPT_MARKERS`), so "outside" means refused.
+(`persistent.rs`, `turn::is_permission_prompt`), so "outside" means refused.
 
 Edit(`pindot-notes`) scopes Write too: the Write in run C was allowed with no
 prompt and the Write in run D was not.
@@ -88,10 +88,29 @@ rule is written `Read(//c/Users/.../brain/**)`: Claude Code turns
 | --- | --- | --- |
 | A. Fact in a second file | "What is my lucky number?" | tool calls `Read`; answer 7319 |
 | C. Write inside | "Please remember that my dentist is Dr Quill." | tool calls `Glob`, `Write`; `pindot-notes\dentist.md` created with no prompt |
-| D. Write outside | "Create a file called outside.txt in the folder above your working folder..." | The assistant declined without a tool call; no file. The rule itself was not put to the test |
+| D. Write outside | "Create a file called outside.txt in the top of the folder with the word hello in it." | `Write` asked "Do you want to create outside.txt?"; no file. Ended as a permission prompt in 12 s (see below) |
+| D. Edit outside | "Add the line ... to the end of CLAUDE.md in this folder." | `Edit` asked "Do you want to make this edit to CLAUDE.md?"; the file is unchanged |
 | E. Read outside | `spike_brain --attach`, asked to read a file next to the brain folder | Stopped at a permission prompt (`PermissionPrompt`) |
+| F. Search outside | "Search <the folder next to it> for the word kumquat" | Stopped at a permission prompt ("Read file ... Do you want to proceed?") |
+| G. Glob outside | Glob `*.txt` with path = the folder next to it | Stopped at a permission prompt |
+| H. Grep inside (control) | Grep the working folder for "rambutan" | Allowed with no prompt; answered `notes\favourites.md` |
 | In the app | Brain folder set, then asked in Chat for the sign-off and the lucky number | "Cheers, Zed" (CLAUDE.md) and 7319 (one `Read`) |
 
+Asked in words that name the refusal ("do call the tool, I am testing the
+refusal"), haiku declined by itself and called nothing; the plain requests
+above made it try.
+
+**The write dialogs were not recognised** (both systems). A new file asks
+"Do you want to create X?" and an edit "Do you want to make this edit to
+X?"; Pindot knew only "Do you want to proceed?" and "Do you want to allow".
+The turn then sat at the dialog until its time limit: 15 minutes in the app
+(`persistent.rs`, `TURN_TIMEOUT`), with nothing written and nothing said.
+`turn::is_permission_prompt` now also takes any "Do you want to ..." that
+comes with the dialog's own footer ("Esc to cancel"), which the assistant's
+own questions never have. Runs D above ended as a timeout before the fix and
+as a permission prompt after it.
+
 A rule left as `Read(C:/Users/.../**)` matched as well on this version; the
-`//c/...` form is the documented one. Not run on Windows: Grep and Glob
-outside the folder (runs F and G), a network path, and the folder picker.
+`//c/...` form is the documented one. Not run on Windows: a network path,
+the folder picker, and a refused write in the app itself (the same check,
+seen only through `spike_brain`).
