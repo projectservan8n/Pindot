@@ -35,8 +35,9 @@ On Windows today:
 - `scripts/check-windows.sh` still type-checks both crates from the Mac. It
   only proves the Rust compiles.
 
-Still needed: a second PC or a monitor scaled to 150%, a physical-keyboard
-pass, and the items left unticked.
+Still needed: a second PC or a monitor scaled to 150%, and the items left
+unticked. The physical-keyboard pass was done by the PC's owner on 16 Nov
+2026 (hold-to-talk, the approval window's Allow, Esc, the tray menu).
 
 ## Build
 
@@ -242,8 +243,9 @@ Only click and type in windows you opened for the test.
       `dwExtraInfo` = our marker) passes through.
       (`spike_hotkey esc` with a test window in front and unmarked,
       synthetic Esc presses: armed, both presses reported and the window
-      saw none; disarmed, the window saw the press. The physical key, an
-      action stopped in flight and the banner are still to see.)
+      saw none; disarmed, the window saw the press. The physical key
+      stopped a turn in flight on 16 Nov 2026, see (f); the banner was not
+      looked at.)
 - [ ] Approval window: `request_access(["Notepad"])` shows our prompt, Deny
       and "Allow for this session" both work by mouse, Esc denies, and a
       120 s timeout denies. Extra warning shows for Terminal/PowerShell,
@@ -252,7 +254,8 @@ Only click and type in windows you opened for the test.
       file-manager warning for File Explorer and the reason marked "not
       verified"; Deny, pressed over CDP, gave the tool "The user denied
       access". Allow, Esc and the timeout were not tried, and nobody has
-      used the mouse on it.)
+      used the mouse on it. Since then the PC's owner clicked "Allow for
+      this session" during real use: "approval ...: user ALLOWED".)
 - [x] The gate: `click` on a point over a window of a non-approved app is
       refused before any input; screenshots grey out windows of
       non-approved apps. (A click on Chrome and one on the taskbar were
@@ -294,13 +297,26 @@ Only click and type in windows you opened for the test.
       haiku): the test window's app opened, text typed, a button pressed
       and the reply spoken; RESULT PASS, 14.7 s from the key release to
       the first sound.)
-- [ ] Real use: hold Ctrl+Win, say "Open Notepad and type hello", let go.
+- [x] Real use: hold Ctrl+Win, say "Open Notepad and type hello", let go.
       Expect Listening, Thinking, Working, the approval window, the text in
       Notepad and a spoken reply. The Start menu must not open.
+      (Done by the PC's owner on 16 Nov 2026, with the physical keys, the
+      real microphone and the release build, on Paint and a browser, not
+      Notepad: 20 holds in the app's log, each request heard, the approval
+      window answered with Allow ("user ALLOWED"), Paint opened and drawn in
+      on request (a circle with the oval tool, a star, letters with the
+      brush), a web page scrolled and read aloud. Speech began 110 to 230 ms
+      after its text; once 2.3 s, behind a message still being spoken. In
+      the browser one click at a position landed on a neighbouring link and
+      the assistant went back and corrected it.)
 - [ ] Barge-in: hold Ctrl+Win while it speaks: speech stops and it listens.
-- [ ] Esc during a turn: the action stops, speech stops, the turn is
+- [x] Esc during a turn: the action stops, speech stops, the turn is
       interrupted (Esc is written to the ConPTY), and the next request
       works in the same session.
+      (The physical Esc, pressed by the PC's owner while a drawing request
+      ran: "EMERGENCY STOP: user pressed Esc (action cancelled, input
+      released)" and "turn interrupted with Esc in 100 ms". The log ends
+      there, so the next request in the same session is not in it.)
 - [ ] The persistent `claude.exe` under ConPTY survives 10 minutes idle and
       the next request starts a fresh session; quitting Pindot leaves no
       `claude.exe`, `node.exe` or `conhost.exe` behind.
@@ -313,7 +329,8 @@ Only click and type in windows you opened for the test.
       Automation; the menu, read with `MN_GETHMENU`, has the status line,
       Setup..., Settings..., Activity..., the checked Hold-to-talk
       (Ctrl+Win) and Quit Pindot. Quit exited cleanly: no `pindot`, no
-      WebView2 process, the port free. Not used by hand.)
+      WebView2 process, the port free. Used by hand by the PC's owner on 16
+      Nov 2026: the icon in the hidden-icons flyout, then Settings.)
 - [x] No console window flashes when the release build is started the way
       Explorer starts it (`explorer.exe <path>`, so no console anywhere):
       every new visible window was watched for 25 s, through the start,

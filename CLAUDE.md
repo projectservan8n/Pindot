@@ -778,8 +778,13 @@ then 2.1.325). What was run and seen is in
   one public site), Paint, Settings, File Explorer on a test folder and
   Word on a blank document. Not a chat or mail app, or a heavy web app.
   The items of a closed menu are listed only for a classic menu bar.
-- **Windows, not checked**: a person answering the approval window and
-  using the tray menu by hand, the physical Esc key, a monitor above 100%
+- **Windows, checked by hand** on 16 Nov 2026 by the PC's owner, in the
+  release build: hold-to-talk with the physical Ctrl+Win and the real
+  microphone (20 holds), "Allow for this session" in the approval window,
+  Paint opened and drawn in on request, the physical Esc stopping a turn
+  (interrupted in 100 ms), and the tray menu. Speech began 110 to 230 ms
+  after its text.
+- **Windows, not checked**: a monitor above 100%
   (the mapping is unit-tested, not run), sleep and wake (nothing is held
   open across it: the microphone and the speaker are opened for each use,
   and the key hook is put back every half second), a click refused on an administrator's window (the check
