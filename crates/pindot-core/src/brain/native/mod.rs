@@ -7,3 +7,4 @@ pub mod openai;
 pub mod context;
 pub mod log;
 pub mod mcp_client;
+pub mod run;
