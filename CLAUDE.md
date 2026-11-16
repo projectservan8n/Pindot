@@ -802,11 +802,22 @@ claude 2.1.325; what was seen is in `docs/windows-test-checklist.md` (h).
   comes with the dialog's footer "Esc to cancel" (the assistant's own
   questions never have it; a working TUI says "esc to interrupt"). Seen
   with `spike_brain`: a timeout before, a permission prompt in 12 s after,
-  nothing written. Not seen in the app itself.
+  nothing written. In the app the turn ended after 4 s with the notice.
 - **A private test copy next to the user's running one** needs its own
   WebView2 folder as well as its own data folder:
   `WEBVIEW2_USER_DATA_FOLDER=<scratch>` (WebView2 takes it over the
   folder the app asks for), or the debugging port's options collide.
+- **Test the app on a desktop nobody sees** when the PC is in use
+  (`scripts\hidden_desktop.py "<command>"`): a test copy on the screen
+  looks like the real app, and its owner clicked in it. On the hidden
+  desktop the main window, the overlay and the system file dialogs exist
+  and work, the pages answer over the debugging port, and nothing shows or
+  takes focus. A window there is found only from a process on the same
+  desktop, and UI Automation did not list a file dialog's name box and
+  buttons, so `scripts\answer-file-dialog.ps1` answers it with window
+  messages (the folder picker takes only a click on its button, not the
+  dialog's OK command). The microphone, the speakers and the credential
+  store are still the user's.
 - **The black cursor was on Windows too**: WebView2 drops the markup's
   `style="..."` attributes under the app's policy just as WebKit does (the
   old build's gradient stops all computed to black). With the Mac's fix
@@ -815,8 +826,8 @@ claude 2.1.325; what was seen is in `docs/windows-test-checklist.md` (h).
 - **Not seen on Windows**: "Allow for this session" on a login and the
   typing that follows (a human's click), dictation and a chosen
   microphone with a real voice (the list of inputs was read: four here),
-  the file pickers (Attach files, Import passwords, the brain folder's
-  Choose), a drop of files onto the window, a CSV import.
+  a drop of files onto the window, a CSV import applied (its file dialog
+  and its preview were seen).
 
 ## Known risks (open)
 

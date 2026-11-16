@@ -111,6 +111,7 @@ own questions never have. Runs D above ended as a timeout before the fix and
 as a permission prompt after it.
 
 A rule left as `Read(C:/Users/.../**)` matched as well on this version; the
-`//c/...` form is the documented one. Not run on Windows: a network path,
-the folder picker, and a refused write in the app itself (the same check,
-seen only through `spike_brain`).
+`//c/...` form is the documented one. In the app the refused write ended
+the turn after 4 s with "Claude wanted a permission I can't grant by voice,
+so I stopped that request.", and the folder picker put its folder into the
+field. Not run on Windows: a network path.

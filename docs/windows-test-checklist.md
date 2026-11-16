@@ -447,9 +447,17 @@ the browser was Edge with a profile of its own on `docs/vault/test-page`.
       the turn at once, 12 s with `spike_brain`. Shared code.) A search
       and a Glob outside the folder stop at a permission prompt too, and a
       Grep inside is allowed.
-- [ ] The same refusal seen in the app itself ("Claude wanted a permission
-      I can't grant by voice..."), and the brain folder's "Choose…" (the
-      system's folder picker).
+- [x] The same refusal in the app itself: asked in Chat for outside.txt in
+      the top of the brain folder, the turn ended after 4 s with one failed
+      `Write` step and "Claude wanted a permission I can't grant by voice,
+      so I stopped that request."; no file. (The line above it read "You
+      stopped this.", though Pindot had pressed Esc, not the user; it now
+      reads "This request was stopped.", from the next build on.)
+- [x] The brain folder's "Choose…": the system's folder dialog ("Choose
+      your brain folder") was given a folder and the field showed it.
+      This and the other file dialogs below were answered on a desktop
+      nobody sees (`scripts\hidden_desktop.py`, `scripts\answer-file-
+      dialog.ps1`), so nothing came up on the screen of the PC's owner.
 - [x] Vault, storage: a login saved through the form is in `vault.json`
       with every value sealed; the key is the Credential Manager item
       `master-key.Pindot Vault`. The ignored test `real_credential_store`
@@ -465,14 +473,17 @@ the browser was Edge with a profile of its own on `docs/vault/test-page`.
 - [ ] Vault, by hand: "Allow for this session", the text typed into the
       page, the authenticator code, Esc during a fill. Chrome, Brave,
       Vivaldi, Opera and Arc (known by their executables, not tried).
-- [ ] Vault: "Import passwords…" (the file picker and a CSV).
+- [x] Vault: "Import passwords…": the file dialog ("Choose a password
+      export (CSV)") was given a two-row CSV in Chrome's format and the
+      preview read "2 rows read ... 2 new, 0 already saved". Cancelled
+      there: the import itself was not applied.
 - [x] Settings > Microphone lists the inputs by name without opening them
       (four here, with the default named).
 - [ ] A chosen microphone, and dictation (the button, and the hold-to-talk
       key with the message box focused): they need a real voice.
-- [ ] "Attach files" (the file picker) and files dropped onto the window.
-      (The button opened the system dialog, titled "Attach files"; no file
-      was chosen in it.)
+- [x] "Attach files": the system dialog was given a file and the file
+      showed as attached (name and size, with Remove).
+- [ ] Files dropped onto the window (a real drag needs the pointer).
 
 ## Compare with the Mac
 

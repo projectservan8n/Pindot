@@ -471,7 +471,9 @@
           <details class="think"><summary>Thinking</summary><p class="plain">{r.item.text}</p></details>
         {/if}
       {:else if r.item.kind === 'interrupted'}
-        <p class="note" role="status">You stopped this.</p>
+        <!-- Not "You stopped this": Pindot presses Esc itself when Claude
+             Code asks for a permission it may not have. -->
+        <p class="note" role="status">This request was stopped.</p>
       {/if}
     {/each}
 
