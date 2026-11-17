@@ -307,7 +307,17 @@ impl Microphone for CpalMicrophone {
                     bail!("no input device");
                 }
             };
-            let cfg = dev.default_input_config().map_err(|e| anyhow!("microphone config: {e}"))?;
+            let opened = open_named_on_failure("microphone", dev, |d| d.default_input_config(), || {
+                host.input_devices().map(|it| it.collect()).unwrap_or_default()
+            });
+            let (dev, cfg) = match opened {
+                Ok(x) => x,
+                Err(e) => {
+                    // Tell the caller, which is waiting for the microphone.
+                    let _ = ready_tx.send(Err(anyhow!("{e:#}")));
+                    return Err(e);
+                }
+            };
             let rate = cfg.sample_rate();
             let channels = cfg.channels() as usize;
             let buf = Arc::new(Mutex::new(Vec::<f32>::new()));
@@ -537,6 +547,66 @@ impl<M: Microphone> Microphone for ArbitedMic<M> {
 
 // ---------------------------------------------------------------- speaker
 
+/// Where the default device is in a list of the same devices opened by
+/// name: the fallback when opening "the default device" fails (see
+/// `open_named_on_failure`).
+pub(crate) fn same_device(default_name: &str, names: &[String]) -> Option<usize> {
+    if default_name.is_empty() {
+        return None;
+    }
+    names.iter().position(|n| n == default_name)
+}
+
+/// cpal opens "the default device" through Windows' ActivateAudioInterfaceAsync
+/// (so a stream follows a change of default). On 17 Nov 2026 that failed on
+/// Windows with RPC_E_CHANGED_MODE ("Cannot change thread mode after it is
+/// set") for every utterance of a running Pindot, until it restarted, and
+/// could not be reproduced on demand. The same device opened by name goes
+/// through IMMDevice::Activate instead. `config` reads the device's default
+/// config; `named` lists the devices of the same direction.
+fn open_named_on_failure<C>(
+    what: &str,
+    default: cpal::Device,
+    config: impl Fn(&cpal::Device) -> std::result::Result<C, cpal::Error>,
+    named: impl Fn() -> Vec<cpal::Device>,
+) -> Result<(cpal::Device, C)> {
+    let first = match config(&default) {
+        Ok(c) => return Ok((default, c)),
+        Err(e) => e,
+    };
+    let name = default.to_string();
+    #[cfg(windows)]
+    tracing::warn!(
+        "{what}: the default device failed ({first}) on thread {:?}, COM {}; opening \"{name}\" by name",
+        std::thread::current().name(),
+        com_state()
+    );
+    let devices = named();
+    let names: Vec<String> = devices.iter().map(|d| d.to_string()).collect();
+    let Some(i) = same_device(&name, &names) else {
+        return Err(anyhow!("{what} config: {first}"));
+    };
+    let dev = devices[i].clone();
+    match config(&dev) {
+        Ok(c) => {
+            tracing::info!("{what}: opened \"{name}\" by name");
+            Ok((dev, c))
+        }
+        Err(e) => Err(anyhow!("{what} config: {first} (by name too: {e})")),
+    }
+}
+
+/// This thread's COM apartment, for the log (diagnostics).
+#[cfg(windows)]
+fn com_state() -> String {
+    use windows::Win32::System::Com::{APTTYPE, APTTYPEQUALIFIER, CoGetApartmentType};
+    let (mut t, mut q) = (APTTYPE::default(), APTTYPEQUALIFIER::default());
+    match unsafe { CoGetApartmentType(&mut t, &mut q) } {
+        Ok(()) => format!("type {} qualifier {}", t.0, q.0),
+        Err(e) => format!("none ({:#x})", e.code().0),
+    }
+}
+
 /// The default output device through cpal, at `volume` (0..1).
 pub struct CpalSpeaker {
     pub volume: f32,
@@ -552,7 +622,9 @@ impl AudioSink for CpalSpeaker {
     ) -> Result<()> {
         let host = cpal::default_host();
         let dev = host.default_output_device().context("no speaker (no default output device)")?;
-        let cfg = dev.default_output_config().map_err(|e| anyhow!("speaker config: {e}"))?;
+        let (dev, cfg) = open_named_on_failure("speaker", dev, |d| d.default_output_config(), || {
+            host.output_devices().map(|it| it.collect()).unwrap_or_default()
+        })?;
         let out_rate = cfg.sample_rate();
         let channels = cfg.channels() as usize;
         let queue = Arc::new(Mutex::new(VecDeque::<f32>::new()));
@@ -717,6 +789,16 @@ mod tests {
     }
 
     #[test]
+    fn the_default_device_is_found_again_by_its_name() {
+        let names = vec!["Speakers (Realtek(R) Audio)".to_string(), "Headphones (Maono Wireless Mic RX)".to_string()];
+        assert_eq!(same_device("Headphones (Maono Wireless Mic RX)", &names), Some(1));
+        assert_eq!(same_device("Speakers (Realtek(R) Audio)", &names), Some(0));
+        assert_eq!(same_device("Something else", &names), None);
+        assert_eq!(same_device("", &names), None, "no name, no guess");
+        assert_eq!(same_device("Speakers (Realtek(R) Audio)", &[]), None);
+    }
+
+    #[test]
     fn the_saved_microphone_is_used_only_while_it_is_there() {
         let present = vec!["Built-in Microphone".to_string(), "USB Mic".to_string()];
         assert_eq!(InputChoice::resolve(None, &present), InputChoice::Default);
@@ -825,5 +907,52 @@ mod tests {
             assert_eq!(arbiter.owner(), Some(MicOwner::Voice));
         }
         assert_eq!(arbiter.owner(), None);
+    }
+}
+
+#[cfg(all(test, windows))]
+mod real_devices {
+    use super::*;
+    use cpal::traits::{DeviceTrait, HostTrait};
+    use std::cell::Cell;
+
+    /// The fallback on this computer's real devices: the first config call
+    /// (the default device) is made to fail, so the device is opened again
+    /// by name. Nothing that makes a sound is opened.
+    ///   cargo test -p pindot-core --lib default_devices_open_by_name -- --ignored --nocapture
+    #[test]
+    #[ignore = "reads the real audio devices"]
+    fn default_devices_open_by_name() {
+        let host = cpal::default_host();
+        let forced = || cpal::Error::with_message(cpal::ErrorKind::DeviceNotAvailable, "forced for the test");
+        let calls = Cell::new(0);
+        let out = host.default_output_device().expect("a speaker");
+        let (dev, cfg) = open_named_on_failure(
+            "speaker",
+            out,
+            |d| {
+                calls.set(calls.get() + 1);
+                if calls.get() == 1 { Err(forced()) } else { d.default_output_config() }
+            },
+            || host.output_devices().map(|it| it.collect()).unwrap_or_default(),
+        )
+        .expect("the speaker opens by name");
+        assert_eq!(calls.get(), 2, "the default failed, the named one was read");
+        eprintln!("speaker by name: {dev} at {} Hz", cfg.sample_rate());
+
+        calls.set(0);
+        let inp = host.default_input_device().expect("a microphone");
+        let (dev, cfg) = open_named_on_failure(
+            "microphone",
+            inp,
+            |d| {
+                calls.set(calls.get() + 1);
+                if calls.get() == 1 { Err(forced()) } else { d.default_input_config() }
+            },
+            || host.input_devices().map(|it| it.collect()).unwrap_or_default(),
+        )
+        .expect("the microphone opens by name");
+        assert_eq!(calls.get(), 2);
+        eprintln!("microphone by name: {dev} at {} Hz", cfg.sample_rate());
     }
 }

@@ -929,6 +929,23 @@ claude 2.1.325; what was seen is in `docs/windows-test-checklist.md` (h).
     Setup and the preview. Checked against a local stand-in server (paths,
     headers, form fields, JSON, errors without the key); not run against
     the real services (no keys here).
+- **"No voice" was the speaker failing to open, not Phonon** (17 Nov
+  2026): Phonon generated every reply, but each playback failed with
+  "speaker config: Failed to get audio client: Cannot change thread mode
+  after it is set" (RPC_E_CHANGED_MODE) until Pindot restarted. cpal 0.18
+  opens "the default device" through `ActivateAudioInterfaceAsync`. It was
+  reproduced once in a private copy (a silent preview worked, one
+  `desktop_context`, then every preview failed) and then never again: not
+  with the same executable, not after HTTPS, UI Automation, a live MTA or
+  each step of `desktop_context` in a test process. So the trigger is
+  unknown. `audio::open_named_on_failure` opens the same device by name
+  when the default fails (IMMDevice::Activate, a different route), for the
+  speaker and the microphone, and logs the thread's COM state when it has
+  to. The microphone also tells its caller when its config fails (it used
+  to return without a word). Checked: the fallback opens this PC's real
+  speaker and microphone by name after a forced failure
+  (`default_devices_open_by_name`, ignored). Not seen: the fallback in a
+  real occurrence.
 - **Not seen on Windows**: "Allow for this session" on a login and the
   typing that follows (a human's click), dictation and a chosen
   microphone with a real voice (the list of inputs was read: four here),
