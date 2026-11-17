@@ -304,7 +304,7 @@ pub fn run() {
             );
             pindot_core::platform::set_streaming_capture(streaming);
             if streaming {
-                println!("NOTE: streaming mode: the overlay is visible to screen capture; Pindot's own screenshots leave it out");
+                println!("NOTE: streaming mode: Pindot's windows are visible to screen capture (OBS, screen shares); Pindot's own screenshots leave them out");
             }
             app.manage(ui::Ui::new(args.capturable, args.voice, args.model.clone(), settings, load_note));
             chat::start(app.handle());
