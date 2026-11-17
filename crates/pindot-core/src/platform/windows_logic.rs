@@ -747,39 +747,40 @@ pub const WDA_EXCLUDEFROMCAPTURE: u32 = 0x11;
 /// affinity and its extended style.
 pub type OwnWindow = (isize, bool, u32, u32);
 
-/// Streaming mode takes one screenshot with our own overlay hidden from the
-/// compositor. Which of our windows to set to `WDA_EXCLUDEFROMCAPTURE` for
-/// that one capture: the overlay only, which is the one window of ours that
-/// is click-through, when it is visible and capture can see it now.
-///
-/// Every other window of ours (the main window with the Vault, the approval
-/// popup) is never touched, whatever its affinity says at that moment: the
-/// restore after the capture sets `WDA_NONE`, and a popup caught in the
-/// instant between being created and being protected would otherwise end up
-/// visible to OBS for good.
+/// Streaming mode takes one screenshot with our own windows hidden from the
+/// compositor. Which of them to set to `WDA_EXCLUDEFROMCAPTURE` for that one
+/// capture: every visible one that capture sees now. In streaming mode that
+/// is all of them (the cursor, the main window, an approval popup), since
+/// the user wants OBS to show Pindot; the restore after the capture puts
+/// back `WDA_NONE`, the state they were in. One already hidden, or kept from
+/// capture some other way (`WDA_MONITOR`), is left alone.
 pub fn windows_to_exclude(own: &[OwnWindow]) -> Vec<isize> {
     own.iter()
-        .filter(|&&(_, visible, affinity, ex_style)| visible && affinity == WDA_NONE && ex_style & WS_EX_TRANSPARENT != 0)
+        .filter(|&&(_, visible, affinity, _)| visible && affinity == WDA_NONE)
         .map(|&(h, ..)| h)
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
+    /// Streaming mode shows every window of ours to OBS (the user's choice,
+    /// 17 Nov 2026), so every one that capture sees is left out of our own
+    /// screenshot, not only the overlay.
     #[test]
-    fn only_the_visible_unprotected_overlay_is_excluded_for_a_capture() {
+    fn every_visible_window_of_ours_that_capture_sees_is_excluded_for_a_capture() {
         use super::{WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WS_EX_LAYERED, WS_EX_TRANSPARENT, windows_to_exclude};
         let overlay = WS_EX_TRANSPARENT | WS_EX_LAYERED | 0x8;
         let own = [
             (1, true, WDA_NONE, overlay),               // the overlay in streaming mode
-            (2, true, WDA_EXCLUDEFROMCAPTURE, 0),       // the main window: already hidden, stays as it is
+            (2, true, WDA_EXCLUDEFROMCAPTURE, 0),       // a window already hidden: stays as it is
             (3, false, WDA_NONE, overlay),              // not on screen: nothing to hide
             (4, true, 1, overlay),                      // WDA_MONITOR (an older protection): left alone
             (5, true, WDA_NONE, overlay),               // a second monitor's overlay
-            (6, true, WDA_NONE, 0x8),                   // an approval popup caught before its protection: never ours to restore
+            (6, true, WDA_NONE, 0x8),                   // an approval popup in streaming mode
             (7, true, WDA_EXCLUDEFROMCAPTURE, overlay), // the overlay with streaming mode off
+            (8, true, WDA_NONE, 0),                     // the main window in streaming mode
         ];
-        assert_eq!(windows_to_exclude(&own), vec![1, 5]);
+        assert_eq!(windows_to_exclude(&own), vec![1, 5, 6, 8]);
         assert!(windows_to_exclude(&[]).is_empty());
     }
 

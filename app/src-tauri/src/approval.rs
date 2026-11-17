@@ -89,7 +89,8 @@ impl Approver for TauriApprover {
         let height = if req.login.is_some() { 330.0 } else { 230.0 + 64.0 * req.apps.len().min(6) as f64 };
         let title = if req.login.is_some() { "Pindot: let Claude sign in?" } else { "Pindot: allow Claude to control an app?" };
         let app = self.app.clone();
-        let protect = !self.capturable;
+        // Shown to OBS in streaming mode, like every Pindot window.
+        let protect = !(self.capturable || crate::ui::windows_capturable(&self.app));
         let _ = self.app.run_on_main_thread(move || {
             let built = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("approval.html".into()))
                 .title(title)

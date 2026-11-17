@@ -141,14 +141,15 @@ pub fn open_main(app: &AppHandle, view: &str, focus: bool) -> tauri::Result<()> 
         }
         return Ok(());
     }
-    let capturable = app.state::<Ui>().capturable;
+    let capturable = windows_capturable(app);
     let w = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App(format!("index.html#{view}").into()))
         .title("Pindot")
         .inner_size(820.0, 640.0)
         .min_inner_size(640.0, 460.0)
         .center()
         .focused(focus)
-        // Pindot's own windows stay out of Claude's screenshots.
+        // Out of every capture unless streaming mode (or `--capturable`) shows
+        // it; Claude's own screenshots leave it out either way.
         .content_protected(!capturable)
         .build()?;
     if let (Ok(p), Ok(z), Ok(scale)) = (w.outer_position(), w.outer_size(), w.scale_factor()) {
@@ -638,6 +639,14 @@ pub fn settings_save(app: AppHandle, settings: Settings) -> Result<SaveResult, V
 /// keep their protection. The order matters: on the way in our own
 /// screenshots start leaving the overlay out before it becomes visible to
 /// capture, and on the way out it is hidden before they stop.
+/// May screen capture (OBS, a screen share) see Pindot's windows now? Only
+/// with `--capturable` or while streaming mode is in force.
+pub fn windows_capturable(app: &AppHandle) -> bool {
+    let Some(ui) = app.try_state::<Ui>() else { return false };
+    ui.capturable
+        || crate::overlay::streaming_in_force(ui.settings().streaming_mode, platform::streaming_supported(), ui.capturable)
+}
+
 pub fn apply_streaming(app: &AppHandle) {
     let ui = app.state::<Ui>();
     let on = crate::overlay::streaming_in_force(ui.settings().streaming_mode, platform::streaming_supported(), ui.capturable);
@@ -652,7 +661,7 @@ pub fn apply_streaming(app: &AppHandle) {
         // back, and nothing restores it after this point.
         crate::overlay::set_visible_to_capture(app, ui.capturable);
     }
-    println!("streaming mode: {}", if on { "on (the overlay is visible to screen capture)" } else { "off" });
+    println!("streaming mode: {}", if on { "on (Pindot's windows are visible to screen capture)" } else { "off" });
 }
 
 /// Tell the overlays what the assistant is called (the banner says

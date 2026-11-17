@@ -54,7 +54,7 @@ OpenAI's.
 - **Give it your notes.** Point it at a folder of notes and it can look
   things up there and remember what you ask it to (with Claude Code).
 - **Stream or record it.** Streaming mode lets OBS and screen shares show
-  Rusty's cursor and captions.
+  Pindot: Rusty's cursor and captions, the Pindot window and its popups.
 - **Use it from your terminal.** One button connects Pindot's desktop tools
   to Claude Code in your own terminal.
 
@@ -258,10 +258,12 @@ to remember. Pick a folder you trust: its own Claude settings apply.
 
 ### Streaming and recording
 
-Normally Rusty's cursor is invisible to screen recorders. Turn on
-**Streaming mode** in Settings to show his cursor and captions in OBS and
-screen shares. The Pindot window, the Vault and approval windows stay hidden
-from viewers either way. Needs macOS 14 or later.
+Normally Pindot is invisible to screen recorders: Rusty's cursor, the Pindot
+window and its approval popups. Turn on **Streaming mode** in Settings to show
+all of them in OBS and screen shares. Viewers then also see the Vault's list
+(names, usernames and sites; a password is never shown). Rusty's own
+screenshots leave Pindot out either way. Applies at once; needs macOS 14 or
+later.
 
 ### From Claude Code in your terminal
 

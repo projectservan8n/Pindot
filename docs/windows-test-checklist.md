@@ -115,19 +115,24 @@ unticked. The physical-keyboard pass was done by the PC's owner on 16 Nov
       442, and none of 2664 during the screenshots. So a recorder sees the
       overlay only in streaming mode, and it blinks out for each of
       Pindot's own screenshots, as designed.
+- [x] Streaming mode shows every Pindot window (the owner's request, 17
+      Nov 2026: "also show the window of Pindot not just the cursor").
+      Read from a private copy's windows on a hidden desktop: with the
+      mode on, the two cursor windows, the main window and an approval
+      popup are all `WDA_NONE`; during each of four of Pindot's own
+      screenshots all of them were `WDA_EXCLUDEFROMCAPTURE` and came back;
+      switched off in Settings while running, all of them went back to
+      excluded at once, and a popup opened then was excluded too; on again,
+      a new popup was visible. (The approval popups were answered Deny.)
 - [ ] Streaming mode, with OBS itself (Settings, "Streaming mode" on; not
-      tried: OBS was not run, the real cursor and its bubble were not
-      drawn, no popup was opened during a capture, and the switch was not
-      flipped in Settings while running): the AI cursor and its
-      caption bubble show up in OBS (window or
-      display capture); Rusty's own `screenshot` leaves the cursor out (the
-      overlay is switched to `WDA_EXCLUDEFROMCAPTURE` for the length of one
-      copy, so a viewer sees the cursor blink out for a moment); the main
-      window and the approval popup are still absent from OBS, also a
-      popup that opens while Rusty is taking screenshots; after a
-      capture that failed (unplug a display mid-capture, or ask for a
-      display that is gone) the cursor is visible to OBS again; switching
-      the setting off hides the cursor from OBS again with no restart.
+      tried: OBS was not run): the AI cursor and its caption bubble, the
+      Pindot window and an approval popup show up in OBS (window or
+      display capture); Rusty's own `screenshot` leaves them out (they are
+      switched to `WDA_EXCLUDEFROMCAPTURE` for the length of one copy, so a
+      viewer sees them blink out for a moment); after a capture that
+      failed (unplug a display mid-capture, or ask for a display that is
+      gone) they are visible to OBS again; switching the setting off hides
+      them from OBS again with no restart.
 - [ ] The process is per-monitor DPI aware v2: cursor positions match the
       screen on a mixed-DPI setup.
 

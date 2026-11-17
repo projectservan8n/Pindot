@@ -112,10 +112,11 @@ unsafe extern "system" fn collect_own(h: HWND, data: LPARAM) -> i32 {
 /// expose them in the middle of the second's copy.
 static EXCLUDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Streaming mode: while this lives, the overlay windows are excluded from
-/// capture, so the screenshot Pindot takes leaves them out although OBS sees
-/// them the rest of the time. Dropping it puts them back, on every path,
-/// errors included. No other window of ours is ever touched.
+/// Streaming mode: while this lives, our own windows that capture sees (the
+/// overlay, the main window, an approval popup) are excluded from capture,
+/// so the screenshot Pindot takes leaves them out although OBS sees them
+/// the rest of the time. Dropping it puts them back, on every path, errors
+/// included. A window already hidden from capture is never touched.
 struct OwnWindowsExcluded {
     set: Vec<isize>,
     _one_at_a_time: std::sync::MutexGuard<'static, ()>,

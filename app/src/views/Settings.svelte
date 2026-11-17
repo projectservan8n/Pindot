@@ -325,7 +325,7 @@
     </label>
     <p class="small muted">
       {#if view.streaming_supported}
-        Show {assistantName}'s cursor in OBS and screen shares. {assistantName}'s own screenshots still leave it out. The Pindot window, the Vault and approval popups stay hidden. Applies at once.
+        Show Pindot in OBS and screen shares: {assistantName}'s cursor, this window and approval popups. Your viewers then see the Vault's list too (names, usernames and sites; never a password). {assistantName}'s own screenshots still leave Pindot out. Applies at once.
       {:else}
         Needs macOS 14 or newer.
       {/if}

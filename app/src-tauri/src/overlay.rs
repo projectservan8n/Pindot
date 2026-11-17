@@ -241,16 +241,22 @@ mod mac {
         Ok(())
     }
 
-    /// Streaming mode: let screen capture see (or not see) every overlay
-    /// panel. `ReadOnly` is the normal readable value; `None` hides the panel
-    /// from every capture. Runs on the main thread, where AppKit wants it.
+    /// Streaming mode: let screen capture see (or not see) every Pindot
+    /// window: the overlay panels, the main window and any approval popup.
+    /// `ReadOnly` is the normal readable value; `None` hides a window from
+    /// every capture. Runs on the main thread, where AppKit wants it. Our
+    /// own screenshots leave all of them out either way (ScreenCaptureKit
+    /// excludes every window of our process).
     pub fn set_visible_to_capture(app: &AppHandle, on: bool) {
         use tauri::Manager;
         use tauri_nspanel::ManagerExt;
         let app2 = app.clone();
         let _ = app.run_on_main_thread(move || {
-            for (label, _) in app2.webview_windows() {
+            for (label, w) in app2.webview_windows() {
                 if !label.starts_with("overlay-") {
+                    if let Err(e) = w.set_content_protected(!on) {
+                        tracing::warn!("{label}: content protection did not change: {e}");
+                    }
                     continue;
                 }
                 if let Ok(panel) = app2.get_webview_panel(&label) {
@@ -319,17 +325,15 @@ pub fn create_panel(app: &AppHandle, index: usize, m: &MonitorRect, capturable: 
     Ok(())
 }
 
-/// Streaming mode: let screen capture see (or not see) every overlay
-/// window. Only the overlay: the main window and the approval popup stay
-/// protected.
+/// Streaming mode: let screen capture see (or not see) every Pindot window:
+/// the overlay, the main window and any approval popup. Our own screenshots
+/// leave them out either way (`WinCapture` hides them for each copy).
 #[cfg(not(target_os = "macos"))]
 pub fn set_visible_to_capture(app: &AppHandle, on: bool) {
     use tauri::Manager;
     for (label, w) in app.webview_windows() {
-        if label.starts_with("overlay-") {
-            if let Err(e) = w.set_content_protected(!on) {
-                tracing::warn!("{label}: content protection did not change: {e}");
-            }
+        if let Err(e) = w.set_content_protected(!on) {
+            tracing::warn!("{label}: content protection did not change: {e}");
         }
     }
 }

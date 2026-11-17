@@ -142,28 +142,35 @@ recorded; everything else was renamed (crates, bundle id `dev.pindot.app`,
   has changed this behaviour before, so re-check it on every macOS major
   release. `--capturable` turns it off for tests.
   **Streaming mode** (setting `streaming_mode`, default off, applies live):
-  only the overlay panels become visible to capture (sharing type back to
-  `ReadOnly`), so OBS and screen shares see the cursor and its caption
-  bubble. The main window (the Vault) and the approval popup stay hidden.
-  Our own screenshots still leave the overlay out: with it on, `MacCapture`
+  every Pindot window becomes visible to capture, so OBS and screen shares
+  see the cursor and its caption bubble, the main window and the approval
+  popups. Until 17 Nov 2026 only the overlay was shown and the main window
+  (the Vault) and the popups stayed hidden; the owner asked for the window
+  too ("also show the window of Pindot not just the cursor and all"), so
+  viewers now also see the Vault's list (names, usernames, sites; never a
+  password) and Settings says so. `ui::windows_capturable` decides at
+  creation (main window, approval popup) and
+  `overlay::set_visible_to_capture` switches every window live (macOS: the
+  panels' sharing type and the other windows' content protection).
+  Our own screenshots still leave all of Pindot out: with it on, `MacCapture`
   takes the ScreenCaptureKit path (`platform/macos/sck.rs`,
   `SCScreenshotManager`, macOS 14+, excluding every window owned by our own
   pid, no pointer) instead of xcap; with it off the xcap path runs as before.
-  On macOS 13 the checkbox is disabled and the overlay is never switched. On
-  Windows `WinCapture` sets `WDA_EXCLUDEFROMCAPTURE` on the overlay windows
-  only (ours, visible, unprotected and click-through) for one `BitBlt` and
+  On macOS 13 the checkbox is disabled and nothing is switched. On Windows
+  `WinCapture` sets `WDA_EXCLUDEFROMCAPTURE` on every visible window of
+  ours that capture sees (`windows_to_exclude`) for one `BitBlt` and
   restores them in a `Drop` guard, unless the mode was switched off
-  meanwhile (seen on Windows on 16 Nov 2026 by reading the windows'
-  display affinity: `WDA_NONE` idle, excluded during each screenshot, back
-  afterwards, no cost that shows in a release build; tao's own invisible
-  untitled window matches the same test and is switched with them. An
-  outside capture of a marker drawn in the overlay saw it only with the
-  mode on, and lost it once per screenshot of our own. Not seen: OBS
-  itself, the switch flipped while running). It never changes the main window or the
-  approval popup, so a restore can never expose them. If ScreenCaptureKit fails, the screenshot fails
-  rather than falling back to xcap, which would show the cursor. Order of a
-  live flip: the capture flag first on the way in, the overlay first on the
-  way out. `--capturable` wins over it.
+  meanwhile. Seen on Windows (17 Nov 2026, a private copy on a hidden
+  desktop, reading each window's display affinity): on, the cursor
+  windows, the main window and a popup are `WDA_NONE`; each of our own
+  screenshots excludes all of them and puts them back; switched off live,
+  all excluded at once, a new popup too. Earlier (16 Nov, cursor only) an
+  outside capture of a marker in the overlay saw it only with the mode on
+  and lost it once per screenshot of our own. Not seen: OBS itself, and
+  not run on a Mac. If ScreenCaptureKit fails, the screenshot fails
+  rather than falling back to xcap, which would show Pindot. Order of a
+  live flip: the capture flag first on the way in, the windows first on
+  the way out. `--capturable` wins over it.
 - **Overlay feedback** (Tony's request): tools tell the overlay what they
   did through `Overlay::action(CursorAction)` → `pindot:action`: a ripple
   for a real click, an inward ring for an accessibility press, chevrons for
@@ -776,7 +783,7 @@ then 2.1.325). What was run and seen is in
   `find_transcript` searches by session id, so the slug is never built.
 - **Overlay**: transparent, click-through, topmost and non-activating on
   both monitors, and absent from screen captures by default
-  (`WDA_EXCLUDEFROMCAPTURE`; Streaming mode lifts that for the overlay only
+  (`WDA_EXCLUDEFROMCAPTURE`; Streaming mode lifts that for every Pindot window
   and re-applies it for the length of each of our own screenshots). The overlay windows are titled "Tauri App"
   and have `WS_EX_APPWINDOW`, so they may show in Alt+Tab: not checked.
 - **Driving the app in tests**: `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=
