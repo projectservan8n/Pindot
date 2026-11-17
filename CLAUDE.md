@@ -889,6 +889,16 @@ claude 2.1.325; what was seen is in `docs/windows-test-checklist.md` (h).
   `lms server start` returns once the server is up, `ollama serve` is the
   server and is left running. Only on the button; then it waits up to
   20 s for the server to answer. Not run on a Mac.
+- **"The hotkey randomly doesn't work" was the microphone** (17 Nov
+  2026): every press reached Pindot (Down and Up logged), but the
+  recordings came back as nothing recognised, 7.7 s of hands-free audio
+  included. Windows' default input had become a wireless receiver
+  ("Maono Wireless Mic RX"), which sends silence while its transmitter
+  sleeps or is muted. The recorder now logs each recording's length and
+  loudest point (`peak_dbfs`, never its content), and a recording below
+  -60 dBFS (`SILENCE_DBFS`; a live microphone in a quiet room was -47)
+  skips speech to text and says "Your microphone sent only silence..."
+  (`Input::HeardSilence`) instead of "I didn't catch that".
 - **Not seen on Windows**: "Allow for this session" on a login and the
   typing that follows (a human's click), dictation and a chosen
   microphone with a real voice (the list of inputs was read: four here),

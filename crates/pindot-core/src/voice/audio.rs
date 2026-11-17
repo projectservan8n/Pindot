@@ -190,6 +190,22 @@ pub fn rms(samples: &[f32]) -> f32 {
     (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32).sqrt()
 }
 
+/// Below this loudest point a recording is silence: what a muted or
+/// switched-off microphone sends (a sleeping wireless receiver sends exact
+/// zeros). A quiet room on a live microphone was -47 dBFS (17 Nov 2026).
+pub const SILENCE_DBFS: f32 = -60.0;
+
+/// The loudest sample, in dB below full scale (`-inf` for no sound at all).
+pub fn peak_dbfs(samples: &[f32]) -> f32 {
+    let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    if peak > 0.0 { 20.0 * peak.log10() } else { f32::NEG_INFINITY }
+}
+
+/// Did the microphone send nothing but silence?
+pub fn is_silence(samples: &[f32]) -> bool {
+    peak_dbfs(samples) < SILENCE_DBFS
+}
+
 // ---------------------------------------------------------------- microphone
 
 /// The microphone's latest level (RMS of the last callback, 0..1), for the
@@ -687,6 +703,18 @@ impl AudioSink for WavSink {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_muted_or_sleeping_microphone_is_silence_and_a_quiet_room_is_not() {
+        assert!(is_silence(&[0.0; 16_000]), "exact zeros: a receiver with its transmitter off");
+        assert!(is_silence(&[0.0001, -0.0002, 0.00015]), "-74 dBFS: hiss of a muted input");
+        assert!(is_silence(&[]), "no samples at all");
+        assert!(!is_silence(&[0.0, 0.0046, -0.001]), "-46.7 dBFS: the room on a live microphone");
+        assert!(!is_silence(&[0.2, -0.35, 0.1]), "speech");
+        assert!((peak_dbfs(&[0.5, -1.0]) - 0.0).abs() < 0.01, "full scale is 0 dBFS");
+        assert!((peak_dbfs(&[0.1]) + 20.0).abs() < 0.01);
+        assert_eq!(peak_dbfs(&[0.0, 0.0]), f32::NEG_INFINITY);
+    }
 
     #[test]
     fn the_saved_microphone_is_used_only_while_it_is_there() {

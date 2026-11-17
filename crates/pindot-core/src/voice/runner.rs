@@ -254,8 +254,16 @@ impl Recorder {
                             }
                         };
                         let secs = samples.len() as f64 / STT_SAMPLE_RATE as f64;
+                        // How loud it was, never what was said: tells a silent
+                        // microphone from speech that was not recognised.
+                        tracing::info!("voice: recorded {secs:.2} s, loudest {:.1} dBFS", crate::voice::audio::peak_dbfs(&samples));
                         if secs < MIN_SPEECH.as_secs_f64() {
                             handle.input(Input::Transcribed { utterance, text: String::new() });
+                            continue;
+                        }
+                        if crate::voice::audio::is_silence(&samples) {
+                            tracing::warn!("voice: the microphone sent only silence ({secs:.2} s)");
+                            handle.input(Input::HeardSilence { utterance });
                             continue;
                         }
                         let t = Instant::now();

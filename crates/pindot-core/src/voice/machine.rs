@@ -48,6 +48,9 @@ pub enum Input {
     /// Speech to text finished for recording `utterance`.
     Transcribed { utterance: u64, text: String },
     TranscribeFailed { utterance: u64, error: String },
+    /// The microphone sent nothing but silence (muted, switched off, a
+    /// wireless transmitter asleep): said so, instead of "I didn't catch that".
+    HeardSilence { utterance: u64 },
     /// The brain started (or restarted) a `claude` session.
     SessionReady { session_id: String },
     /// The brain cannot run: not installed, not signed in, crashed.
@@ -124,6 +127,9 @@ pub struct Machine {
 
 /// A press shorter than this is a tap.
 pub const TAP: Duration = Duration::from_millis(300);
+/// What the user hears when the microphone sent only silence.
+pub const SILENCE_NOTICE: &str =
+    "Your microphone sent only silence. Check that it is switched on and not muted, or pick another one in Settings > Listening.";
 /// Hands-free listening sends by itself after this long.
 pub const HANDS_FREE_MAX: Duration = Duration::from_secs(60);
 
@@ -290,6 +296,12 @@ impl Machine {
                         self.turn = Some(Turn::default());
                         fx.push(Effect::SendPrompt { text });
                     }
+                }
+            }
+            Input::HeardSilence { utterance } => {
+                if utterance == self.utterance && self.transcribing {
+                    self.transcribing = false;
+                    fx.push(Effect::Notice(SILENCE_NOTICE.into()));
                 }
             }
             Input::TranscribeFailed { utterance, error } => {
@@ -667,6 +679,21 @@ mod tests {
         m.handle(Input::TranscriptPrompt { session_id: "other".into() }, t);
         let fx = m.handle(Input::TranscriptText { session_id: "other".into(), text: "x".into() }, t);
         assert!(speaks(&fx).is_empty());
+    }
+
+    #[test]
+    fn silence_from_the_microphone_says_so_and_sends_nothing() {
+        let (mut m, t) = ready(SpeakMode::EachMessage);
+        m.handle(Input::HotkeyDown, t);
+        m.handle(Input::HotkeyUp, t);
+        let u = m.utterance;
+        let fx = m.handle(Input::HeardSilence { utterance: u }, t);
+        assert!(has(&fx, &Effect::Notice(SILENCE_NOTICE.into())), "{fx:?}");
+        assert!(SILENCE_NOTICE.contains("silence") && SILENCE_NOTICE.contains("muted"));
+        assert!(!fx.iter().any(|e| matches!(e, Effect::SendPrompt { .. })));
+        assert_eq!(m.display(), Display::Idle, "ready for the next try");
+        // A late one from an earlier recording changes nothing.
+        assert!(m.handle(Input::HeardSilence { utterance: u }, t).is_empty());
     }
 
     #[test]
