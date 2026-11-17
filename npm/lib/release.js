@@ -38,7 +38,7 @@ export function pickAsset(release, platform, arch) {
     );
   }
   if (typeof asset.file !== 'string' || !/^[0-9a-f]{64}$/.test(asset.sha256 ?? '') || !(asset.size > 0)) {
-    throw new Error('This copy of the pindot package is damaged (release.json). Try again with npx pindot@latest.');
+    throw new Error('This copy of the pindot-app package is damaged (release.json). Try again with npx pindot-app@latest.');
   }
   return { ...asset, key };
 }

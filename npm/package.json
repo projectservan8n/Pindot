@@ -1,9 +1,10 @@
 {
-  "name": "pindot",
+  "name": "pindot-app",
   "version": "0.0.1",
   "description": "Installs Pindot, the open-source desktop app that lets an AI see and use your Mac or Windows PC while you talk to it.",
   "type": "module",
   "bin": {
+    "pindot-app": "bin/pindot.js",
     "pindot": "bin/pindot.js"
   },
   "files": [

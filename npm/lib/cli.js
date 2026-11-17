@@ -1,4 +1,4 @@
-// `npx pindot`: download the ready-made Pindot for this computer from the
+// `npx pindot-app`: download the ready-made Pindot for this computer from the
 // project's GitHub release, check it, install it and open it.
 
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -11,10 +11,10 @@ import { download } from './download.js';
 const HELP = `Pindot installer
 
 Usage:
-  npx pindot                 install or update Pindot, then open it
-  npx pindot install [options]
-  npx pindot uninstall [--dir <folder>]
-  npx pindot --version | --help
+  npx pindot-app                 install or update Pindot, then open it
+  npx pindot-app install [options]
+  npx pindot-app uninstall [--dir <folder>]
+  npx pindot-app --version | --help
 
 Options:
   --dir <folder>   install into this folder (Windows: the program folder;

@@ -1,4 +1,4 @@
-# pindot
+# pindot-app
 
 This package installs **[Pindot](https://pindot.click)**, a free, open-source
 (MIT) desktop app for macOS and Windows. Hold a key, say what you want, and
@@ -7,7 +7,7 @@ in the chat window. While it works, its own on-screen cursor shows you every
 click.
 
 ```sh
-npx pindot
+npx pindot-app
 ```
 
 That one command downloads the ready-made Pindot for your computer from the
@@ -33,13 +33,16 @@ checksum is deleted before anything runs.
 ## Commands
 
 ```sh
-npx pindot                    # install or update, then open
-npx pindot install --no-open  # install or update only
-npx pindot install --dir <folder>
-npx pindot install --reinstall
-npx pindot uninstall
-npx pindot --version
+npx pindot-app                    # install or update, then open
+npx pindot-app install --no-open  # install or update only
+npx pindot-app install --dir <folder>
+npx pindot-app install --reinstall
+npx pindot-app uninstall
+npx pindot-app --version
 ```
+
+`npm install -g pindot-app` adds the same commands as `pindot` (and
+`pindot-app`), so `pindot uninstall` works too.
 
 Quit Pindot (its tray or menu-bar icon > Quit Pindot) before you update or
 uninstall it.

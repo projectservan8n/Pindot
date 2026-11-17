@@ -179,10 +179,10 @@ signed with the same certificate.
 7. Check: `Get-AuthenticodeSignature .\Pindot_*_x64-setup.exe`, then
    install on a clean Windows 11 machine and run the checklist.
 
-## The npm installer (`npx pindot`)
+## The npm installer (`npx pindot-app`)
 
-`npm/` is the `pindot` package on npm: a script with no dependencies and no
-copy of the app. `npx pindot` takes the installer for this computer from the
+`npm/` is the `pindot-app` package on npm: a script with no dependencies and no
+copy of the app. `npx pindot-app` takes the installer for this computer from the
 GitHub release `v<version>`, checks its size while it downloads and its
 SHA-256 at the end against `npm/release.json`, and then installs it:
 - **Windows:** `setup.exe /S`, or `/D=<folder>` with `--dir`. The folder is
@@ -195,11 +195,11 @@ The pins live in the package, so a file changed on GitHub after publishing
 is refused. Running it again updates. If the installed version is the same
 or newer, it only opens Pindot (`--reinstall` installs anyway).
 
-It refuses to update while Pindot is running. `npx pindot uninstall` runs
+It refuses to update while Pindot is running. `npx pindot-app uninstall` runs
 `uninstall.exe /S` on Windows or moves the app to the Trash on macOS; the
 data folder stays.
 
-There is no `postinstall` script: `npm install -g pindot` only adds the
+There is no `postinstall` script: `npm install -g pindot-app` only adds the
 `pindot` command, and the user runs it.
 
 Releasing (no CI; each platform is built on its own machine):

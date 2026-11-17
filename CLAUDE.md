@@ -1072,14 +1072,14 @@ ideas only.
 
 ### The npm installer (17 Nov 2026)
 
-The owner asked for an npm install. `npm/` is the `pindot` package, with
-`npx pindot` as the one command. It holds only an installer script and
+The owner asked for an npm install. `npm/` is the `pindot-app` package, with
+`npx pindot-app` as the one command. It holds only an installer script and
 `release.json` with each GitHub release file's size and SHA-256, never the
 app. The app has to sit in one place: on macOS the privacy grants follow
 `Pindot.app` in /Applications, and on Windows the NSIS installer owns the
 Start menu, the uninstaller and the DLLs.
 
-- **No `postinstall`.** `npm i -g pindot` only adds the command.
+- **No `postinstall`.** `npm i -g pindot-app` only adds the command.
 - **What a test install showed** (`--dir` into a scratch folder, Windows):
   - Tauri's installer records its folder in the Uninstall entry
     `HKCU\...\Uninstall\Pindot`, whose `InstallLocation` is quoted. That
