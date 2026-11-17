@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api, errorText, events, type ActivityEntry, type ActivityView, type UseEntry } from '../lib/api';
-  import { passes, shortTime } from '../lib/format';
+  import { passes, timeParts } from '../lib/format';
 
   let view = $state<ActivityView | null>(null);
   let session = $state('');
@@ -90,8 +90,9 @@
       </thead>
       <tbody>
         {#each rows as e, i (i)}
+          {@const t = timeParts(e.ts)}
           <tr class:fail={!e.ok}>
-            <td class="nowrap">{shortTime(e.ts)}</td>
+            <td class="when">{t.time}{#if t.day}<span class="day">{t.day}</span>{/if}</td>
             <td><code>{e.session}</code></td>
             <td>{e.tool}</td>
             <td class="args">{e.args}</td>
@@ -107,8 +108,9 @@
       <thead><tr><th class="c-time">Time</th><th class="c-session">Session</th><th>Login</th><th>Field</th><th class="c-result">Result</th></tr></thead>
       <tbody>
         {#each [...vaultUses].reverse().slice(0, 100) as u, i (i)}
+          {@const t = timeParts(u.ts)}
           <tr class:fail={!u.ok}>
-            <td class="nowrap">{shortTime(u.ts)}</td>
+            <td class="when">{t.time}{#if t.day}<span class="day">{t.day}</span>{/if}</td>
             <td><code>{u.session}</code></td>
             <td>{u.login_name} <span class="muted">{u.site}</span></td>
             <td>{u.field}</td>

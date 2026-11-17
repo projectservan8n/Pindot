@@ -10,7 +10,7 @@
     type UseEntry,
     type VaultView,
   } from '../lib/api';
-  import { shortTime } from '../lib/format';
+  import { timeParts } from '../lib/format';
   import { assistant, refreshAssistant } from '../lib/assistant.svelte';
 
   let view = $state<VaultView | null>(null);
@@ -323,8 +323,9 @@
                     <thead><tr><th>Time</th><th>Field</th><th>Result</th><th>Session</th></tr></thead>
                     <tbody>
                       {#each uses as u, i (i)}
+                        {@const t = timeParts(u.ts)}
                         <tr class:fail={!u.ok}>
-                          <td class="nowrap">{shortTime(u.ts)}</td>
+                          <td class="when">{t.time}{#if t.day}<span class="day">{t.day}</span>{/if}</td>
                           <td>{u.field}</td>
                           <td>{u.result}{u.detail ? `: ${u.detail}` : ''}</td>
                           <td><code>{u.session}</code></td>
@@ -394,8 +395,10 @@
     white-space: normal;
     overflow-wrap: anywhere;
   }
-  table.vault table.inner td.nowrap {
+  /* The time cell: never broken inside, its day on a line of its own. */
+  table.vault table.inner td.when {
     white-space: nowrap;
+    overflow-wrap: normal;
   }
   table.vault table.inner td code {
     white-space: normal;

@@ -73,6 +73,25 @@ export function connectText(s: ConnectStatus): string {
 }
 
 /** "2026-11-14T09:12:03.123Z" to local "09:12:03" (plus the date if not today). */
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * A time for a narrow table column: the clock time, and for another day a
+ * short day ("16 Nov", with the year when it is not this one) to show on its
+ * own line. On one line the full date ran into the next column.
+ */
+export function timeParts(ts: string, now: Date = new Date()): { time: string; day: string } {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return { time: ts, day: '' };
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const sameDay =
+    d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  if (sameDay) return { time, day: '' };
+  const day = `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  return { time, day: d.getFullYear() === now.getFullYear() ? day : `${day} ${d.getFullYear()}` };
+}
+
 export function shortTime(ts: string, now: Date = new Date()): string {
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return ts;

@@ -13,6 +13,7 @@ import {
   permissionText,
   progressText,
   shortTime,
+  timeParts,
   stepLabel,
 } from './format';
 import { errorText, type ActivityEntry } from './api';
@@ -156,5 +157,23 @@ describe('hotkeyWords (a shortcut in the words of this OS)', () => {
     expect(hotkeyWords('Right Option', 'macos')).toBe('Right Option');
     expect(hotkeyWords('Ctrl+Wi', 'windows')).toBe('Ctrl+Wi');
     expect(hotkeyWords('', 'windows')).toBe('');
+  });
+});
+
+describe('timeParts (a time for a narrow table column)', () => {
+  // The Activity and Vault tables give the time 48 px: "2026-11-16 20:49:58"
+  // on one line ran into the Session column. The day goes on its own short line.
+  const at = (y: number, mo: number, d: number, h = 9, mi = 5, s = 7) => new Date(y, mo - 1, d, h, mi, s).toISOString();
+  const now = new Date(2026, 10, 17, 12, 0, 0);
+  it('gives only the time for today', () => {
+    expect(timeParts(at(2026, 11, 17), now)).toEqual({ time: '09:05:07', day: '' });
+  });
+  it('adds a short day for another day this year, and the year for another year', () => {
+    expect(timeParts(at(2026, 11, 16, 20, 49, 58), now)).toEqual({ time: '20:49:58', day: '16 Nov' });
+    expect(timeParts(at(2026, 1, 3), now)).toEqual({ time: '09:05:07', day: '3 Jan' });
+    expect(timeParts(at(2025, 12, 31), now)).toEqual({ time: '09:05:07', day: '31 Dec 2025' });
+  });
+  it('keeps text it cannot read', () => {
+    expect(timeParts('not a time', now)).toEqual({ time: 'not a time', day: '' });
   });
 });
