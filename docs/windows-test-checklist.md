@@ -553,7 +553,8 @@ local model by hand.
       default) was "No model server is running", which read as "Pindot
       can't see LM Studio". Pindot now lists a local server that is
       installed but off (`start_local::installed`: LM Studio's `lms` in
-      `~\.lmstudioin`, Ollama's `ollama.exe` in `%LOCALAPPDATA%\Programs      Ollama` or on the PATH) and offers "Start LM Studio's server" (`lms
+      `~\.lmstudio\bin`, Ollama's `ollama.exe` in
+      `%LOCALAPPDATA%\Programs\Ollama` or on the PATH) and offers "Start LM Studio's server" (`lms
       server start`) or "Start Ollama's server" (`ollama serve`, left
       running). Seen here: LM Studio listed as installed, its start asked
       for while it already ran returned in 2.7 s with the server still up
