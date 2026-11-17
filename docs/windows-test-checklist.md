@@ -543,11 +543,24 @@ the browser was Edge with a profile of its own on `docs/vault/test-page`.
 
 ## (i) The new brains (pulled 17 Nov 2026)
 
-Built and run on the Mac (see CLAUDE.md, "Pindot's own loop"); on Windows
-only type-checked (`scripts/check-windows.sh`). Nothing here has run on
-Windows yet.
+Built and run on the Mac (see CLAUDE.md, "Pindot's own loop"). First
+built and started on Windows on 17 Nov 2026; the PC's owner is trying the
+local model by hand.
 
-- [ ] `cargo test --workspace` passes (`native_loop` included).
+- [x] `cargo test --workspace` passes (`native_loop` included): 358 + 35
+      + 12 + 6, 3 + 3 ignored. vitest 56, svelte-check clean.
+- [x] LM Studio open with its server off (its "start on launch" is off by
+      default) was "No model server is running", which read as "Pindot
+      can't see LM Studio". Pindot now lists a local server that is
+      installed but off (`start_local::installed`: LM Studio's `lms` in
+      `~\.lmstudioin`, Ollama's `ollama.exe` in `%LOCALAPPDATA%\Programs      Ollama` or on the PATH) and offers "Start LM Studio's server" (`lms
+      server start`) or "Start Ollama's server" (`ollama serve`, left
+      running). Seen here: LM Studio listed as installed, its start asked
+      for while it already ran returned in 2.7 s with the server still up
+      and 12 models listed; an empty leftover Ollama folder counts as not
+      installed; a cloud provider is refused. The start of a server that
+      was really off was done by hand with `lms server start` (the owner
+      was using the server, so it was not stopped for a test).
 - [ ] Setup and Settings show "Choose a brain" / Brain with four choices;
       Claude Code stays the default and works as before.
 - [ ] Keys: `cargo test -p pindot-core --lib real_secret_store -- --ignored`

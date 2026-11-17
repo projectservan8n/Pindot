@@ -445,6 +445,8 @@ export interface ImportResult {
 export const api = {
   brainProviders: () => invoke<ProviderView[]>('brain_providers'),
   brainFindLocal: () => invoke<FoundServer[]>('brain_find_local'),
+  brainLocalInstalled: () => invoke<{ provider: string; name: string }[]>('brain_local_installed'),
+  brainStartLocal: (provider: string) => invoke<FoundServer[]>('brain_start_local', { provider }),
   brainModels: (provider: string, baseUrl: string) => invoke<BrainModel[]>('brain_models', { provider, baseUrl }),
   brainKeySet: (provider: string, key: string) => invoke<string | null>('brain_key_set', { provider, key }),
   brainKeyDelete: (provider: string) => invoke<void>('brain_key_delete', { provider }),

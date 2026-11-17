@@ -21,6 +21,10 @@
   let saved = $state('');
   let problems = $state<string[]>([]);
   let codex = $state<CodexStatus | null>(null);
+  // Local servers installed here whose server is off, and one being started.
+  let installed = $state<{ provider: string; name: string }[]>([]);
+  let starting = $state('');
+  let startError = $state('');
   let checkingCodex = $state(false);
 
   const provider = $derived(providers.find((p) => p.id === brain.provider));
@@ -33,7 +37,10 @@
     providers = await api.brainProviders();
     if (brain.kind === 'codex') await checkCodex();
     if (brain.kind === 'loop') {
-      if (provider?.local) local = await api.brainFindLocal();
+      if (provider?.local) {
+        local = await api.brainFindLocal();
+        if (local.length === 0) installed = await api.brainLocalInstalled();
+      }
       await loadModels();
     }
   });
@@ -69,7 +76,27 @@
 
   async function findLocal() {
     local = null;
+    startError = '';
     local = await api.brainFindLocal();
+    if (local.length === 0) installed = await api.brainLocalInstalled();
+    useFound();
+  }
+
+  async function startLocal(id: string) {
+    starting = id;
+    startError = '';
+    try {
+      local = await api.brainStartLocal(id);
+      useFound();
+    } catch (e) {
+      startError = errorText(e);
+    } finally {
+      starting = '';
+    }
+  }
+
+  function useFound() {
+    if (!local) return;
     const here = local.find((s) => s.provider === brain.provider) ?? local[0];
     if (here) {
       brain.provider = here.provider;
@@ -214,10 +241,23 @@
     {#if local === null}
       <p class="small muted">Looking for Ollama, LM Studio and llama.cpp…</p>
     {:else if local.length === 0}
-      <p class="small">
-        No model server is running. Start Ollama (<code>ollama serve</code>) or LM Studio's server, then
-        <button class="small" onclick={findLocal}>Look again</button>
-      </p>
+      {#if installed.length}
+        {#each installed as s (s.provider)}
+          <p class="small">
+            {s.name} is installed, but its server is not running{s.provider === 'lmstudio' ? ' (LM Studio can be open with its server off)' : ''}.
+            <button class="small" onclick={() => startLocal(s.provider)} disabled={!!starting}>
+              {starting === s.provider ? `Starting ${s.name}…` : `Start ${s.name}'s server`}
+            </button>
+          </p>
+        {/each}
+        {#if startError}<p class="inline-error">{startError}</p>{/if}
+        <p class="small muted">Or start it yourself, then <button class="small" onclick={findLocal}>Look again</button></p>
+      {:else}
+        <p class="small">
+          No model server is running. Start Ollama (<code>ollama serve</code>) or LM Studio's server, then
+          <button class="small" onclick={findLocal}>Look again</button>
+        </p>
+      {/if}
     {:else}
       <div class="row">
         <label for="brain-server">Server</label>

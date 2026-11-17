@@ -213,6 +213,8 @@ pub fn run() {
             dictation::dictation_focus,
             brain::brain_providers,
             brain::brain_find_local,
+            brain::brain_local_installed,
+            brain::brain_start_local,
             brain::brain_models,
             brain::brain_key_set,
             brain::brain_key_delete,

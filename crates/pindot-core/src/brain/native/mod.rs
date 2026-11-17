@@ -14,6 +14,7 @@ pub mod providers;
 pub mod run;
 pub mod secrets;
 pub mod settings;
+pub mod start_local;
 pub mod test_model;
 
 use std::path::PathBuf;

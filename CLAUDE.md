@@ -878,6 +878,17 @@ claude 2.1.325; what was seen is in `docs/windows-test-checklist.md` (h).
   (the app has no integration tests), so a test copy started from it can
   carry an old frontend: run `cargo build -p pindot` after the frontend
   build before looking at the interface.
+- **A local server that is installed but off** (17 Nov 2026): LM Studio
+  can be open with its server off (its "start on launch" is off by
+  default), and Setup then said only "No model server is running", which
+  read as "Pindot can't see LM Studio". `brain::native::start_local` finds
+  each local server's own start program (`lms` in `~/.lmstudio/bin` or
+  `~/.cache/lm-studio/bin`; `ollama` on the PATH, in
+  `%LOCALAPPDATA%\Programs\Ollama`, Homebrew or the Mac app) and the
+  brain picker offers "Start <name>'s server" for each one installed:
+  `lms server start` returns once the server is up, `ollama serve` is the
+  server and is left running. Only on the button; then it waits up to
+  20 s for the server to answer. Not run on a Mac.
 - **Not seen on Windows**: "Allow for this session" on a login and the
   typing that follows (a human's click), dictation and a chosen
   microphone with a real voice (the list of inputs was read: four here),

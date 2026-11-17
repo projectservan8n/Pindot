@@ -9,6 +9,7 @@ use pindot_core::brain::native::probe::{self, FoundServer, ModelInfo};
 use pindot_core::brain::native::providers::{self, PROVIDERS};
 use pindot_core::brain::native::secrets::{SecretStore, SystemSecrets, redact};
 use pindot_core::brain::native::settings::{BrainSettings, TestResult};
+use pindot_core::brain::native::start_local::{self, Installed};
 use pindot_core::brain::native::test_model::test_model;
 use pindot_core::server::{RunningServer, ServerState};
 use serde::Serialize;
@@ -77,6 +78,25 @@ pub async fn brain_codex_status() -> CodexStatus {
 #[tauri::command]
 pub async fn brain_find_local() -> Vec<FoundServer> {
     tauri::async_runtime::spawn_blocking(probe::find_local).await.unwrap_or_default()
+}
+
+/// Local servers installed here, running or not (for "LM Studio is
+/// installed but its server is off").
+#[tauri::command]
+pub async fn brain_local_installed() -> Vec<Installed> {
+    tauri::async_runtime::spawn_blocking(start_local::installed).await.unwrap_or_default()
+}
+
+/// Start an installed local server (the user pressed its button), then
+/// look for running servers again.
+#[tauri::command]
+pub async fn brain_start_local(provider: String) -> Result<Vec<FoundServer>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        start_local::start(&provider)?;
+        Ok(probe::find_local())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
