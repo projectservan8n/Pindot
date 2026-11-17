@@ -1070,6 +1070,33 @@ ideas only.
   Codex called `desktop_context` on the real Mac and the answer was spoken
   6.7 s after the key was released (RESULT PASS).
 
+### The npm installer (17 Nov 2026)
+
+The owner asked for an npm install. `npm/` is the `pindot` package, with
+`npx pindot` as the one command. It holds only an installer script and
+`release.json` with each GitHub release file's size and SHA-256, never the
+app. The app has to sit in one place: on macOS the privacy grants follow
+`Pindot.app` in /Applications, and on Windows the NSIS installer owns the
+Start menu, the uninstaller and the DLLs.
+
+- **No `postinstall`.** `npm i -g pindot` only adds the command.
+- **What a test install showed** (`--dir` into a scratch folder, Windows):
+  - Tauri's installer records its folder in the Uninstall entry
+    `HKCU\...\Uninstall\Pindot`, whose `InstallLocation` is quoted. That
+    entry is what we read. `HKCU\Software\pindot\Pindot` also holds the
+    folder, and it outlives an uninstall, so the next install's default
+    folder is the old one.
+  - Its Restart Manager check only closes a Pindot running from the folder
+    it installs into, and in silent mode it closes it without asking. So
+    the script refuses to install or uninstall while any `pindot.exe` runs.
+  - `/D=` has to be last and unquoted. Node passes it verbatim
+    (`windowsVerbatimArguments`, a quoted `argv0`); the exact command line
+    was checked with a folder that has spaces in its name.
+- **macOS has not been run.** Its steps (`hdiutil` attach read-only,
+  `ditto`, put the old app back on failure, detach) are tested against a
+  stand-in.
+- **Releasing:** see `docs/release.md`.
+
 ## Known risks (open)
 
 - **Settings isolation leans on flags.** Skills, Claude in Chrome and

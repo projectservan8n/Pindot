@@ -1,0 +1,42 @@
+{
+  "name": "pindot",
+  "version": "0.0.1",
+  "description": "Installs Pindot, the open-source desktop app that lets an AI see and use your Mac or Windows PC while you talk to it.",
+  "type": "module",
+  "bin": {
+    "pindot": "bin/pindot.js"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "release.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "os": [
+    "darwin",
+    "win32"
+  ],
+  "keywords": [
+    "pindot",
+    "desktop",
+    "voice",
+    "mcp",
+    "computer-use",
+    "accessibility"
+  ],
+  "homepage": "https://pindot.click",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/projectservan8n/Pindot.git",
+    "directory": "npm"
+  },
+  "bugs": "https://github.com/projectservan8n/Pindot/issues",
+  "license": "MIT"
+}

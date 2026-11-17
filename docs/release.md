@@ -179,6 +179,53 @@ signed with the same certificate.
 7. Check: `Get-AuthenticodeSignature .\Pindot_*_x64-setup.exe`, then
    install on a clean Windows 11 machine and run the checklist.
 
+## The npm installer (`npx pindot`)
+
+`npm/` is the `pindot` package on npm: a script with no dependencies and no
+copy of the app. `npx pindot` takes the installer for this computer from the
+GitHub release `v<version>`, checks its size while it downloads and its
+SHA-256 at the end against `npm/release.json`, and then installs it:
+- **Windows:** `setup.exe /S`, or `/D=<folder>` with `--dir`. The folder is
+  read back from `HKCU\Software\pindot`.
+- **macOS:** `hdiutil attach` the .dmg read-only, `ditto` `Pindot.app` into
+  `/Applications` (or `~/Applications`), and detach. A failed copy puts the
+  old app back.
+
+The pins live in the package, so a file changed on GitHub after publishing
+is refused. Running it again updates. If the installed version is the same
+or newer, it only opens Pindot (`--reinstall` installs anyway).
+
+It refuses to update while Pindot is running. `npx pindot uninstall` runs
+`uninstall.exe /S` on Windows or moves the app to the Trash on macOS; the
+data folder stays.
+
+There is no `postinstall` script: `npm install -g pindot` only adds the
+`pindot` command, and the user runs it.
+
+Releasing (no CI; each platform is built on its own machine):
+
+1. Build: `scripts\build-windows.ps1` on the PC, `scripts/build-mac.sh` on
+   the Mac (signed and notarized, see above, or Gatekeeper and lost
+   permission grants get in the way).
+2. Pin each installer:
+   `node scripts/release-npm.mjs add <path to Pindot_<v>_x64-setup.exe>` on
+   the PC and the same with the `.dmg` on the Mac. Each `add` keeps the
+   other platform's pin; a new version starts over. Commit
+   `npm/release.json`.
+3. Upload the same files to a GitHub release tagged `v<version>`
+   (`gh release create v<version> --draft ...`, then
+   `gh release upload v<version> <file>`). Publish it when both are there:
+   a draft's files cannot be downloaded without signing in.
+4. `node scripts/release-npm.mjs check` downloads each pinned file from the
+   published release and compares.
+5. In `npm/`: `npm test`, then `npm publish` (the maintainer's own
+   `npm login`; no token in any file). The package version is the
+   installer's own; `release.json` names the app version, so a fix to the
+   script alone needs only a new package version.
+
+Tests: `cd npm && npm test` (Node's own runner). The macOS steps are
+tested with a stand-in for `hdiutil` and `ditto`, not on a Mac.
+
 ## Release checklist
 
 1. `cargo test --workspace`, and in `app/`: `npm run check`, `npm test`.

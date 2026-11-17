@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "repo": "projectservan8n/Pindot",
+  "tag": "v0.0.1",
+  "assets": {
+    "win32-x64": {
+      "file": "Pindot_0.0.1_x64-setup.exe",
+      "size": 11868807,
+      "sha256": "c10c6c224d97d90ead4ade8dc8d21337fea5f226876ac9bcae625038fcfc9328"
+    }
+  }
+}
