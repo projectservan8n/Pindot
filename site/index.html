@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pindot: say it, and Rusty does it on your computer</title>
+<meta name="description" content="Pindot gives the AI you already use eyes, hands and a voice. Hold a key, say what you want, and Rusty, a little pink cursor, does it on your Mac or Windows PC while you watch. Free and open source.">
+<meta name="theme-color" content="#15151b">
+<link rel="canonical" href="https://pindot.click/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://pindot.click/">
+<meta property="og:title" content="Pindot: say it, and Rusty does it">
+<meta property="og:description" content="Hold a key, say what you want, and watch a little pink cursor do it on your computer. Free and open source, for macOS and Windows.">
+<meta property="og:image" content="https://pindot.click/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="fonts/funnel-display.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/funnel-sans.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top" id="top">
+  <div class="wrap">
+    <a class="brand" href="#main" aria-label="Pindot, back to the top">
+      <svg class="mark" data-rusty viewBox="0 0 256 256" aria-hidden="true"><path class="body" d="M46.12 71.59 A20 20 0 0 1 71.59 46.12 L197.59 90.12 A20 20 0 0 1 200.99 126.32 L153.64 153.64 L126.32 200.99 A20 20 0 0 1 90.12 197.59 Z"/><g class="eyes"><rect x="97" y="105" width="16" height="28" rx="8"/><rect x="127" y="105" width="16" height="28" rx="8"/></g></svg>
+      pindot
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#demo">Demo</a>
+      <a href="#what">What it does</a>
+      <a href="#brains">Brains</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#get">Get it</a>
+    </nav>
+    <a class="btn btn-ghost btn-sm" href="https://github.com/projectservan8n/pindot">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.26 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ================= HERO ================= -->
+<section class="hero" aria-labelledby="h1">
+  <canvas id="dots" aria-hidden="true"></canvas>
+  <div class="wrap">
+    <div class="hero-copy">
+      <h1 id="h1"><span class="say rv d1">Say it.</span> <span class="does rv d2"><em>Rusty<svg class="mark perch" data-rusty viewBox="0 0 256 256" aria-hidden="true"></svg></em> does it.</span></h1>
+      <div class="hero-side rv d3">
+        <p class="lead">Pindot gives the AI you already use <strong>eyes, hands and a voice.</strong> Hold a key, say what you want, and a little pink cursor does it on your Mac or PC while you watch. Every click out in the open.</p>
+        <div class="ctas">
+          <a class="btn btn-pink" href="#get">Get Pindot, free</a>
+          <a class="btn btn-ghost" href="#demo">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z"/></svg>
+            Watch the demo
+          </a>
+        </div>
+        <div class="facts"><span>Open source, MIT</span><span>macOS and Windows 11</span><span>No account</span></div>
+      </div>
+    </div>
+
+    <div class="stage-wrap rv d4">
+      <div class="stage-head">
+        <p><b>Try it.</b> Hold the button below and talk. We'll pretend we heard you.</p>
+      </div>
+
+      <div class="stage" id="stage" data-wall="a" role="region" aria-label="Pretend desktop: Rusty, Pindot's pink cursor, does what you ask">
+        <div class="wall wall-a"></div><div class="wall wall-b"></div><div class="wall wall-c"></div>
+        <div class="dim"></div>
+        <div class="menubar"><span>Notes</span><span>File</span><span>Edit</span><span class="sp"></span><svg class="mark tray" data-rusty viewBox="0 0 256 256" aria-hidden="true"></svg><span class="clock">9:41</span></div>
+        <div class="banner" id="banner">Rusty is controlling input · press <kbd>Esc</kbd> to stop</div>
+
+        <div class="win win-notes" id="win-notes">
+          <div class="win-bar"><i></i><i></i><i></i>Notes</div>
+          <div class="notes-body blank" id="note"></div>
+        </div>
+
+        <div class="win win-settings" id="win-settings">
+          <div class="win-bar"><i></i><i></i><i></i>Settings</div>
+          <div class="set-main">
+            <div class="set-side">
+              <button class="side-item on" data-pane="look" tabindex="-1">Appearance</button>
+              <button class="side-item" data-pane="wall" id="side-wall" tabindex="-1">Wallpaper</button>
+              <button class="side-item" tabindex="-1">Sound</button>
+              <button class="side-item" tabindex="-1">Network</button>
+            </div>
+            <div class="set-pane on" data-pane="look">
+              <h4>Appearance</h4>
+              <div class="seg"><span class="on" id="seg-light">Light</span><span id="seg-dark">Dark</span><span>Auto</span></div>
+              <div class="set-row">Bigger text <span class="toggle"></span></div>
+            </div>
+            <div class="set-pane" data-pane="wall">
+              <h4>Wallpaper</h4>
+              <div class="thumbs">
+                <button class="thumb t-a on" data-wall="a" tabindex="-1" aria-label="Lagoon"></button>
+                <button class="thumb t-b" data-wall="b" tabindex="-1" aria-label="Dusk"></button>
+                <button class="thumb t-c" data-wall="c" tabindex="-1" aria-label="Mango"></button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dock">
+          <button class="app-ico ico-notes" id="ico-notes" tabindex="-1" aria-label="Notes"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#7a5a00" d="M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm1 4v1.6h10V8Zm0 4v1.6h10V12Zm0 4v1.6h6V16Z"/></svg></button>
+          <button class="app-ico ico-settings" id="ico-settings" tabindex="-1" aria-label="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#f2f2f5" d="M13.7 2.5l.5 2.3c.6.2 1.2.5 1.7.9l2.2-.8 1.7 3-1.7 1.6c.1.6.1 1.2 0 1.9l1.7 1.5-1.7 3-2.2-.7c-.5.4-1.1.7-1.7.9l-.5 2.3h-3.4l-.5-2.3a7 7 0 0 1-1.7-.9l-2.2.7-1.7-3 1.7-1.5a6 6 0 0 1 0-1.9L2.2 8.9l1.7-3 2.2.8c.5-.4 1.1-.7 1.7-.9l.5-2.3Zm-1.7 6a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/></svg></button>
+          <button class="app-ico ico-web" tabindex="-1" aria-label="Browser"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="#fff" stroke-width="1.8" d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm-9 9h18M12 3c2.5 2.6 3.6 5.6 3.6 9s-1.1 6.4-3.6 9c-2.5-2.6-3.6-5.6-3.6-9S9.5 5.6 12 3Z"/></svg></button>
+          <button class="app-ico ico-mail" tabindex="-1" aria-label="Mail"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1Zm.8 1.8v.3l7.2 5 7.2-5v-.3Z"/></svg></button>
+          <button class="app-ico ico-pindot" tabindex="-1" aria-label="Pindot"><svg class="mark" data-rusty viewBox="0 0 256 256" aria-hidden="true"></svg></button>
+        </div>
+
+        <div class="pill" id="pill" data-state="idle">
+          <svg class="mark" data-rusty viewBox="0 0 256 256" aria-hidden="true"></svg>
+          <span class="wave" aria-hidden="true"><b></b><b></b><b></b><b></b></span>
+          <span class="spin" aria-hidden="true"></span>
+          <span class="state" id="pill-state">Listening</span>
+          <span class="heard" id="pill-heard"></span>
+        </div>
+
+        <div class="approve" id="approve" role="dialog" aria-labelledby="ap-h">
+          <h5 id="ap-h">Allow Rusty to control this app?</h5>
+          <div class="app" id="ap-app">Notes</div>
+          <p class="why">His reason: <span id="ap-why">to write your shopping list.</span></p>
+          <p class="warn">Settings can change how your whole computer works.</p>
+          <div class="row"><button class="allow" id="ap-allow">Allow for this session</button><button class="deny" id="ap-deny">Deny</button></div>
+          <p class="yours">Only you can press these. Rusty can't.</p>
+        </div>
+
+        <div class="actor" id="actor">
+          <span class="ring"></span>
+          <svg class="mark" data-rusty viewBox="0 0 256 256" aria-hidden="true"></svg>
+          <div class="bubble" id="bubble" aria-live="polite"></div>
+        </div>
+        <div class="you" id="you" aria-hidden="true"><svg viewBox="0 0 17 24"><path d="M1 1v19.5l4.6-4.4 3 6.9 3.2-1.4-3-6.7H15Z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg></div>
+      </div>
+
+      <div class="controls">
+        <button class="talk" id="talk" aria-describedby="talk-help">
+          <span class="cap">Fn</span>
+          <span class="t"><b>Hold to talk</b><small id="talk-help">Press and hold, then let go</small></span>
+        </button>
+        <div class="tasks" role="group" aria-label="What to ask Rusty">
+          <button class="task" data-task="notes" aria-pressed="true">Write a shopping list</button>
+          <button class="task" data-task="dark" aria-pressed="false">Turn on dark mode</button>
+          <button class="task" data-task="teach" aria-pressed="false">Show me how to change my wallpaper</button>
+        </div>
+        <span class="stop-hint"><kbd>Esc</kbd> stops him, like the real thing</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= WORD ================= -->
+<section class="word" aria-label="Where the name comes from">
+  <div class="wrap">
+    <dfn class="rv">pin·<i>dót</i></dfn>
+    <p class="def rv"><span class="pos">Tagalog, verb</span>To press. As in a button, a key, a link. <em>Which is most of what Rusty does all day</em>, so you don't have to.</p>
+  </div>
+  <div class="strip" aria-label="Brains Pindot works with">
+    <div class="strip-in" aria-hidden="true">
+      <span>Claude Code</span><span>Your ChatGPT plan</span><span>Ollama</span><span>LM Studio</span><span>llama.cpp</span><span>OpenRouter</span><span>DeepSeek</span><span>Groq</span><span>Anthropic API</span><span>OpenAI API</span>
+      <span>Claude Code</span><span>Your ChatGPT plan</span><span>Ollama</span><span>LM Studio</span><span>llama.cpp</span><span>OpenRouter</span><span>DeepSeek</span><span>Groq</span><span>Anthropic API</span><span>OpenAI API</span>
+    </div>
+    <p class="sr">Works with Claude Code, your ChatGPT plan through Codex, local models on Ollama, LM Studio or llama.cpp, and API keys for Anthropic, OpenAI, OpenRouter, DeepSeek, Groq and others.</p>
+  </div>
+</section>
+
+<!-- ================= DEMO ================= -->
+<section class="demo" id="demo" aria-labelledby="demo-h">
+  <div class="wrap demo-grid">
+    <div class="demo-copy rv">
+      <p class="kicker"><svg class="mark" data-rusty viewBox="0 0 256 256" aria-hidden="true"></svg>The real thing</p>
+      <h2 id="demo-h">One ask. A whole trip planned.</h2>
+      <p class="lead">Recorded live on Windows 11 with Streaming mode on, so you can see Rusty work in a real browser.</p>
+      <ol>
+        <li>Looks up the cheapest flights, Dumaguete to Manila</li>
+        <li>Checks hotels in Makati under ₱3,000</li>
+        <li>Compares prices for the one you like</li>
+        <li>Finds free photos on Wikimedia Commons</li>
+        <li>Builds the whole itinerary in Google Docs</li>
+      </ol>
+    </div>
+    <div class="rv">
+      <div class="player" id="player">
+        <video id="video" src="media/pindot-demo.mp4" poster="media/demo-poster.jpg" preload="none" playsinline></video>
+        <button class="play" id="play">
+          <span class="pb"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L7.5 3.64A1 1 0 0 0 6 4.5Z"/></svg></span>
+          <span><b>Watch Rusty plan a trip</b><br><small>1:31, with sound</small></span>
+        </button>
+      </div>
+      <p class="note">Slow parts sped up. Nothing else changed.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CHAPTERS ================= -->
+<section class="chapters" id="what" aria-labelledby="what-h">
+  <div class="wrap">
+    <div class="ch-head rv">
+      <p class="kicker"><svg class="mark" data-rusty viewBox="0 0 256 256" aria-hidden="true"></svg>What it does</p>
+      <h2 id="what-h">An assistant you can actually watch.</h2>
+      <p class="lead">Rusty sees your screen, opens apps, clicks, types and scrolls. He glides to each button before he presses it, so nothing happens behind your back.</p>
+    </div>
+    <div class="ch-grid">
+      <div class="ch-list">
+        <article class="ch" data-shot="0">
+          <div class="n">01</div>
+          <h3>Talk, type or dictate.</h3>
+          <p>Hold <b>Fn</b> on a Mac or <b>Ctrl+Win</b> on Windows, say it, let go. Rusty answers out loud, with a caption by the cursor if you like.</p>
+          <p>Rather type? The chat window is the same conversation. Drop in files and pictures, or speak into the box and nothing sends until you press Send.</p>
+          <img class="shot-m" src="img/chat-conversation.webp" alt="The Pindot chat window with a reply that includes a short script and a checklist" width="820" height="640" loading="lazy">
+        </article>
+        <article class="ch" data-shot="1">
+          <div class="n">02</div>
+          <h3>He asks before he touches an app.</h3>
+          <p>The first time Rusty needs an app, a window asks you, with his reason in his own words. Nothing moves until you press Allow. No answer in two minutes counts as no.</p>
+          <p>Terminals, code editors, file managers, system settings and password managers come with an extra red warning.</p>
+          <img class="shot-m" src="img/chat-approval.webp" alt="Pindot asking for permission to control the Notes app, with Allow and Deny buttons" width="820" height="640" loading="lazy">
+        </article>
+        <article class="ch" data-shot="2">
+          <div class="n">03</div>
+          <h3>Signs in for you. Never sees the password.</h3>
+          <p>Save logins in the Vault, or import them from Chrome, 1Password or Bitwarden. When Rusty needs to sign in, Pindot types it itself. The brain only ever gets the login's name and website.</p>
+          <p>It types only into the exact saved website, only into a password field, and only after you approve that login.</p>
+          <img class="shot-m" src="img/vault-login-approval.webp" alt="Pindot asking to sign in with a saved login, without showing the password to the assistant" width="820" height="640" loading="lazy">
+        </article>
+        <article class="ch" data-shot="3">
+          <div class="n">04</div>
+          <h3>Every move on the record. Esc stops it all.</h3>
+          <p>Activity lists every click, keypress and screenshot Rusty made, with the result. Filter it, or clear it.</p>
+          <p>Press <b>Esc</b> at any moment and he stops, stops talking and ends his turn. A banner across the top tells you whenever he has the controls.</p>
+          <img class="shot-m" src="img/activity.webp" alt="The Activity log listing each click, keypress and screenshot with its result" width="820" height="640" loading="lazy">
+        </article>
+        <article class="ch" data-shot="4">
+          <div class="n">05</div>
+          <h3>Make him yours.</h3>
+          <p>Rename him. Pick how he talks: friendly, brief, professional or playful. Point him at a folder of notes and he looks things up there, and remembers what you ask him to (with Claude Code as the brain, for now).</p>
+          <p>Or ask "show me how" and he points the way one step at a time, without clicking anything.</p>
+          <img class="shot-m" src="img/settings.webp" alt="Pindot settings with the assistant's name, how he talks, and the brain folder" width="820" height="640" loading="lazy">
+        </article>
+      </div>
+      <div>
+        <div class="ch-stick">
+          <div class="frame" aria-hidden="true">
+            <img class="on" src="img/chat-conversation.webp" alt="" width="820" height="640">
+            <img src="img/chat-approval.webp" alt="" width="820" height="640" loading="lazy">
+            <img src="img/vault-login-approval.webp" alt="" width="820" height="640" loading="lazy">
+            <img src="img/activity.webp" alt="" width="820" height="640" loading="lazy">
+            <img src="img/settings.webp" alt="" width="820" height="640" loading="lazy">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= BRAINS ================= -->
+<section class="light brains" id="brains" aria-labelledby="brains-h">
+  <div class="wrap">
+    <h2 id="brains-h" class="rv">Bring your own brain.</h2>
+    <p class="lead rv">Pindot is the eyes, hands and voice. The thinking comes from whatever you already pay for, or from a model on your own computer that costs nothing.</p>
+
+    <div class="tabs" role="tablist" aria-label="Brains">
+      <button class="tab" role="tab" id="t-cc" aria-controls="p-cc" aria-selected="true">Claude Code</button>
+      <button class="tab" role="tab" id="t-gpt" aria-controls="p-gpt" aria-selected="false" tabindex="-1">Your ChatGPT plan</button>
+      <button class="tab" role="tab" id="t-local" aria-controls="p-local" aria-selected="false" tabindex="-1">On your computer</button>
+      <button class="tab" role="tab" id="t-api" aria-controls="p-api" aria-selected="false" tabindex="-1">An API key</button>
+    </div>
+
+    <div class="panel" role="tabpanel" id="p-cc" aria-labelledby="t-cc">
+      <div>
+        <h3>The Claude Code you already use.</h3>
+        <p>Pindot runs Claude Code just like you do in a terminal, signed in with your own <code>claude login</code>. It never asks for an API key and counts against your plan's usage like normal.</p>
+        <p>Bonus: one button connects Pindot's desktop tools to Claude Code in your own terminal too.</p>
+        <div class="term"><span class="pr">$</span><code>claude login</code><button class="copy" data-copy="claude login">Copy</button></div>
+      </div>
+      <dl>
+        <div><dt>You need</dt><dd>Claude Code installed and a Claude plan that includes it. On Windows, the native app.</dd></div>
+        <div><dt>It costs</dt><dd>Nothing extra. Same limits as your plan.</dd></div>
+        <div><dt>Who sees what</dt><dd>What Rusty reads goes to Anthropic through your own Claude Code, the same as when you use it yourself.</dd></div>
+      </dl>
+    </div>
+
+    <div class="panel" role="tabpanel" id="p-gpt" aria-labelledby="t-gpt" hidden>
+      <div>
+        <h3>Your ChatGPT plan, through Codex.</h3>
+        <p>Install OpenAI's Codex CLI, sign in once, pick it in Pindot. Pindot never sees your sign-in, and Codex only gets Pindot's desktop tools: its own shell and browser are switched off.</p>
+        <div class="term"><span class="pr">$</span><code>npm install -g @openai/codex &amp;&amp; codex login</code><button class="copy" data-copy="npm install -g @openai/codex && codex login">Copy</button></div>
+      </div>
+      <dl>
+        <div><dt>You need</dt><dd>A ChatGPT plan with Codex, and Node.js for the install.</dd></div>
+        <div><dt>It costs</dt><dd>Nothing extra. It counts against your plan's Codex limits.</dd></div>
+        <div><dt>Who sees what</dt><dd>What Rusty reads goes to OpenAI through your own Codex.</dd></div>
+      </dl>
+    </div>
+
+    <div class="panel" role="tabpanel" id="p-local" aria-labelledby="t-local" hidden>
+      <div>
+        <h3>Private. Free. Nothing leaves the machine.</h3>
+        <p>Start Ollama, LM Studio's server or llama.cpp, and Pindot finds it and lists your models. It tests each one with a plain answer and one use of a desktop tool, and tells you plainly if it can't keep up.</p>
+        <div class="term"><span class="pr">$</span><code>ollama pull qwen3:4b</code><button class="copy" data-copy="ollama pull qwen3:4b">Copy</button></div>
+      </div>
+      <dl>
+        <div><dt>You need</dt><dd>A model that's good at using tools. Small ones often aren't, so try a few.</dd></div>
+        <div><dt>It costs</dt><dd>Nothing. Your computer does the work.</dd></div>
+        <div><dt>Who sees what</dt><dd>Nobody. Your screen and your words stay on your computer.</dd></div>
+      </dl>
+    </div>
+
+    <div class="panel" role="tabpanel" id="p-api" aria-labelledby="t-api" hidden>
+      <div>
+        <h3>Any key you already have.</h3>
+        <p>Anthropic, OpenAI, OpenRouter, DeepSeek, Groq, or anything else that speaks OpenAI's format. Pick the provider, paste the key, pick a model.</p>
+        <p>The key goes into your system keychain, never a file, and is never shown again. Replace or delete it whenever you like.</p>
+      </div>
+      <dl>
+        <div><dt>You need</dt><dd>An API key and a model that can use tools.</dd></div>
+        <div><dt>It costs</dt><dd>Whatever that provider charges per use.</dd></div>
+        <div><dt>Who sees what</dt><dd>What Rusty reads goes to that provider.</dd></div>
+      </dl>
+    </div>
+
+    <p class="fine">Pindot is an independent project, not made by, endorsed by or affiliated with Anthropic or OpenAI. "Claude" and "Claude Code" are Anthropic's names for their products; "ChatGPT" and "Codex" are OpenAI's.</p>
+  </div>
+</section>
+
+<!-- ================= PAINT ================= -->
+<section class="paint" id="paint" aria-labelledby="paint-h">
+  <div class="wrap">
+    <div>
+      <h2 id="paint-h" class="rv">Pink is just his default.</h2>
+      <p class="rv">Pick Rusty's colour in Settings and he wears it everywhere on screen, with eyes that turn light on dark colours so you can always find him. Go on, try one. This whole page follows along.</p>
+      <div class="swatches" role="group" aria-label="Rusty's colour">
+        <button class="sw" style="--c:#ff2d95" data-c="#ff2d95" aria-pressed="true" aria-label="Pink"></button>
+        <button class="sw" style="--c:#e2571e" data-c="#e2571e" aria-pressed="false" aria-label="Rust"></button>
+        <button class="sw" style="--c:#f5a524" data-c="#f5a524" aria-pressed="false" aria-label="Amber"></button>
+        <button class="sw" style="--c:#2ec27e" data-c="#2ec27e" aria-pressed="false" aria-label="Green"></button>
+        <button class="sw" style="--c:#3b82f6" data-c="#3b82f6" aria-pressed="false" aria-label="Blue"></button>
+        <button class="sw" style="--c:#8b5cf6" data-c="#8b5cf6" aria-pressed="false" aria-label="Violet"></button>
+        <button class="sw" style="--c:#3a3a44" data-c="#3a3a44" aria-pressed="false" aria-label="Graphite"></button>
+      </div>
+      <p class="names">Not a fan of "Rusty"? <b>Rename him.</b> He'll answer to it.</p>
+    </div>
+    <div class="giant" aria-hidden="true">
+      <svg class="mark" data-rusty viewBox="0 0 256 256"></svg>
+      <span class="tag">Hi. I'm Rusty.</span>
+    </div>
+  </div>
+</section>
+
+<!-- ================= STREAM ================= -->
+<section class="stream" aria-labelledby="stream-h">
+  <div class="wrap">
+    <div>
+      <p class="kicker rv"><svg class="mark" data-rusty viewBox="0 0 256 256" aria-hidden="true"></svg>Streaming mode</p>
+      <h2 id="stream-h" class="rv">Going live? Rusty can too.</h2>
+      <p class="lead rv">Normally Pindot hides itself from every screen capture. Switch on Streaming mode and OBS or a screen share shows Rusty's cursor and captions, the Pindot window and its popups.</p>
+      <p class="lead rv">Rusty's own screenshots still leave him out, so he never gets confused by himself.</p>
+      <p class="note rv">Needs macOS 14 or later. Viewers also see your Vault's list of logins (names, usernames and sites, never a password), so mind what's on screen.</p>
+    </div>
+    <div class="monitor rv" aria-hidden="true">
+      <span class="live">LIVE</span><span class="viewers">Your stream</span>
+      <div class="page"><i></i><i></i><i></i><i></i><span class="btnz"></span></div>
+      <div class="r"><svg class="mark" data-rusty viewBox="0 0 256 256"></svg><span class="bub">Clicking Sign up</span></div>
+      <div class="cam"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= PRIVACY ================= -->
+<section class="privacy" id="privacy" aria-labelledby="privacy-h">
+  <div class="wrap">
+    <h2 id="privacy-h" class="sr">Privacy</h2>
+    <ul class="nos rv">
+      <li>No server<span>.</span></li>
+      <li>No account<span>.</span></li>
+      <li>No telemetry.</li>
+    </ul>
+    <div class="facts-grid rv">
+      <div><h3>Your voice stays home</h3><p>Speech becomes text on your computer and is never saved. Replies are spoken there too. Cloud voices are opt-in, and Settings says so.</p></div>
+      <div><h3>You pick who sees</h3><p>What Rusty reads goes to the brain you chose, and nowhere at all with a local model. Screenshots grey out every app you haven't approved.</p></div>
+      <div><h3>Kept on your computer</h3><p>Settings, the activity log, the voice models and the encrypted Vault live on your machine, readable by you only. API keys sit in your keychain.</p></div>
+      <div><h3>Read every line</h3><p>It's all on GitHub under the MIT license. Don't take our word for any of this. Check.</p></div>
+    </div>
+    <p class="this-page">Same goes for this page: no cookies, no analytics, and the fonts load from here.</p>
+  </div>
+</section>
+
+<!-- ================= INSTALL ================= -->
+<section class="install" id="get" aria-labelledby="get-h">
+  <div class="wrap grid">
+    <div>
+      <h2 id="get-h" class="rv">Get Pindot.</h2>
+      <p class="lead rv">Free, forever, and the code is yours to read. For now you build it from source: a few commands and one long first compile.</p>
+      <p class="early rv"><b>Early release, 0.0.1.</b> Tested on macOS 26 on Apple silicon and on one Windows 11 PC with a handful of apps. A ready-made download is coming. Tell us what breaks.</p>
+      <p class="needs rv">You need a Mac with macOS 13 or later, or Windows 11, and about 231 MB for the voice models. Chat works without them.</p>
+    </div>
+    <div class="rv">
+      <div class="os-tabs" role="tablist" aria-label="Your computer">
+        <button role="tab" id="os-mac" aria-controls="os-mac-p" aria-selected="true">macOS</button>
+        <button role="tab" id="os-win" aria-controls="os-win-p" aria-selected="false" tabindex="-1">Windows</button>
+      </div>
+      <div role="tabpanel" id="os-mac-p" aria-labelledby="os-mac">
+        <ol class="steps">
+          <li><span class="k">1</span><p>Install the Xcode command line tools (<code>xcode-select --install</code>), <a href="https://rustup.rs">Rust</a> and <a href="https://nodejs.org">Node.js</a> 22 or later.</p></li>
+          <li><span class="k">2</span><div><p>Build it.</p>
+            <div class="term"><code>git clone https://github.com/projectservan8n/pindot.git
+cd pindot/app
+npm ci
+npx tauri build</code><button class="copy" data-copy="git clone https://github.com/projectservan8n/pindot.git&#10;cd pindot/app&#10;npm ci&#10;npx tauri build">Copy</button></div></div></li>
+          <li><span class="k">3</span><p>Open <code>target/release/bundle/dmg/</code> in the pindot folder and drag Pindot to Applications. Setup walks you through the rest.</p></li>
+        </ol>
+      </div>
+      <div role="tabpanel" id="os-win-p" aria-labelledby="os-win" hidden>
+        <ol class="steps">
+          <li><span class="k">1</span><p>Install <a href="https://rustup.rs">Rust</a> (MSVC), <a href="https://nodejs.org">Node.js</a> and the Visual Studio 2022 C++ build tools.</p></li>
+          <li><span class="k">2</span><div><p>In PowerShell:</p>
+            <div class="term"><code>git clone https://github.com/projectservan8n/pindot.git
+cd pindot
+scripts\build-windows.ps1</code><button class="copy" data-copy="git clone https://github.com/projectservan8n/pindot.git&#10;cd pindot&#10;scripts\build-windows.ps1">Copy</button></div></div></li>
+          <li><span class="k">3</span><p>Run <code>Pindot_0.0.1_x64-setup.exe</code> from <code>target\release\bundle\nsis\</code>. No admin rights needed.</p></li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= FAQ ================= -->
+<section class="faq" aria-labelledby="faq-h">
+  <div class="wrap">
+    <h2 id="faq-h" class="rv">Fair questions.</h2>
+    <div class="rv">
+      <details><summary>Do I need an API key?</summary><p>No. With Claude Code or your ChatGPT plan, Pindot uses the sign-in you already have. With a local model you need nothing at all. A key is only one option among four.</p></details>
+      <details><summary>Is it safe to let an AI click around my computer?</summary><p>You stay in charge. Rusty can only touch apps you allow, one at a time, and the risky ones come with a red warning. Every action is logged, a banner shows when he has the controls, and Esc stops him instantly.</p></details>
+      <details><summary>What does it cost?</summary><p>Pindot is free and open source under the MIT license. The brain is whatever you choose: your existing plan, a free local model, or an API you pay for per use.</p></details>
+      <details><summary>Can he use any app?</summary><p>Most of them. He reads windows, clicks, types and scrolls like you would. On Windows, apps running as administrator are off limits to normal apps, so Rusty can't click in those.</p></details>
+      <details><summary>Is this made by Anthropic or OpenAI?</summary><p>No. Pindot is an independent open-source project. It works with their tools, signed in as you.</p></details>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <p class="big"><svg class="mark" data-rusty viewBox="0 0 256 256" aria-hidden="true"></svg><span>pindot</span></p>
+    <div class="cta-row">
+      <a class="btn btn-pink" href="https://github.com/projectservan8n/pindot">Star it on GitHub</a>
+      <a class="btn btn-ghost" href="#stage">Try Rusty again</a>
+    </div>
+    <div class="small">
+      <p>MIT License © 2026 Tony Herrera. Pindot is an independent project, not made by, endorsed by or affiliated with Anthropic or OpenAI.</p>
+      <p><a href="https://github.com/projectservan8n/pindot">Source</a> · <a href="https://github.com/projectservan8n/pindot/issues">Report a bug</a> · <a href="https://github.com/projectservan8n/pindot#readme">Docs</a></p>
+    </div>
+  </div>
+</footer>
+
+<script src="main.js" defer></script>
+</body>
+</html>
