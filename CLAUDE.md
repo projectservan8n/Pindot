@@ -940,6 +940,17 @@ ideas only.
 - Tests: unit tests per module, and `crates/pindot-core/tests/native_loop.rs`
   (Pindot's real server on mock platform parts plus a fake Chat
   Completions server in axum).
+- **Seen with a real local model** (17 Nov 2026, MacBook Air, Ollama
+  0.40.16 with `OLLAMA_CONTEXT_LENGTH=32768`, qwen3:4b, which has tools and
+  thinking but no vision): `real_ollama` (--ignored) passed the model test
+  in 63 s and opened a new TextEdit document on the mock desktop
+  (request_access, open_app, read_window, click) in 228 s; through the
+  whole app (`--test-voice`, "How many displays do I have?") it called
+  `desktop_context` on the real Mac and the answer was spoken 23 s after the
+  key was released (RESULT PASS). Without vision it gets no screenshot or
+  zoom and works from `read_window` and `find`. qwen3 thinks before every
+  step: slow on a laptop, and `reasoning_effort: "none"` / `think: false`
+  do not switch it off through Ollama's OpenAI-compatible endpoint.
 - **The Anthropic API** (17 Nov 2026, spec
   `docs/superpowers/specs/2026-11-17-anthropic-api-design.md`): a second
   wire format (`providers::Wire`), not a second loop. `native/anthropic.rs`
