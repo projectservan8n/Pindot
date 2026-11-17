@@ -11,7 +11,8 @@ Hold a key, say what you want, and your assistant does it on your computer
 and answers out loud. Or type it in the chat window.
 
 Pindot gives an AI eyes, hands and a voice: the Claude Code you already use,
-a model running on your own computer, or a service you have an API key for.
+your ChatGPT plan, a model running on your own computer, or a service you
+have an API key for.
 It can see your screen, open apps, click, type and scroll, and it shows you every
 move with its own on-screen cursor, Rusty. Ask it to do something and it
 does it; ask "show me how" and it points the way instead.
@@ -24,8 +25,9 @@ does it; ask "show me how" and it points the way instead.
 </p>
 
 Pindot is free and open source (MIT). It is an independent project, not made
-by, endorsed by or affiliated with Anthropic. "Claude" and "Claude Code" are
-Anthropic's names for their products.
+by, endorsed by or affiliated with Anthropic or OpenAI. "Claude" and "Claude
+Code" are Anthropic's names for their products; "ChatGPT" and "Codex" are
+OpenAI's.
 
 > **Early release (0.0.1).** Tested on macOS 26 on Apple silicon, and on one
 > Windows 11 PC with a handful of apps. There is no ready-made download yet:
@@ -46,8 +48,11 @@ Anthropic's names for their products.
   and explain one step at a time without clicking anything.
 - **Sign in for you, without seeing your password.** Save a login in the
   Vault and Rusty can type it into the right website for you.
+- **Choose its brain.** Claude Code, your ChatGPT plan, a model running on
+  your own computer (private, nothing leaves the machine), or an API key for
+  Anthropic, OpenAI and others.
 - **Give it your notes.** Point it at a folder of notes and it can look
-  things up there and remember what you ask it to.
+  things up there and remember what you ask it to (with Claude Code).
 - **Stream or record it.** Streaming mode lets OBS and screen shares show
   Rusty's cursor and captions.
 - **Use it from your terminal.** One button connects Pindot's desktop tools
@@ -115,8 +120,9 @@ Pindot lives in the menu bar (the taskbar's hidden icons on Windows); there
 is no Dock icon. The first time, it opens **Setup**, which walks you through:
 
 1. **Choose a brain**: Claude Code (found and signed in; if not, run
-   `claude login` in a terminal and press Check again), a model on this
-   computer, or an API key. See [Choosing a brain](#choosing-a-brain).
+   `claude login` in a terminal and press Check again), your ChatGPT plan,
+   a model on this computer, or an API key. See
+   [Choosing a brain](#choosing-a-brain).
 2. **Permissions** (macOS, below).
 3. **Voice models**: about 231 MB. You see each license before anything
    downloads. A stopped download picks up where it left off.
@@ -165,7 +171,8 @@ Setup's first step, or Settings > Brain:
   sign-in, and Codex gets only Pindot's desktop tools: its own shell and
   browser are switched off.
 - **A model on this computer**: start Ollama, LM Studio's server or
-  llama.cpp, and Pindot finds it and lists its models. Ollama gives models a
+  llama.cpp, and Pindot finds it and lists its models. To start with Ollama,
+  `ollama pull qwen3:4b` gets a small model that uses tools. Ollama gives models a
   short memory by default; for longer requests start it with
   `OLLAMA_CONTEXT_LENGTH=32768`.
 - **An API key**: pick the provider, paste the key, pick a model. The key is
@@ -173,12 +180,16 @@ Setup's first step, or Settings > Brain:
   Manager), never in a file, and is never shown again; you can replace or
   delete it.
 
-When you pick a model, Pindot tests it with two short requests: a plain
+When you pick a local or API model, Pindot tests it with two short requests: a plain
 answer, and one use of a desktop tool. If it fails, you see why ("this model
 may not support tools") and can keep it anyway. Pictures: Pindot asks the
 server whether the model can see; one that can't works from the window's
-text instead of screenshots. Local and API brains get the desktop tools
-only: no shell, no file editing and no brain folder.
+text instead of screenshots. Every brain but Claude Code gets the desktop
+tools only: no shell, no file editing and no brain folder.
+
+A small local model is slow on a laptop: on a MacBook Air, qwen3:4b took
+about 20 seconds for a one-step question and about a minute per step on
+longer tasks. Claude Code and the ChatGPT plan answer in seconds.
 
 ### Chat
 
@@ -216,7 +227,7 @@ says so: "Rusty is controlling input · press Esc to stop".
 Save a login under **Vault** (website, username, password and, optionally,
 an authenticator key), or import a CSV exported from Chrome, 1Password or
 Bitwarden. When Rusty needs to sign in, Pindot types the login itself.
-Claude only ever sees the login's name and website, never the password.
+The brain only ever sees the login's name and website, never the password.
 
 Pindot types a saved login only when all of these hold:
 
@@ -240,8 +251,8 @@ are not supported. Delete an imported CSV afterwards: it isn't encrypted.
 
 ### Brain folder
 
-Settings > Brain folder lets Rusty use a folder of notes, or a Claude Code
-project. He reads its `CLAUDE.md`, opens only the notes a request needs, and
+Settings > Brain folder (with Claude Code as the brain, for now) lets Rusty
+use a folder of notes, or a Claude Code project. He reads its `CLAUDE.md`, opens only the notes a request needs, and
 can write only inside a `pindot-notes/` folder in it, for things you ask him
 to remember. Pick a folder you trust: its own Claude settings apply.
 
@@ -272,7 +283,9 @@ Open Settings from the menu-bar icon.
 - **Listening and Speaking**: the microphone, the speech models, the voice
   (37 to choose from), the volume, and whether to speak every message or only
   the last one.
-- **Claude**: the model, how hard it thinks, and permissions. **Ask**
+- **Brain**: which AI answers. See [Choosing a brain](#choosing-a-brain).
+- **Claude** (for Claude Code only): the model, how hard it thinks, and
+  permissions. **Ask**
   (recommended) lets Claude use only Pindot's desktop tools. **Auto** also lets
   it run commands, change files and browse the web, as you; read the warning
   before you turn it on.
@@ -289,14 +302,16 @@ Open Settings from the menu-bar icon.
   Code, exactly as if you used Claude Code yourself; to OpenAI through your
   own Codex; to the provider of your API key; or nowhere at all with a model
   on your computer. Screenshots grey out every app you haven't approved.
-- **Pindot has no server, no account and no telemetry.** Its only other
-  network traffic is downloading the voice models, from Hugging Face (with
-  a mirror as a fallback), when you ask for them.
+- **Pindot has no server, no account and no telemetry.** Apart from the
+  brain you chose (none at all with a local model), its only network traffic
+  is downloading the voice models, from Hugging Face (with a mirror as a
+  fallback), when you ask for them.
 - **Everything Pindot keeps is on your computer**, readable by you only:
   settings, the activity log, the voice models and the encrypted Vault.
-  Claude Code keeps its own transcripts of the conversations under
-  `~/.claude/projects/`; conversations with a local or API brain are kept in
-  Pindot's own folder. API keys are in your system keychain.
+  Claude Code and Codex keep their own transcripts of the conversations
+  (under `~/.claude/projects/` and `~/.codex/sessions/`); Pindot keeps its
+  own copy of conversations with your ChatGPT plan, a local model or an API
+  key in its folder. API keys are in your system keychain.
 - **Activity** (in the Pindot window) lists every action Rusty took. You can
   filter it or clear it.
 
@@ -305,8 +320,18 @@ Open Settings from the menu-bar icon.
 - **"Claude Code is not signed in"**: run `claude login` in a terminal, then
   Setup > Check again.
 - **Hold-to-talk does nothing**: the status pill and Setup say what is
-  missing (a permission, the voice models, Claude Code). After granting
+  missing (a permission, the voice models, the brain). After granting
   Input Monitoring or Accessibility, quit and reopen Pindot.
+- **"Ollama isn't running"** (or LM Studio, llama.cpp): start the model
+  server, or pick another brain in Settings > Brain. Pindot looks for it
+  again by itself.
+- **"Codex is not signed in"**: run `codex login` in a terminal and sign in
+  with your ChatGPT account, then Settings > Brain > Check again.
+- **"... refused the API key"** or **"out of credit"**: replace the key in
+  Settings > Brain, or check your account with that provider.
+- **A local model doesn't use the tools, or is very slow**: Test this model
+  (Settings > Brain) says whether it can use them. Some small models can't;
+  a model made for tool use, a faster computer or another brain helps.
 - **Rusty says an app is not allowed**: answer the approval window when it
   appears. Pindot's own windows are never controllable.
 - **"The connection Claude Code uses is not running"**: another program uses
