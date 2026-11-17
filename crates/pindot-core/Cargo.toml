@@ -30,6 +30,12 @@ portable-pty = "0.9"
 dirs = "6"
 # Voice loop (Phase 2). Speech to text: Moonshine streaming through ONNX Runtime.
 transcribe-rs = { version = "0.3.12", default-features = false, features = ["onnx"] }
+# Whisper (voice/whisper.rs) drives ONNX Runtime itself: the same ort as
+# transcribe-rs, Whisper's tokenizer as ptts reads it, and an FFT for the
+# log-mel features.
+ort = { version = "=2.0.0-rc.13", default-features = false }
+tokenizers = { version = "0.23", default-features = false, features = ["fancy-regex"] }
+rustfft = "6"
 # Text to speech: Phonon through the ptts runtime (xn tensors); `hf` reads tokenizer.json.
 ptts = { version = "0.7.1", default-features = false, features = ["hf"] }
 cpal = "0.18.2"

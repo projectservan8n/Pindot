@@ -284,7 +284,12 @@ Open Settings from the menu-bar icon.
 - **Hold-to-talk**: the key and tap-to-talk.
 - **Listening and Speaking**: the microphone, the speech models, the voice
   (37 to choose from), the volume, and whether to speak every message or only
-  the last one.
+  the last one. Speech to text runs on your computer with Moonshine (the
+  default), Parakeet, or **Whisper large-v3 turbo** (1.1 GB, the most accurate
+  and multilingual, but about 8 s per request on a computer without a fast
+  GPU). Or pick a cloud service with your own key: **ElevenLabs** (Scribe for
+  listening, its voices for speaking) or one of **OpenRouter**'s transcription
+  models (the same key as an OpenRouter brain).
 - **Brain**: which AI answers. See [Choosing a brain](#choosing-a-brain).
 - **Claude** (for Claude Code only): the model, how hard it thinks, and
   permissions. **Ask**
@@ -296,8 +301,12 @@ Open Settings from the menu-bar icon.
 
 ## Your privacy
 
-- **Your voice stays on your computer.** Speech is turned into text on your
-  machine and never saved. The spoken replies are made on your machine too.
+- **Your voice stays on your computer**, unless you pick a cloud service for
+  it. With the models on your computer (the default), speech is turned into
+  text on your machine and never saved, and the spoken replies are made there
+  too. With ElevenLabs or OpenRouter for listening, what you say is sent to
+  that service; with ElevenLabs for speaking, what Rusty says is. Settings
+  says so next to the choice.
 - **What the brain sees goes to whoever runs it.** When Rusty reads a
   window, takes a screenshot, or opens a file you attached or a note in your
   brain folder, that goes to the brain: to Anthropic through your own Claude
@@ -307,7 +316,8 @@ Open Settings from the menu-bar icon.
 - **Pindot has no server, no account and no telemetry.** Apart from the
   brain you chose (none at all with a local model), its only network traffic
   is downloading the voice models, from Hugging Face (with a mirror as a
-  fallback), when you ask for them.
+  fallback), when you ask for them, and the cloud speech service you picked,
+  if any.
 - **Everything Pindot keeps is on your computer**, readable by you only:
   settings, the activity log, the voice models and the encrypted Vault.
   Claude Code and Codex keep their own transcripts of the conversations

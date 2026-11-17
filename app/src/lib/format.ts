@@ -232,3 +232,24 @@ export function stepLabel(name: string): string {
   if (m) return tool.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
   return name;
 }
+
+/** Cloud speech settings: `cloud:<service>:<model>` (pindot-core voice/cloud.rs). */
+export const ELEVENLABS_STT = 'cloud:elevenlabs:scribe_v3';
+export const ELEVENLABS_TTS = 'cloud:elevenlabs:eleven_flash_v2_5';
+const OPENROUTER_PREFIX = 'cloud:openrouter:';
+
+/** Which engine a listening or speaking setting uses. */
+export function speechEngine(setting: string): 'local' | 'elevenlabs' | 'openrouter' {
+  if (setting.startsWith('cloud:elevenlabs:') && setting.length > 'cloud:elevenlabs:'.length) return 'elevenlabs';
+  if (setting.startsWith(OPENROUTER_PREFIX) && setting.length > OPENROUTER_PREFIX.length) return 'openrouter';
+  return 'local';
+}
+
+export function openRouterSetting(model: string): string {
+  return OPENROUTER_PREFIX + model;
+}
+
+/** The OpenRouter model a setting names ('' when it names none). */
+export function openRouterModel(setting: string): string {
+  return speechEngine(setting) === 'openrouter' ? setting.slice(OPENROUTER_PREFIX.length) : '';
+}

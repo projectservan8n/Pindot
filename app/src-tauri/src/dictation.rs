@@ -17,7 +17,7 @@ use std::time::Duration;
 use pindot_core::platform::{self, HotkeyEvent, Permission, PermissionState};
 use pindot_core::voice::audio::{self, CpalMicrophone, Microphone};
 use pindot_core::voice::dictation::{Backend, Dictation, Event, HotkeyRouter, Problem, Route, Sink, State};
-use pindot_core::voice::engines::{SpeechToText, load_stt};
+use pindot_core::voice::engines::{SpeechToText, load_stt_setting};
 use pindot_core::voice::models::{self, ModelKind};
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
@@ -61,7 +61,7 @@ impl Backend for AppBackend {
         if !model_ready(&s.voice.stt_model, ModelKind::SpeechToText, root.as_deref()) {
             return Err((
                 Problem::NoModel,
-                "There is no speech model yet. Download it under Setup, then dictation works.".into(),
+                "Speech to text isn't ready: download its model under Setup, or add the key of the cloud service chosen in Settings > Listening.".into(),
             ));
         }
         let mic = platform::permission_report().into_iter().find(|p| p.permission == Permission::Microphone);
@@ -79,8 +79,7 @@ impl Backend for AppBackend {
     fn load_stt(&self) -> anyhow::Result<Box<dyn SpeechToText>> {
         let s = self.app.state::<Ui>().settings().effective();
         let root = models::models_dir()?;
-        let dir = models::resolve(&s.voice.stt_model, ModelKind::SpeechToText, &root)?;
-        load_stt(&dir)
+        load_stt_setting(&s.voice.stt_model, &root, &pindot_core::brain::native::secrets::SystemSecrets::default())
     }
 
     fn open_mic(&self) -> Box<dyn Microphone> {

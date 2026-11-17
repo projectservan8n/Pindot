@@ -17,6 +17,10 @@ pub struct Facts {
     pub server_running: bool,
     pub stt_ready: bool,
     pub tts_ready: bool,
+    /// The cloud service the listening / speaking setting names, when it
+    /// does (its key is what is missing, not a download).
+    pub stt_cloud: Option<&'static str>,
+    pub tts_cloud: Option<&'static str>,
     pub claude_installed: bool,
     /// Installed and signed out (and no other problem was found).
     pub claude_signed_out: bool,
@@ -61,10 +65,16 @@ impl Plan {
             voice.push("hold-to-talk is turned off".to_string());
         } else {
             if !f.stt_ready {
-                voice.push("the speech-to-text model is not downloaded".into());
+                voice.push(match f.stt_cloud {
+                    Some(service) => format!("there is no {service} key for speech to text"),
+                    None => "the speech-to-text model is not downloaded".into(),
+                });
             }
             if !f.tts_ready {
-                voice.push("the text-to-speech model is not downloaded".into());
+                voice.push(match f.tts_cloud {
+                    Some(service) => format!("there is no {service} key for text to speech"),
+                    None => "the text-to-speech model is not downloaded".into(),
+                });
             }
             voice.extend(f.permission_problems.iter().cloned());
         }
@@ -139,6 +149,12 @@ mod tests {
     #[test]
     fn everything_ready_has_no_blockers() {
         let f = Facts { stt_ready: true, tts_ready: true, ..ready_for_chat() };
+        // A cloud engine without its key says so, not "not downloaded".
+        let cloud = Plan::of(&Facts { stt_cloud: Some("ElevenLabs"), tts_cloud: Some("ElevenLabs"), ..ready_for_chat() });
+        assert_eq!(
+            cloud.voice,
+            ["there is no ElevenLabs key for speech to text", "there is no ElevenLabs key for text to speech"]
+        );
         assert!(Plan::of(&f).all().is_empty());
     }
 

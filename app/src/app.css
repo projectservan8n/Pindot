@@ -481,6 +481,11 @@ select {
   background-size: 5px 5px, 5px 5px;
   background-repeat: no-repeat;
   cursor: pointer;
+  /* A long option (the Whisper model's label) must not widen the page: the
+     select shrinks to its row and the chosen text is cut with an ellipsis. */
+  max-width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
 }
 
 input:hover:not(:disabled),

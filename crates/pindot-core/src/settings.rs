@@ -225,10 +225,19 @@ impl Settings {
             ("Speech to text", &self.voice.stt_model, models::ModelKind::SpeechToText),
             ("Text to speech", &self.voice.tts_model, models::ModelKind::TextToSpeech),
         ] {
-            let ok = models::find(id).is_some_and(|m| m.kind == kind) || Path::new(id).is_absolute();
+            let cloud = match kind {
+                models::ModelKind::SpeechToText => crate::voice::cloud::parse_stt(id).is_some(),
+                models::ModelKind::TextToSpeech => crate::voice::cloud::parse_tts(id).is_some(),
+            };
+            let ok = models::find(id).is_some_and(|m| m.kind == kind) || Path::new(id).is_absolute() || cloud;
             if !ok {
                 problems.push(format!("{what}: unknown model \"{id}\""));
             }
+        }
+        if crate::voice::cloud::parse_tts(&self.voice.tts_model).is_some()
+            && self.voice.elevenlabs_voice.as_deref().is_none_or(|v| v.trim().is_empty())
+        {
+            problems.push("Voice: pick an ElevenLabs voice (Settings > Speaking)".into());
         }
         if !crate::voice::phonon_voices::setting_ok(self.voice.tts_voice.as_deref()) {
             problems.push(format!("Voice: unknown voice \"{}\"", self.voice.tts_voice.as_deref().unwrap_or_default()));
@@ -400,6 +409,25 @@ mod tests {
         bad.voice.effort = Some("turbo".into());
         bad.voice.tts_voice = Some("Nobody".into());
         assert_eq!(bad.validate().unwrap_err().len(), 3);
+    }
+
+    #[test]
+    fn cloud_speech_settings_validate_and_elevenlabs_needs_a_voice() {
+        let mut s = Settings::default();
+        s.voice.stt_model = crate::voice::cloud::ELEVENLABS_STT_SETTING.into();
+        assert!(s.validate().is_ok(), "{:?}", s.validate());
+        s.voice.stt_model = "cloud:openrouter:openai/whisper-large-v3-turbo".into();
+        assert!(s.validate().is_ok(), "{:?}", s.validate());
+        s.voice.tts_model = crate::voice::cloud::ELEVENLABS_TTS_SETTING.into();
+        let p = s.validate().unwrap_err();
+        assert!(p.iter().any(|m| m.contains("ElevenLabs voice")), "{p:?}");
+        s.voice.elevenlabs_voice = Some("JBFqnCBsd6RMkjVDRZzb".into());
+        assert!(s.validate().is_ok(), "{:?}", s.validate());
+        s.voice.tts_model = "cloud:openrouter:some/model".into();
+        assert!(s.validate().is_err(), "OpenRouter does not speak");
+        s.voice.tts_model = crate::voice::models::DEFAULT_TTS_MODEL.into();
+        s.voice.stt_model = "cloud:nobody:x".into();
+        assert!(s.validate().is_err());
     }
 
     #[test]

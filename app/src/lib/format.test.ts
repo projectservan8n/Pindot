@@ -8,6 +8,11 @@ import {
   formatBytes,
   hotkeyPresets,
   hotkeyWords,
+  speechEngine,
+  openRouterSetting,
+  openRouterModel,
+  ELEVENLABS_STT,
+  ELEVENLABS_TTS,
   passes,
   percent,
   permissionText,
@@ -175,5 +180,23 @@ describe('timeParts (a time for a narrow table column)', () => {
   });
   it('keeps text it cannot read', () => {
     expect(timeParts('not a time', now)).toEqual({ time: 'not a time', day: '' });
+  });
+});
+
+describe('cloud speech settings', () => {
+  it('names the engine a setting uses', () => {
+    expect(speechEngine('parakeet-tdt-0.6b-v3-int8')).toBe('local');
+    expect(speechEngine('/opt/models/x')).toBe('local');
+    expect(speechEngine(ELEVENLABS_STT)).toBe('elevenlabs');
+    expect(speechEngine(ELEVENLABS_TTS)).toBe('elevenlabs');
+    expect(speechEngine('cloud:openrouter:openai/whisper-large-v3-turbo')).toBe('openrouter');
+    expect(speechEngine('cloud:nobody:x')).toBe('local');
+  });
+  it('builds and reads an OpenRouter setting, slashes and all', () => {
+    expect(openRouterSetting('openai/whisper-large-v3-turbo')).toBe('cloud:openrouter:openai/whisper-large-v3-turbo');
+    expect(openRouterModel('cloud:openrouter:openai/whisper-large-v3-turbo')).toBe('openai/whisper-large-v3-turbo');
+    expect(openRouterModel(ELEVENLABS_STT)).toBe('');
+    expect(ELEVENLABS_STT).toBe('cloud:elevenlabs:scribe_v3');
+    expect(ELEVENLABS_TTS).toBe('cloud:elevenlabs:eleven_flash_v2_5');
   });
 });

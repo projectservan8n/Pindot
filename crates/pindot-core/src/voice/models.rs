@@ -172,7 +172,31 @@ pub const PARAKEET_TDT_06B_V3: ModelSpec = ModelSpec {
     fallback: None,
 };
 
-pub const CATALOG: &[&ModelSpec] = &[&MOONSHINE_SMALL_STREAMING_EN, &PARAKEET_TDT_06B_V3, &PHONON_31M_EN];
+pub const MIT_WHISPER: &str = include_str!("../../licenses/whisper-MIT.txt");
+
+/// Optional, multilingual speech to text, the largest (the user's request,
+/// 17 Nov 2026): Whisper large-v3 turbo, int8, run by `voice::whisper` on
+/// the same ONNX Runtime. Every request costs a full 30 s encoder pass, so
+/// it is slower than Parakeet on a CPU.
+pub const WHISPER_LARGE_V3_TURBO_INT8: ModelSpec = ModelSpec {
+    id: "whisper-large-v3-turbo-int8",
+    kind: ModelKind::SpeechToText,
+    display: "Whisper large-v3 turbo (most accurate, multilingual; about 8 s per request on a CPU)",
+    license: "MIT",
+    license_url: "https://github.com/openai/whisper/blob/main/LICENSE",
+    license_text: MIT_WHISPER,
+    source: "huggingface.co/onnx-community/whisper-large-v3-turbo@360ebcd",
+    base_url: "https://huggingface.co/onnx-community/whisper-large-v3-turbo/resolve/360ebcde2559d60bb474678be3c1de9ef347d01a/",
+    files: &[
+        ModelFile { name: "tokenizer.json", size: 2_480_617, sha256: "6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca" },
+        ModelFile { name: "onnx/decoder_model_merged_int8.onnx", size: 439_936_716, sha256: "61481bd3be3a445d5a4b9070e8f8b2c6cc4fbbbbdc9f0e7ed048a132b8b84e0d" },
+        ModelFile { name: "onnx/encoder_model_int8.onnx", size: 644_822_094, sha256: "e44c0d5cfcc6ad283011602a738fa28dfa1ad7f7540c9503205479072a9cc1ef" },
+    ],
+    fallback: None,
+};
+
+pub const CATALOG: &[&ModelSpec] =
+    &[&MOONSHINE_SMALL_STREAMING_EN, &PARAKEET_TDT_06B_V3, &WHISPER_LARGE_V3_TURBO_INT8, &PHONON_31M_EN];
 
 pub const DEFAULT_STT_MODEL: &str = MOONSHINE_SMALL_STREAMING_EN.id;
 pub const DEFAULT_TTS_MODEL: &str = PHONON_31M_EN.id;
@@ -319,6 +343,10 @@ pub fn ensure_with(
             fs::remove_file(&path)?;
         }
         let url = format!("{}{}", spec.base_url, f.name);
+        // A file can sit in a folder of its repository (Whisper's `onnx/`).
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         match fetch_with_retries(&agent, &url, &path, f, opts, model_done, model_total, progress) {
             Ok(()) => {
                 model_done += f.size;
@@ -742,6 +770,22 @@ mod tests {
         fs::read_dir(dir)
             .map(|r| r.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".part")).collect())
             .unwrap_or_default()
+    }
+
+    /// Whisper's files sit in an `onnx/` folder of their repository.
+    #[test]
+    fn a_file_in_a_subfolder_is_downloaded_into_that_subfolder() {
+        let a = content(7, 5_000);
+        let a2 = a.clone();
+        let (base, _) = serve(move |p, _, _| match p {
+            "/m/onnx/enc.onnx" => Reply::ok(&a2),
+            _ => Reply::not_found(),
+        });
+        let spec = test_spec(&base, &[("onnx/enc.onnx", &a)], None);
+        let root = tmp_root("subfolder");
+        let dir = ensure_with(spec, &root, &fast(), &mut |_| {}).expect("downloaded");
+        assert_eq!(fs::read(dir.join("onnx").join("enc.onnx")).unwrap(), a);
+        assert!(is_present(spec, &root));
     }
 
     #[test]

@@ -231,7 +231,8 @@
   <h2>3. Voice models</h2>
   <p class="muted">
     Speech to text and text to speech run on this {info?.os === 'windows' ? 'PC' : 'Mac'}. The models are downloaded once, from the source named under
-    each one, and every file is checked against its pinned SHA-256.
+    each one, and every file is checked against its pinned SHA-256. A cloud service picked in Settings (ElevenLabs,
+    OpenRouter) needs no download, only its key there.
   </p>
   <table class="models">
     <tbody>

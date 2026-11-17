@@ -899,6 +899,36 @@ claude 2.1.325; what was seen is in `docs/windows-test-checklist.md` (h).
   -60 dBFS (`SILENCE_DBFS`; a live microphone in a quiet room was -47)
   skips speech to text and says "Your microphone sent only silence..."
   (`Input::HeardSilence`) instead of "I didn't catch that".
+- **More speech engines** (the owner's request, 17 Nov 2026: ElevenLabs
+  "for transcription and voice", OpenRouter "and their transcription
+  models", "a downloadable whisper v3 large turbo"):
+  - **Whisper large-v3 turbo** (`voice/whisper.rs`): onnx-community's int8
+    encoder and merged decoder on the ONNX Runtime already shipped, pinned
+    like the other models (1.1 GB, MIT). Log-mel exactly as Hugging Face's
+    `WhisperFeatureExtractor` (checked against an independent calculation
+    to 5 decimals), greedy decoding with the key/value cache, language from
+    the first step (English below 50%). The merged decoder hands back
+    placeholders for the cross-attention cache on cached passes: keeping
+    them broke every token after the second ("Open text and then."); they
+    are kept from the first pass (`keep_from_first_pass`). On the test
+    recording it is the only engine that gets every word. It costs a full
+    30 s encoder pass per request: 7.7 s on this PC's CPU, plus about
+    0.7 s of decoding. Its no-speech token scores 0 even on silence, so it
+    cannot be asked; the silence gate in the recorder covers that. The
+    downloader now creates a file's subfolder (`onnx/`).
+  - **Cloud speech** (`voice/cloud.rs`): a setting `cloud:<service>:<model>`.
+    ElevenLabs Scribe v3 (`/v1/speech-to-text`, raw 16 kHz PCM, audio tags
+    off), OpenRouter's `/audio/transcriptions` (base64 WAV; the model list
+    is OpenRouter's public `?output_modalities=transcription`), and
+    ElevenLabs Flash v2.5 for speaking (`/stream?output_format=pcm_24000`,
+    read as it arrives). Keys in the credential store next to the brains'
+    (`"elevenlabs"`, and the brain's `"openrouter"`). ElevenLabs' default
+    voices end on 31 Dec 2026, so the voice is picked from the account's
+    own list (`voice.elevenlabs_voice`). `engines::load_stt_setting`,
+    `load_tts_setting` and `setting_ready` serve the voice loop, dictation,
+    Setup and the preview. Checked against a local stand-in server (paths,
+    headers, form fields, JSON, errors without the key); not run against
+    the real services (no keys here).
 - **Not seen on Windows**: "Allow for this session" on a login and the
   typing that follows (a human's click), dictation and a chosen
   microphone with a real voice (the list of inputs was read: four here),

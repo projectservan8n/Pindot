@@ -37,6 +37,8 @@ export interface VoiceSettings {
   brain_folder: string | null;
   /** Name of the microphone; null = the system default. */
   input_device: string | null;
+  /** ElevenLabs voice id when ElevenLabs speaks; null = none picked. */
+  elevenlabs_voice: string | null;
 }
 
 export interface Settings {
@@ -465,8 +467,13 @@ export const api = {
   permissionOpenSettings: (permission: Permission) => invoke<void>('permission_open_settings', { permission }),
   modelsStatus: () => invoke<ModelInfo[]>('models_status'),
   voiceDownload: (name: string) => invoke<void>('voice_download', { name }),
-  voicePreview: (name: string | null, volume: number, assistant: string) =>
-    invoke<void>('voice_preview', { name, volume, assistant }),
+  voicePreview: (name: string | null, volume: number, assistant: string, model: string) =>
+    invoke<void>('voice_preview', { name, volume, assistant, model }),
+  speechKeys: () => invoke<{ elevenlabs: boolean; openrouter: boolean }>('speech_keys'),
+  speechKeySet: (service: 'elevenlabs' | 'openrouter', key: string) => invoke<void>('speech_key_set', { service, key }),
+  speechKeyDelete: (service: 'elevenlabs' | 'openrouter') => invoke<void>('speech_key_delete', { service }),
+  elevenlabsVoices: () => invoke<{ id: string; name: string }[]>('elevenlabs_voices'),
+  openrouterSttModels: () => invoke<{ id: string; name: string }[]>('openrouter_stt_models'),
   modelsDownload: (ids: string[]) => invoke<void>('models_download', { ids }),
   modelsCancel: () => invoke<void>('models_cancel'),
   connectStatus: () => invoke<ConnectView>('connect_status'),

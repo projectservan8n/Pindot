@@ -19,7 +19,9 @@ use pindot_core::server::activity::{self, ActivityEntry, ActivityFilter};
 use pindot_core::server::{RunningServer, ServerState};
 use pindot_core::settings::Settings;
 use pindot_core::voice::audio::{AudioSink, CpalSpeaker};
-use pindot_core::voice::engines::{PhononTts, TextToSpeech};
+use pindot_core::brain::native::secrets::{SecretStore, SystemSecrets};
+use pindot_core::voice::cloud;
+use pindot_core::voice::engines::{load_tts_setting, setting_ready};
 use pindot_core::voice::models::{self, DownloadOptions, ModelKind, Progress};
 use pindot_core::voice::phonon_voices::{self, PhononVoice};
 use pindot_core::voice::plan::{Facts, Plan};
@@ -315,6 +317,8 @@ fn start_facts(app: &AppHandle) -> Facts {
         server_running: app.try_state::<RunningServer>().is_some(),
         stt_ready: model_ready(&s.voice.stt_model, ModelKind::SpeechToText, root.as_deref()),
         tts_ready: model_ready(&s.voice.tts_model, ModelKind::TextToSpeech, root.as_deref()),
+        stt_cloud: cloud::parse_stt(&s.voice.stt_model).map(|c| c.service()),
+        tts_cloud: cloud::parse_tts(&s.voice.tts_model).map(|c| c.service()),
         claude_installed: claude.as_ref().is_some_and(|c| c.path.is_some()),
         claude_signed_out: claude.as_ref().is_some_and(|c| c.path.is_some() && !c.signed_in && c.problem.is_none()),
         permission_problems,
@@ -335,15 +339,9 @@ pub fn voice_blockers(app: &AppHandle) -> Vec<String> {
     start_plan(app).all()
 }
 
+/// A downloaded model, a model folder, or a cloud service whose key is saved.
 pub(crate) fn model_ready(setting: &str, kind: ModelKind, root: Option<&Path>) -> bool {
-    let p = Path::new(setting);
-    if p.is_absolute() {
-        return p.is_dir();
-    }
-    match (models::find(setting), root) {
-        (Some(spec), Some(root)) => spec.kind == kind && models::is_present(spec, root),
-        _ => false,
-    }
+    setting_ready(setting, kind, root, &SystemSecrets::default())
 }
 
 /// Stop the voice loop if it runs, then start it again if everything it
@@ -1121,20 +1119,31 @@ pub async fn voice_download(name: String) -> Result<(), String> {
 
 static PREVIEWING: AtomicBool = AtomicBool::new(false);
 
-/// Speak a short sample with a voice (downloading it first if needed), at
-/// the volume and with the assistant name on screen, with the saved speech
-/// model.
+/// Speak a short sample with a voice (downloading a Phonon voice first if
+/// needed), at the volume and with the assistant name on screen. `model`:
+/// the speaking setting on screen (not yet saved), else the saved one. With
+/// ElevenLabs, `name` is the voice id.
 #[tauri::command]
-pub async fn voice_preview(app: AppHandle, name: Option<String>, volume: f32, assistant: Option<String>) -> Result<(), String> {
+pub async fn voice_preview(
+    app: AppHandle,
+    name: Option<String>,
+    volume: f32,
+    assistant: Option<String>,
+    model: Option<String>,
+) -> Result<(), String> {
     if PREVIEWING.swap(true, Ordering::SeqCst) {
         return Err("A preview is already playing.".into());
     }
-    let settings = app.state::<Ui>().settings().voice;
+    let tts_model = model.unwrap_or_else(|| app.state::<Ui>().settings().voice.tts_model);
     let res = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<()> {
         let root = models::models_dir()?;
-        let voice = phonon_voices::ensure(name.as_deref(), &root)?;
-        let tts_dir = models::resolve(&settings.tts_model, ModelKind::TextToSpeech, &root)?;
-        let tts = PhononTts::load(&tts_dir, voice.as_ref().map(|(n, p)| (*n, p.as_path())))?;
+        let keys = SystemSecrets::default();
+        let tts = if cloud::parse_tts(&tts_model).is_some() {
+            load_tts_setting(&tts_model, None, name.as_deref(), &root, &keys)?
+        } else {
+            let voice = phonon_voices::ensure(name.as_deref(), &root)?;
+            load_tts_setting(&tts_model, voice.as_ref().map(|(n, p)| (*n, p.as_path())), None, &root, &keys)?
+        };
         let who = assistant
             .as_deref()
             .map(str::trim)
@@ -1152,4 +1161,85 @@ pub async fn voice_preview(app: AppHandle, name: Option<String>, volume: f32, as
     .await;
     PREVIEWING.store(false, Ordering::SeqCst);
     res.map_err(|e| e.to_string())?.map_err(|e| format!("{e:#}"))
+}
+
+// ------------------------------------------------------------ cloud speech
+
+#[derive(Serialize)]
+pub struct SpeechKeys {
+    elevenlabs: bool,
+    openrouter: bool,
+}
+
+/// Which cloud speech keys are saved (never the keys themselves). The
+/// OpenRouter key is the same one the OpenRouter brain uses.
+#[tauri::command]
+pub async fn speech_keys() -> SpeechKeys {
+    tauri::async_runtime::spawn_blocking(|| {
+        let keys = SystemSecrets::default();
+        let has = |id: &str| matches!(keys.get(id), Ok(Some(_)));
+        SpeechKeys { elevenlabs: has(cloud::ELEVENLABS), openrouter: has(cloud::OPENROUTER) }
+    })
+    .await
+    .unwrap_or(SpeechKeys { elevenlabs: false, openrouter: false })
+}
+
+fn speech_service(service: &str) -> Result<&'static str, String> {
+    match service {
+        cloud::ELEVENLABS => Ok(cloud::ELEVENLABS),
+        cloud::OPENROUTER => Ok(cloud::OPENROUTER),
+        _ => Err("Unknown speech service.".into()),
+    }
+}
+
+/// Save a cloud speech key in the system's credential store, then restart
+/// hold-to-talk so it is used.
+#[tauri::command]
+pub async fn speech_key_set(app: AppHandle, service: String, key: String) -> Result<(), String> {
+    let id = speech_service(&service)?;
+    tauri::async_runtime::spawn_blocking(move || SystemSecrets::default().set(id, &key)).await.map_err(|e| e.to_string())??;
+    restart_voice(&app);
+    changed(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn speech_key_delete(app: AppHandle, service: String) -> Result<(), String> {
+    let id = speech_service(&service)?;
+    tauri::async_runtime::spawn_blocking(move || SystemSecrets::default().delete(id)).await.map_err(|e| e.to_string())??;
+    restart_voice(&app);
+    changed(&app);
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct Named {
+    id: String,
+    name: String,
+}
+
+/// The voices of the ElevenLabs account whose key is saved.
+#[tauri::command]
+pub async fn elevenlabs_voices() -> Result<Vec<Named>, String> {
+    tauri::async_runtime::spawn_blocking(|| -> Result<Vec<Named>, String> {
+        let key = SystemSecrets::default()
+            .get(cloud::ELEVENLABS)?
+            .ok_or("Add your ElevenLabs key first, then the voices of your account are listed.")?;
+        let voices = cloud::elevenlabs_voices(cloud::ELEVENLABS_URL, &key).map_err(|e| format!("{e:#}"))?;
+        Ok(voices.into_iter().map(|(id, name)| Named { id, name }).collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// OpenRouter's speech-to-text models (a public list).
+#[tauri::command]
+pub async fn openrouter_stt_models() -> Result<Vec<Named>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        cloud::openrouter_stt_models(cloud::OPENROUTER_URL)
+            .map(|m| m.into_iter().map(|(id, name)| Named { id, name }).collect())
+            .map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

@@ -11,6 +11,7 @@
 //! - `runner`: the executor that wires the machine to the real parts.
 
 pub mod audio;
+pub mod cloud;
 pub mod dictation;
 pub mod engines;
 pub mod machine;
@@ -19,6 +20,7 @@ pub mod phonon_voices;
 pub mod plan;
 pub mod runner;
 pub mod speaker;
+pub mod whisper;
 
 use std::time::Duration;
 
@@ -119,6 +121,9 @@ pub struct VoiceSettings {
     pub brain_folder: Option<String>,
     /// Name of the microphone to listen with (`None` = the system default).
     pub input_device: Option<String>,
+    /// The ElevenLabs voice id to speak with when the speaking setting is
+    /// ElevenLabs (picked from the account's voices in Settings).
+    pub elevenlabs_voice: Option<String>,
 }
 
 impl Default for VoiceSettings {
@@ -141,6 +146,7 @@ impl Default for VoiceSettings {
             talk_notes: String::new(),
             brain_folder: None,
             input_device: None,
+            elevenlabs_voice: None,
         }
     }
 }

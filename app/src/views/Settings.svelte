@@ -1,7 +1,20 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api, errorText, type AppInfo, type HotkeyCheck, type InputDevices, type SettingsView, type TalkStyle } from '../lib/api';
-  import { chordFromCodes, cursorPresets, eyeInk, formatBytes, hotkeyPresets, hotkeyWords, isCursorColor } from '../lib/format';
+  import {
+    ELEVENLABS_STT,
+    ELEVENLABS_TTS,
+    chordFromCodes,
+    cursorPresets,
+    eyeInk,
+    formatBytes,
+    hotkeyPresets,
+    hotkeyWords,
+    isCursorColor,
+    openRouterModel,
+    openRouterSetting,
+    speechEngine,
+  } from '../lib/format';
   import Connect from './Connect.svelte';
   import BrainPicker from '../lib/BrainPicker.svelte';
   import { refreshAssistant } from '../lib/assistant.svelte';
@@ -51,12 +64,90 @@
     }
   }
 
+  // Cloud speech: ElevenLabs and OpenRouter (keys in the system's
+  // credential store; the OpenRouter key is the one the brain uses too).
+  const sttEngine = $derived(view ? speechEngine(view.settings.voice.stt_model) : 'local');
+  const ttsEngine = $derived(view ? speechEngine(view.settings.voice.tts_model) : 'local');
+  let keys = $state<{ elevenlabs: boolean; openrouter: boolean }>({ elevenlabs: false, openrouter: false });
+  let keyDraft = $state({ elevenlabs: '', openrouter: '' });
+  let keyNote = $state('');
+  let elVoices = $state<{ id: string; name: string }[] | null>(null);
+  let elVoicesNote = $state('');
+  let orModels = $state<{ id: string; name: string }[] | null>(null);
+  let orNote = $state('');
+
+  async function refreshKeys() {
+    keys = await api.speechKeys();
+    if (keys.elevenlabs && ttsEngine === 'elevenlabs' && elVoices === null) loadVoices();
+  }
+
+  async function saveKey(service: 'elevenlabs' | 'openrouter') {
+    keyNote = '';
+    try {
+      await api.speechKeySet(service, keyDraft[service]);
+      keyDraft[service] = '';
+      keyNote = 'Key saved in your system keychain.';
+      await refreshKeys();
+      if (service === 'elevenlabs') loadVoices();
+    } catch (e) {
+      keyNote = errorText(e);
+    }
+  }
+
+  async function deleteKey(service: 'elevenlabs' | 'openrouter') {
+    keyNote = '';
+    try {
+      await api.speechKeyDelete(service);
+      await refreshKeys();
+      if (service === 'elevenlabs') elVoices = null;
+    } catch (e) {
+      keyNote = errorText(e);
+    }
+  }
+
+  async function loadVoices() {
+    elVoicesNote = '';
+    try {
+      elVoices = await api.elevenlabsVoices();
+      if (view && !view.settings.voice.elevenlabs_voice && elVoices.length) view.settings.voice.elevenlabs_voice = elVoices[0].id;
+    } catch (e) {
+      elVoicesNote = errorText(e);
+    }
+  }
+
+  async function loadOrModels() {
+    orNote = '';
+    try {
+      orModels = await api.openrouterSttModels();
+    } catch (e) {
+      orNote = errorText(e);
+    }
+  }
+
+  function pickStt(value: string) {
+    if (!view) return;
+    if (value === 'openrouter') {
+      const current = openRouterModel(view.settings.voice.stt_model);
+      view.settings.voice.stt_model = openRouterSetting(current || 'openai/whisper-large-v3-turbo');
+      if (orModels === null) loadOrModels();
+    } else {
+      view.settings.voice.stt_model = value;
+    }
+  }
+
+  function pickTts(value: string) {
+    if (!view) return;
+    view.settings.voice.tts_model = value;
+    if (value === ELEVENLABS_TTS && keys.elevenlabs && elVoices === null) loadVoices();
+  }
+
   async function preview() {
     if (!view) return;
     previewing = true;
     voiceBad = false;
     try {
-      await api.voicePreview(view.settings.voice.tts_voice, view.settings.voice.volume, assistantName);
+      const voice = ttsEngine === 'elevenlabs' ? view.settings.voice.elevenlabs_voice : view.settings.voice.tts_voice;
+      await api.voicePreview(voice, view.settings.voice.volume, assistantName, view.settings.voice.tts_model);
     } catch (e) {
       voiceNote = errorText(e);
       voiceBad = true;
@@ -136,6 +227,8 @@
     try {
       view = await api.settingsGet();
       refreshMics();
+      refreshKeys();
+      if (speechEngine(view.settings.voice.stt_model) === 'openrouter') loadOrModels();
       hotkeyText = hotkeyWords(view.settings.hotkey, view.os);
       await runCheck();
     } catch (e) {
@@ -381,12 +474,60 @@
     <h2>Listening</h2>
     <div class="row">
       <label for="stt">Speech to text</label>
-      <select id="stt" bind:value={view.settings.voice.stt_model}>
-        {#each view.stt_models as m (m.id)}
-          <option value={m.id}>{m.display} ({m.license}, {formatBytes(m.size)})</option>
-        {/each}
+      <select
+        id="stt"
+        value={sttEngine === 'openrouter' ? 'openrouter' : view.settings.voice.stt_model}
+        onchange={(e) => pickStt((e.currentTarget as HTMLSelectElement).value)}
+      >
+        <optgroup label="On this computer">
+          {#each view.stt_models as m (m.id)}
+            <option value={m.id}>{m.display} ({m.license}, {formatBytes(m.size)})</option>
+          {/each}
+        </optgroup>
+        <optgroup label="Cloud (needs a key)">
+          <option value={ELEVENLABS_STT}>ElevenLabs Scribe v3</option>
+          <option value="openrouter">OpenRouter (pick a model)</option>
+        </optgroup>
       </select>
     </div>
+    {#if sttEngine === 'openrouter'}
+      <div class="row">
+        <label for="or-model">OpenRouter model</label>
+        <select
+          id="or-model"
+          value={openRouterModel(view.settings.voice.stt_model)}
+          onchange={(e) => view && (view.settings.voice.stt_model = openRouterSetting((e.currentTarget as HTMLSelectElement).value))}
+        >
+          {#if !orModels?.some((m) => m.id === openRouterModel(view?.settings.voice.stt_model ?? ''))}
+            <option value={openRouterModel(view.settings.voice.stt_model)}>{openRouterModel(view.settings.voice.stt_model)}</option>
+          {/if}
+          {#each orModels ?? [] as m (m.id)}<option value={m.id}>{m.name}</option>{/each}
+        </select>
+        <button onclick={loadOrModels}>Refresh</button>
+      </div>
+      {#if orNote}<p class="small bad">{orNote}</p>{/if}
+    {/if}
+    {#if sttEngine !== 'local'}
+      {@const svc = sttEngine === 'elevenlabs' ? 'elevenlabs' : 'openrouter'}
+      {@const svcName = svc === 'elevenlabs' ? 'ElevenLabs' : 'OpenRouter'}
+      <div class="row">
+        <label for="stt-key">{svcName} key</label>
+        <input
+          id="stt-key"
+          type="password"
+          autocomplete="off"
+          bind:value={keyDraft[svc]}
+          placeholder={keys[svc] ? 'A key is saved (paste one to replace it)' : `Paste your ${svcName} API key`}
+        />
+        <button onclick={() => saveKey(svc)} disabled={!keyDraft[svc].trim()}>Save key</button>
+        {#if keys[svc]}<button onclick={() => deleteKey(svc)}>Delete key</button>{/if}
+      </div>
+      {#if keyNote}<p class="small">{keyNote}</p>{/if}
+      <p class="small muted">
+        What you say is sent to {svcName} to be written down{svc === 'openrouter' ? ' (the same key as an OpenRouter brain)' : ''}.
+        The key is kept in your system keychain.
+      </p>
+    {/if}
     <div class="row">
       <label for="mic">Microphone</label>
       <select id="mic" value={savedMic} onchange={(e) => view && (view.settings.voice.input_device = (e.currentTarget as HTMLSelectElement).value || null)}>
@@ -407,12 +548,46 @@
     <h2>Speaking</h2>
     <div class="row">
       <label for="tts">Text to speech</label>
-      <select id="tts" bind:value={view.settings.voice.tts_model}>
-        {#each view.tts_models as m (m.id)}
-          <option value={m.id}>{m.display} ({m.license}, {formatBytes(m.size)})</option>
-        {/each}
+      <select id="tts" value={view.settings.voice.tts_model} onchange={(e) => pickTts((e.currentTarget as HTMLSelectElement).value)}>
+        <optgroup label="On this computer">
+          {#each view.tts_models as m (m.id)}
+            <option value={m.id}>{m.display} ({m.license}, {formatBytes(m.size)})</option>
+          {/each}
+        </optgroup>
+        <optgroup label="Cloud (needs a key)">
+          <option value={ELEVENLABS_TTS}>ElevenLabs Flash v2.5</option>
+        </optgroup>
       </select>
     </div>
+    {#if ttsEngine === 'elevenlabs'}
+      {#if sttEngine !== 'elevenlabs'}
+        <div class="row">
+          <label for="tts-key">ElevenLabs key</label>
+          <input
+            id="tts-key"
+            type="password"
+            autocomplete="off"
+            bind:value={keyDraft.elevenlabs}
+            placeholder={keys.elevenlabs ? 'A key is saved (paste one to replace it)' : 'Paste your ElevenLabs API key'}
+          />
+          <button onclick={() => saveKey('elevenlabs')} disabled={!keyDraft.elevenlabs.trim()}>Save key</button>
+          {#if keys.elevenlabs}<button onclick={() => deleteKey('elevenlabs')}>Delete key</button>{/if}
+        </div>
+        {#if keyNote}<p class="small">{keyNote}</p>{/if}
+      {/if}
+      <div class="row">
+        <label for="el-voice">Voice</label>
+        <select id="el-voice" bind:value={view.settings.voice.elevenlabs_voice} disabled={!elVoices?.length}>
+          {#if !elVoices?.length}<option value={view.settings.voice.elevenlabs_voice}>{keys.elevenlabs ? 'Loading your voices…' : 'Add your key first'}</option>{/if}
+          {#each elVoices ?? [] as v (v.id)}<option value={v.id}>{v.name}</option>{/each}
+        </select>
+        <button onclick={loadVoices} disabled={!keys.elevenlabs}>Refresh</button>
+        <button onclick={preview} disabled={previewing || !view.settings.voice.elevenlabs_voice}>{previewing ? 'Playing…' : 'Preview'}</button>
+      </div>
+      {#if elVoicesNote}<p class="small bad">{elVoicesNote}</p>{/if}
+      {#if voiceNote}<p class="small {voiceBad ? 'bad' : 'ok'}">{voiceNote}</p>{/if}
+      <p class="small muted">What {assistantName} says is sent to ElevenLabs to be spoken. The key is kept in your system keychain.</p>
+    {:else}
     <div class="row">
       <label for="ttsv">Voice</label>
       <select
@@ -437,6 +612,7 @@
       Extra voices are Apache-2.0, from huggingface.co/gradium/phonon-voices: 256 KB each, downloaded when you pick
       one.
     </p>
+    {/if}
     <fieldset>
       <legend>Speak</legend>
       <label class="row">

@@ -588,6 +588,25 @@ local model by hand.
 - [ ] Chat shows a loop or Codex conversation, and History opens it (the
       file is in `%APPDATA%\Pindot\conversations\`).
 
+## (j) More speech engines (17 Nov 2026)
+
+- [x] Whisper large-v3 turbo, real model, release build, on the test
+      recording: "Open text edit and type hello." twice (the only engine to
+      get every word). 7.7 s of encoder per request on the Ryzen 5 5600X,
+      about 0.7 s of decoding. Downloaded through Pindot's downloader into
+      a scratch folder (checksums passed, `onnx/` subfolder created).
+      `cargo test --release -p pindot-core --lib real_whisper -- --ignored`.
+- [x] Settings shows the cloud choices: OpenRouter's model list loaded live
+      (about 30 transcription models), the key fields, the notes on what is
+      sent where; "there is no OpenRouter key for speech to text" as the
+      reason hold-to-talk is off; saving ElevenLabs for speaking without a
+      voice is refused. (A private copy on a hidden desktop; no key was
+      saved.)
+- [ ] ElevenLabs Scribe, ElevenLabs speech and an OpenRouter model with
+      real keys: a spoken request transcribed, a reply spoken, Preview.
+- [ ] Whisper with a GPU (DirectML on Windows, CoreML on a Mac): not built;
+      on a CPU it is too slow for quick commands.
+
 ## Compare with the Mac
 
 `scripts/bench_tools.py` times the tools the same way on both systems (its

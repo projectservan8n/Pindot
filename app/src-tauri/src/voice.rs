@@ -21,9 +21,10 @@ use pindot_core::platform::{HotkeyBinding, HotkeyEvent, ListenerHandle};
 use pindot_core::server::ServerState;
 use pindot_core::server::control::ControlEvent;
 use pindot_core::voice::audio::{self, AudioSink, CpalMicrophone, CpalSpeaker, Microphone, WavMicrophone, WavSink};
-use pindot_core::voice::engines::{PhononTts, STT_SAMPLE_RATE, TextToSpeech, load_stt};
+use pindot_core::brain::native::secrets::SystemSecrets;
+use pindot_core::voice::engines::{STT_SAMPLE_RATE, TextToSpeech, load_stt_setting, load_tts_setting};
 use pindot_core::voice::machine::{Display, Input, Machine};
-use pindot_core::voice::models::{self, ModelKind};
+use pindot_core::voice::models;
 use pindot_core::voice::phonon_voices;
 use pindot_core::voice::runner::{self, LiveIo, Metric, Recorder, StatusSink, VoiceHandle, VoiceRunner, VoiceStatus};
 use pindot_core::voice::speaker::{Speaker, SpeakerEvent};
@@ -258,7 +259,8 @@ struct VoiceParts {
     recorder: Recorder,
     speaker: Speaker,
     wav_sink: Option<Arc<WavSink>>,
-    stt_dir: PathBuf,
+    /// The listening setting, to transcribe test replies back.
+    stt_setting: String,
 }
 
 /// Load the models and build the recorder and the speaker. Slow (models);
@@ -268,17 +270,23 @@ fn load_voice_parts(app: &AppHandle, settings: &VoiceSettings, opts: &VoiceOptio
     // the download on the Setup screen after seeing each license.
     let root = models::models_dir()?;
     let t0 = Instant::now();
-    let stt_dir = models::resolve(&settings.stt_model, ModelKind::SpeechToText, &root)?;
-    let tts_dir = models::resolve(&settings.tts_model, ModelKind::TextToSpeech, &root)?;
-    println!("voice: models checked in {:.2} s ({} and {})", t0.elapsed().as_secs_f64(), settings.stt_model, settings.tts_model);
-    let stt = load_stt(&stt_dir)?;
+    // A downloaded model, or a cloud service with its key (cloud.rs).
+    let keys = SystemSecrets::default();
+    let stt = load_stt_setting(&settings.stt_model, &root, &keys)?;
     // The chosen voice, if it was downloaded in Settings; else the default.
     let tts_voice = phonon_voices::present(settings.tts_voice.as_deref(), &root).unwrap_or_else(|e| {
         println!("voice: {e:#}; speaking with the default voice");
         None
     });
-    let tts: Arc<dyn TextToSpeech> =
-        Arc::new(PhononTts::load(&tts_dir, tts_voice.as_ref().map(|(n, p)| (*n, p.as_path())))?);
+    let tts: Arc<dyn TextToSpeech> = load_tts_setting(
+        &settings.tts_model,
+        tts_voice.as_ref().map(|(n, p)| (*n, p.as_path())),
+        settings.elevenlabs_voice.as_deref(),
+        &root,
+        &keys,
+    )?;
+    println!("voice: models checked in {:.2} s ({} and {})", t0.elapsed().as_secs_f64(), settings.stt_model, settings.tts_model);
+    let stt_setting = settings.stt_model.clone();
 
     let mic: Box<dyn Microphone> = match &opts.test_wav {
         Some(p) => Box::new(WavMicrophone { path: p.clone() }),
@@ -331,7 +339,7 @@ fn load_voice_parts(app: &AppHandle, settings: &VoiceSettings, opts: &VoiceOptio
             h.speaker_event(e)
         }),
     )?;
-    Ok(VoiceParts { recorder, speaker, wav_sink, stt_dir })
+    Ok(VoiceParts { recorder, speaker, wav_sink, stt_setting })
 }
 
 /// The overlay event (and payload) a speaker event becomes. These are the
@@ -448,8 +456,8 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
         None
     };
     let with_voice = parts.is_some();
-    let (recorder, speaker, wav_sink, stt_dir) = match parts {
-        Some(p) => (Some(p.recorder), Some(p.speaker), p.wav_sink, Some(p.stt_dir)),
+    let (recorder, speaker, wav_sink, stt_setting) = match parts {
+        Some(p) => (Some(p.recorder), Some(p.speaker), p.wav_sink, Some(p.stt_setting)),
         None => (None, None, None, None),
     };
 
@@ -509,7 +517,7 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
         println!("voice: the assistant is ready for Chat (hold-to-talk is off)");
     }
 
-    if let (Some(probe), Some(sink), Some(stt_dir)) = (probe, wav_sink, stt_dir) {
+    if let (Some(probe), Some(sink), Some(stt_setting)) = (probe, wav_sink, stt_setting) {
         let test = TestRun {
             app: app.clone(),
             voice: voice.clone(),
@@ -518,7 +526,7 @@ fn setup(app: &AppHandle, voice: &Arc<VoiceApp>, state: Arc<ServerState>, link: 
             handle,
             tap_ok,
             sink,
-            stt_dir,
+            stt_setting,
             timeout: opts.test_timeout,
             esc: opts.test_esc,
         };
@@ -649,7 +657,7 @@ struct TestRun {
     handle: VoiceHandle,
     tap_ok: bool,
     sink: Arc<WavSink>,
-    stt_dir: PathBuf,
+    stt_setting: String,
     timeout: Duration,
     esc: bool,
 }
@@ -874,7 +882,9 @@ impl TestRun {
         }
         let files: Vec<PathBuf> = self.sink.written.lock().unwrap().iter().skip(files_before).cloned().collect();
         let mut spoken_ok = !files.is_empty();
-        let mut stt = match load_stt(&self.stt_dir) {
+        let stt_loaded = models::models_dir()
+            .and_then(|root| load_stt_setting(&self.stt_setting, &root, &SystemSecrets::default()));
+        let mut stt = match stt_loaded {
             Ok(s) => Some(s),
             Err(e) => {
                 println!("test-voice: no transcribe-back ({e:#})");
