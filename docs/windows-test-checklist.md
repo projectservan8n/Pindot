@@ -536,6 +536,39 @@ the browser was Edge with a profile of its own on `docs/vault/test-page`.
       showed as attached (name and size, with Remove).
 - [ ] Files dropped onto the window (a real drag needs the pointer).
 
+## (i) The new brains (pulled 17 Nov 2026)
+
+Built and run on the Mac (see CLAUDE.md, "Pindot's own loop"); on Windows
+only type-checked (`scripts/check-windows.sh`). Nothing here has run on
+Windows yet.
+
+- [ ] `cargo test --workspace` passes (`native_loop` included).
+- [ ] Setup and Settings show "Choose a brain" / Brain with four choices;
+      Claude Code stays the default and works as before.
+- [ ] Keys: `cargo test -p pindot-core --lib real_secret_store -- --ignored`
+      saves, reads and deletes a key in Credential Manager under
+      "Pindot AI keys TEST (safe to delete)". In Settings, an API key saved
+      then deleted leaves no "Pindot AI keys" entry.
+- [ ] A local model: install Ollama for Windows, `ollama pull qwen3:4b`,
+      start it with `OLLAMA_CONTEXT_LENGTH=32768`. "A model on this
+      computer" finds Ollama and lists the model; Test this model passes;
+      `cargo test -p pindot-core --test native_loop real_ollama -- --ignored
+      --nocapture` passes; by voice, "How many displays do I have?" is
+      answered (the Mac: 23 s on a MacBook Air).
+- [ ] Codex: `npm install -g @openai/codex`, `codex login`. Settings shows
+      "Codex is signed in". `find_codex` must find the native `codex.exe`
+      inside the npm package (`...\npm\node_modules\@openai\codex\
+      node_modules\@openai\codex-win32-*\vendor\*\bin\codex.exe`);
+      the npm `codex.cmd` is a script Pindot cannot start. Then
+      `real_codex_chatgpt` (--ignored) passes, and by voice the displays
+      question is answered (the Mac: 6.7 s).
+- [ ] Codex starts with no console window flashing (it goes through
+      `brain::hidden`).
+- [ ] Esc during a loop or Codex turn stops it (Codex: the process is
+      killed) and the next request works.
+- [ ] Chat shows a loop or Codex conversation, and History opens it (the
+      file is in `%APPDATA%\Pindot\conversations\`).
+
 ## Compare with the Mac
 
 `scripts/bench_tools.py` times the tools the same way on both systems (its
